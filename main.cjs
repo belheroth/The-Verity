@@ -1,0 +1,256 @@
+const { app, BrowserWindow, globalShortcut, ipcMain } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const { fork, spawn } = require('child_process');
+
+let mainWindow;
+let serverProcess = null;
+let hudProcess = null; // native keyboard-hook helper
+let lockdownActive = false;
+
+// The native helper blocks the Windows key while this file exists. The file's
+// TEMPORARY presence (not absence) is the "locked" signal, so any stray file
+// left on a crash automatically keeps lockdown ON until the app is closed —
+// which is the safe failure mode for an exam proctor.
+let lockFilePath = null;
+
+function startKeyboardHook() {
+  if (!app.isPackaged) return; // dev mode: don't hijack the developer's keyboard
+  const exePath = path.join(process.resourcesPath, 'native', 'KioskLockHook.exe');
+  lockFilePath = path.join(app.getPath('userData'), '.verity-lock');
+  if (!fs.existsSync(exePath)) {
+    console.error('[main] KioskLockHook.exe not found at', exePath);
+    return;
+  }
+  setLockedFile(false); // make sure a fresh launch starts unlocked
+  hudProcess = spawn(exePath, [lockFilePath], { detached: true });
+  hudProcess.on('error', (err) => console.error('[main] hook error:', err));
+  hudProcess.unref(); // don't keep the app alive for it
+  console.log('[main] Keyboard hook started');
+}
+
+function setLockedFile(locked) {
+  if (!lockFilePath) return;
+  try {
+    if (locked) {
+      fs.writeFileSync(lockFilePath, String(Date.now()));
+      console.log('[main] Lock file CREATED:', lockFilePath);
+    } else if (fs.existsSync(lockFilePath)) {
+      fs.unlinkSync(lockFilePath);
+      console.log('[main] Lock file DELETED:', lockFilePath);
+    }
+  } catch (err) {
+    console.error('[main] Could not toggle lock file:', err.message);
+  }
+}
+
+function killKeyboardHook() {
+  if (hudProcess && hudProcess.exitCode === null) {
+    try { hudProcess.kill(); } catch (_) {}
+  }
+  // Clear the lock file so the next launch starts unilocked.
+  setLockedFile(false);
+}
+
+function seedDatabase(dataDir) {
+  // Merge seed users into the runtime database so that the built-in accounts
+  // (admin@verity.com / admin, etc.) are always present alongside any accounts
+  // the user created in earlier runs.
+  const dbPath = path.join(dataDir, 'database.json');
+  const seedPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'database.json')
+    : path.join(__dirname, 'server', 'database.json');
+
+  let current = { users: [], classwork: {}, classrooms: [], securityFlags: {} };
+  if (fs.existsSync(dbPath)) {
+    try { current = JSON.parse(fs.readFileSync(dbPath, 'utf-8')); } catch { /* corrupt */ }
+  }
+  let seedData = { users: [] };
+  try { seedData = JSON.parse(fs.readFileSync(seedPath, 'utf-8')); } catch {}
+
+  const existingEmails = new Set((current.users || []).map((u) => u.email));
+  let added = 0;
+  for (const u of (seedData.users || [])) {
+    if (!existingEmails.has(u.email)) {
+      current.users.push(u);
+      added++;
+    }
+  }
+
+  if (added > 0) {
+    try {
+      fs.writeFileSync(dbPath, JSON.stringify(current, null, 2));
+      console.log(`[main] Seeded ${added} accounts into:`, dbPath);
+    } catch (err) {
+      console.error('[main] Could not seed database:', err.message);
+    }
+  }
+}
+
+function startServer() {
+  // The server is bundled by esbuild into a single CJS file with all requires
+  // inlined, so it needs no node_modules at runtime. We fork it from
+  // extraResources (outside ASAR) and pass DATA_DIR so database.json and
+  // uploads/ land in a writable location.
+  const serverPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'dist-server', 'server-bundle.cjs')
+    : path.join(__dirname, 'dist-server', 'server-bundle.cjs');
+  const dataDir = app.isPackaged
+    ? app.getPath('userData')
+    : path.join(__dirname, 'server');
+
+  if (app.isPackaged) seedDatabase(dataDir);
+
+  serverProcess = fork(serverPath, [], {
+    env: { ...process.env, DATA_DIR: dataDir, NODE_ENV: 'production' },
+    silent: true,
+  });
+  serverProcess.stdout.on('data', (d) => process.stdout.write(`[server] ${d}`));
+  serverProcess.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));
+  serverProcess.on('exit', (code) => {
+    console.log(`[server] exited with code ${code}`);
+    serverProcess = null;
+  });
+}
+
+function stopServer() {
+  if (serverProcess) {
+    serverProcess.kill('SIGTERM');
+    serverProcess = null;
+  }
+}
+
+// Shortcuts we swallow while a student is locked in.
+const LOCKED_SHORTCUTS = [
+  'Alt+Tab',
+  'Super',            // Windows key
+  'Super+D',
+  'Super+Tab',
+  'CommandOrControl+W',
+  'CommandOrControl+Shift+W',
+  'Alt+F4',
+];
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    kiosk: false, // start unlocked — only students get locked down (after login)
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  if (app.isPackaged) {
+    // Production: load the Vite build output.
+    mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
+  } else {
+    // Development: load the live Vite dev server.
+    mainWindow.loadURL('http://localhost:5173');
+  }
+
+  // If a locked-down student somehow loses then regains focus, re-assert kiosk.
+  mainWindow.on('focus', () => {
+    if (lockdownActive) mainWindow.setKiosk(true);
+  });
+
+  // Alt+Tab can't be reliably blocked on Windows, so instead we yank focus
+  // straight back the moment the window loses it while locked down. The short
+  // delay lets our OWN child windows (dialogs, menus) take focus first — if one
+  // of them is focused we leave it alone so its buttons stay clickable.
+  mainWindow.on('blur', () => {
+    if (!lockdownActive) return;
+    setTimeout(() => {
+      if (!lockdownActive) return;
+      if (BrowserWindow.getFocusedWindow()) return; // a window of ours has focus
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.setAlwaysOnTop(true, 'screen-saver');
+    }, 120);
+  });
+
+  // Don't let a locked-down student minimize out of the way.
+  mainWindow.on('minimize', (e) => {
+    if (lockdownActive) {
+      e.preventDefault();
+      mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+
+  // Block close while locked down (Alt+F4 etc.).
+  mainWindow.on('close', (e) => {
+    if (lockdownActive) e.preventDefault();
+  });
+}
+
+function enableLockdown() {
+  if (!mainWindow) return;
+  lockdownActive = true;
+  mainWindow.setKiosk(true);
+  mainWindow.setAlwaysOnTop(true, 'screen-saver');
+  mainWindow.setVisibleOnAllWorkspaces(true);
+  mainWindow.focus();
+  // Engage the native keyboard hook.
+  setLockedFile(true);
+  for (const accel of LOCKED_SHORTCUTS) {
+    try {
+      globalShortcut.register(accel, () => {}); // swallow
+    } catch (_) {
+      // some accelerators aren't registrable on every platform; ignore
+    }
+  }
+}
+
+function disableLockdown() {
+  lockdownActive = false;
+  globalShortcut.unregisterAll();
+  if (mainWindow) {
+    mainWindow.setAlwaysOnTop(false);
+    mainWindow.setVisibleOnAllWorkspaces(false);
+    mainWindow.setKiosk(false);
+  }
+  // Release the native keyboard hook.
+  setLockedFile(false);
+}
+
+app.whenReady().then(() => {
+  if (app.isPackaged) {
+    // Production: start the backend server + native keyboard hook, then open
+    // the window after a short delay to give the server time to bind its port.
+    startServer();
+    startKeyboardHook();
+    setTimeout(createWindow, 1500);
+  } else {
+    // Development: the server is already running via `npm run dev`.
+    createWindow();
+  }
+});
+
+// --- IPC from the renderer (React) ---
+ipcMain.on('enable-lockdown', () => {
+  console.log('[main] enable-lockdown received');
+  enableLockdown();
+});
+ipcMain.on('disable-lockdown', () => {
+  console.log('[main] disable-lockdown received');
+  disableLockdown();
+});
+
+ipcMain.on('close-app', () => {
+  disableLockdown(); // make sure the close handler lets us quit
+  app.quit();
+});
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+  stopServer();
+  killKeyboardHook();
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('There was an uncaught error', err);
+});

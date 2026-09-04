@@ -1,0 +1,293 @@
+/* src/index.css */
+:root {
+  max-width: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+html, body, #root {
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  overflow-x: hidden !important;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* ========================================
+   RESPONSIVE GRID UTILITIES
+   ======================================== */
+
+/* Classroom card grid - responsive from mobile to large desktop */
+.grid-classrooms {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+/* Mobile: 1 column */
+@media (max-width: 480px) {
+  .grid-classrooms {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+}
+
+/* Small tablet: 2 columns */
+@media (min-width: 481px) and (max-width: 768px) {
+  .grid-classrooms {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.25rem;
+  }
+}
+
+/* Tablet: 2-3 columns */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .grid-classrooms {
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1.5rem;
+  }
+}
+
+/* Desktop: 3+ columns */
+@media (min-width: 1025px) and (max-width: 1440px) {
+  .grid-classrooms {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 1.75rem;
+  }
+}
+
+/* Large desktop: 4+ columns */
+@media (min-width: 1441px) {
+  .grid-classrooms {
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 2rem;
+  }
+}
+
+/* Admin stats grid - responsive stat cards */
+.grid-stats {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: 1fr;
+}
+
+/* Mobile: 1 column (default) */
+/* Small tablet: 2 columns */
+@media (min-width: 481px) and (max-width: 768px) {
+  .grid-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Tablet: 2-3 columns */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .grid-stats {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Desktop: 4 columns */
+@media (min-width: 1025px) {
+  .grid-stats {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* Generic responsive grid for any card-like content */
+.grid-responsive {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
+
+@media (max-width: 480px) {
+  .grid-responsive {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+}
+
+@media (min-width: 481px) and (max-width: 768px) {
+  .grid-responsive {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.25rem;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .grid-responsive {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1.5rem;
+  }
+}
+
+@media (min-width: 1025px) and (max-width: 1440px) {
+  .grid-responsive {
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 1.75rem;
+  }
+}
+
+@media (min-width: 1441px) {
+  .grid-responsive {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 2rem;
+  }
+}
+
+/* Utility: responsive padding for main content areas */
+.content-padding {
+  padding: 1.5rem;
+}
+
+@media (min-width: 769px) {
+  .content-padding {
+    padding: 2rem 3rem;
+  }
+}
+
+@media (min-width: 1025px) {
+  .content-padding {
+    padding: 2.5rem 4rem;
+  }
+}
+
+/* Utility: responsive sidebar width */
+.sidebar-responsive {
+  width: 100%;
+  max-width: 280px;
+  min-width: 220px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .sidebar-responsive {
+    display: none; /* Hide sidebar on mobile, would need hamburger menu */
+  }
+}
+
+/* Utility: responsive container */
+.container-responsive {
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+@media (min-width: 769px) {
+  .container-responsive {
+    padding: 0 2rem;
+  }
+}
+
+@media (min-width: 1441px) {
+  .container-responsive {
+    padding: 0 4rem;
+  }
+}
+
+/* ========================================
+   ANIMATIONS
+   ======================================== */
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s ease both;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-slide-down {
+  animation: slideDown 0.2s ease both;
+}
+
+/* Stagger delays for entrance animations */
+.delay-1 { animation-delay: 0.06s; }
+.delay-2 { animation-delay: 0.12s; }
+.delay-3 { animation-delay: 0.18s; }
+.delay-4 { animation-delay: 0.24s; }
+.delay-5 { animation-delay: 0.30s; }
+.delay-6 { animation-delay: 0.36s; }
+
+/* Card hover lift */
+.card-hover {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease;
+}
+.card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.10);
+}
+
+/* Nav item hover */
+.nav-item-anim {
+  transition: color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+}
+.nav-item-anim:hover {
+  color: #10b981;
+  background-color: rgba(16, 185, 129, 0.08);
+  transform: translateX(2px);
+}
+
+/* Button press/hover feedback */
+.btn-anim {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+.btn-anim:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+.btn-anim:active {
+  transform: translateY(0) scale(0.97);
+}
+
+/* Modal overlay fade */
+.modal-overlay-anim {
+  animation: fadeIn 0.2s ease both;
+}
+
+/* Sidebar collapse transition */
+.sidebar-anim {
+  transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              min-width 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+              padding 0.3s ease;
+}
+
+/* Icon button hover */
+.icon-btn-anim {
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+.icon-btn-anim:hover {
+  background-color: rgba(16, 185, 129, 0.10);
+  color: #10b981;
+  transform: translateY(-1px);
+}
