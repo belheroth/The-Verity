@@ -19,4 +19,24 @@ export default defineConfig({
       ],
     },
   },
+  build: {
+    // Enable minification (enabled by default in production)
+    minify: 'esbuild',
+    // Enable CSS minification
+    cssMinify: true,
+    // Asset size limit warning
+    assetsInlineLimit: 4096,
+    // Rollup options for better tree shaking
+    rollupOptions: {
+      // Manual chunk splitting for better caching
+      output: {
+        manualChunks: undefined // Let Vite handle chunking automatically
+      }
+    }
+  },
+  define: {
+    // Define environment variables for Vite
+    'import.meta.env.VITE_API_URL': JSON.stringify(process.env.VITE_API_URL || 'http://localhost:3001'),
+    'import.meta.env.VITE_SOCKET_URL': JSON.stringify(process.env.VITE_SOCKET_URL || 'http://localhost:3001')
+  }
 })

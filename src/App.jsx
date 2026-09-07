@@ -12,12 +12,14 @@ import TeacherClasswork from './pages/TeacherClasswork';
 import TeacherGrading from './pages/TeacherGrading';
 import TeacherView from './pages/TeacherView';
 import AdminDashboard from './pages/AdminDashboard';
+import ProtectedRoute from './components/ProtectedRoute';
+import NotFound from './pages/NotFound';
 
 // Connect to Backend
-const socket = io('http://localhost:3001');
+const socket = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001');
 
 export default function App() {
-  
+
   // 1. INITIALIZE STATE FROM LOCAL STORAGE
   // Instead of starting at 'login', it checks if a screen was saved previously.
   const [currentScreen, setCurrentScreen] = useState(() => {
@@ -25,20 +27,35 @@ export default function App() {
   });
 
   const [currentUser, setCurrentUser] = useState(() => {
-    const savedUser = localStorage.getItem('currentUser');
-    return savedUser ? JSON.parse(savedUser) : null;
-  });
+      try {
+        const savedUser = localStorage.getItem('currentUser');
+        return savedUser ? JSON.parse(savedUser) : null;
+      } catch (e) {
+        console.warn('Failed to parse currentUser from localStorage', e);
+        return null;
+      }
+    });
 
-  const [activeClassroom, setActiveClassroom] = useState(() => {
-    const savedClass = localStorage.getItem('activeClassroom');
-    return savedClass ? JSON.parse(savedClass) : null;
-  });
+    const [activeClassroom, setActiveClassroom] = useState(() => {
+      try {
+        const savedClass = localStorage.getItem('activeClassroom');
+        return savedClass ? JSON.parse(savedClass) : null;
+      } catch (e) {
+        console.warn('Failed to parse activeClassroom from localStorage', e);
+        return null;
+      }
+    });
 
-  // The assignment the teacher is currently monitoring (carries its instruction).
-  const [activeAssignment, setActiveAssignment] = useState(() => {
-    const saved = localStorage.getItem('activeAssignment');
-    return saved ? JSON.parse(saved) : null;
-  });
+    // The assignment the teacher is currently monitoring (carries its instruction).
+    const [activeAssignment, setActiveAssignment] = useState(() => {
+      try {
+        const saved = localStorage.getItem('activeAssignment');
+        return saved ? JSON.parse(saved) : null;
+      } catch (e) {
+        console.warn('Failed to parse activeAssignment from localStorage', e);
+        return null;
+      }
+    });
 
   // 2. AUTO-SAVE TO LOCAL STORAGE WHENEVER STATE CHANGES
   useEffect(() => {
@@ -96,137 +113,167 @@ export default function App() {
     localStorage.removeItem('activeAssignment');
   };
 
-  // ==========================
-  //      ROUTING LOGIC
-  // ==========================
+// ==========================
+//      ROUTING LOGIC
+// ==========================
 
-  // --- AUTH ROUTES ---
-  if (currentScreen === 'login') {
-    return (
-      <Login 
-        onLogin={(user) => {
-          setCurrentUser(user);
-          if (user.role === 'Admin') {
-            setCurrentScreen('admin_dashboard');
-          } else if (user.role === 'Teacher') {
-            setCurrentScreen('teacher_dashboard');
-          } else {
-            lockDown(); // students only
-            setCurrentScreen('student_dashboard');
-          }
-        }}
-        onGoToRegister={() => setCurrentScreen('register')} 
-      />
-    );
-  }
+  return (
+    <>
+      {/* --- AUTH ROUTES --- */}
+      {currentScreen === 'login' && (
+        <Login
+          onLogin={(user) => {
+            setCurrentUser(user);
+            if (user.role === 'Admin') {
+              setCurrentScreen('admin_dashboard');
+            } else if (user.role === 'Teacher') {
+              setCurrentScreen('teacher_dashboard');
+            } else {
+              lockDown(); // students only
+              setCurrentScreen('student_dashboard');
+            }
+          }}
+          onGoToRegister={() => setCurrentScreen('register')}
+        />
+      )}
 
-  if (currentScreen === 'register') {
-    return <Register onBackToLogin={() => setCurrentScreen('login')} />;
-  }
+      {currentScreen === 'register' && (
+        <Register onBackToLogin={() => setCurrentScreen('login')} />
+      )}
 
-  // --- STUDENT ROUTES ---
-  if (currentScreen === 'student_dashboard') {
-    return (
-      <StudentDashboard 
-        onLogout={handleLogout} 
-        onEnterClassroom={(classroom) => {
-          setActiveClassroom(classroom);
-          setCurrentScreen('classroom_view');
-        }} 
-      />
-    );
-  }
+      {/* --- STUDENT ROUTES (Protected) --- */}
+      {currentScreen === 'student_dashboard' && (
+        <ProtectedRoute currentUser={currentUser} setCurrentScreen={setCurrentScreen}>
+          <StudentDashboard
+            onLogout={handleLogout}
+            onEnterClassroom={(classroom) => {
+              setActiveClassroom(classroom);
+              setCurrentScreen('classroom_view');
+            }}
+          />
+        </ProtectedRoute>
+      )}
 
-  if (currentScreen === 'classroom_view') {
-    return (
-      <ClassroomView
-        socket={socket}
-        classroom={activeClassroom}
-        onBack={() => setCurrentScreen('student_dashboard')}
-        onEnterClassroom={(classroom) => setActiveClassroom(classroom)}
-        onOpenAssignment={(task) => {
-          setActiveAssignment(task);
-          setCurrentScreen('student_workspace');
-        }}
-      />
-    );
-  }
+      {currentScreen === 'classroom_view' && (
+        <ProtectedRoute currentUser={currentUser} setCurrentScreen={setCurrentScreen}>
+          <ClassroomView
+            onEnterClassroom={(classroom) => {
+              setActiveClassroom(classroom);
+              setCurrentScreen('classroom_view');
+            }}
+            socket={socket}
+            classroom={activeClassroom}
+            onBack={() => setCurrentScreen('student_dashboard')}
+            onOpenAssignment={(task) => {
+              setActiveAssignment(task);
+              setCurrentScreen('student_workspace');
+            }}
+          />
+        </ProtectedRoute>
+      )}
 
-  if (currentScreen === 'student_workspace') {
-    return (
-      <StudentView
-        socket={socket}
-        username={currentUser?.name}
-        assignment={activeAssignment}
-        classroom={activeClassroom}
-        onBack={() => setCurrentScreen('classroom_view')}
-      />
-    );
-  }
+      {currentScreen === 'student_workspace' && (
+        <ProtectedRoute currentUser={currentUser} setCurrentScreen={setCurrentScreen}>
+          <StudentView
+            socket={socket}
+            username={currentUser?.name}
+            assignment={activeAssignment}
+            classroom={activeClassroom}
+            onBack={() => setCurrentScreen('classroom_view')}
+          />
+        </ProtectedRoute>
+      )}
 
-  // --- ADMIN ROUTES ---
-  if (currentScreen === 'admin_dashboard') {
-    return <AdminDashboard onLogout={handleLogout} />;
-  }
+      {/* --- ADMIN ROUTES (Protected) --- */}
+      {currentScreen === 'admin_dashboard' && (
+        <ProtectedRoute currentUser={currentUser} setCurrentScreen={setCurrentScreen}>
+          <AdminDashboard onLogout={handleLogout} />
+        </ProtectedRoute>
+      )}
 
-  // --- TEACHER ROUTES ---
-  if (currentScreen === 'teacher_dashboard') {
-    return (
-      <TeacherDashboard
-        onLogout={handleLogout}
-        onEnterClassroom={(classroom) => {
-          setActiveClassroom(classroom);
-          setCurrentScreen('teacher_classwork');
-        }}
-      />
-    );
-  }
+      {/* --- TEACHER ROUTES (Protected) --- */}
+      {currentScreen === 'teacher_dashboard' && (
+        <ProtectedRoute currentUser={currentUser} setCurrentScreen={setCurrentScreen}>
+          <TeacherDashboard
+            onLogout={handleLogout}
+            onEnterClassroom={(classroom) => {
+              setActiveClassroom(classroom);
+              setCurrentScreen('teacher_classwork');
+            }}
+          />
+        </ProtectedRoute>
+      )}
 
-  if (currentScreen === 'teacher_classwork') {
-    return (
-      <TeacherClasswork
-        socket={socket}
-        classroom={activeClassroom}
-        onLogout={handleLogout}
-        onBack={() => setCurrentScreen('teacher_dashboard')}
-        onStartMonitoring={(assignment) => {
-          setActiveAssignment(assignment);
-          setCurrentScreen('teacher_proctoring');
-        }}
-        onOpenGrading={(assignment) => {
-          setActiveAssignment(assignment);
-          setCurrentScreen('teacher_grading');
-        }}
-      />
-    );
-  }
+      {currentScreen === 'teacher_classwork' && (
+        <ProtectedRoute currentUser={currentUser} setCurrentScreen={setCurrentScreen}>
+          <TeacherClasswork
+            onEnterClassroom={(classroom) => {
+              setActiveClassroom(classroom);
+            }}
+            socket={socket}
+            classroom={activeClassroom}
+            onLogout={handleLogout}
+            onBack={() => setCurrentScreen('teacher_dashboard')}
+            onStartMonitoring={(assignment) => {
+              setActiveAssignment(assignment);
+              setCurrentScreen('teacher_proctoring');
+            }}
+            onOpenGrading={(assignment) => {
+              setActiveAssignment(assignment);
+              setCurrentScreen('teacher_grading');
+            }}
+          />
+        </ProtectedRoute>
+      )}
 
-  if (currentScreen === 'teacher_grading') {
-    return (
-      <TeacherGrading
-        classroom={activeClassroom}
-        assignment={activeAssignment}
-        onLogout={handleLogout}
-        onBack={() => setCurrentScreen('teacher_classwork')}
-        onStartMonitoring={(assignment) => {
-          setActiveAssignment(assignment);
-          setCurrentScreen('teacher_proctoring');
-        }}
-      />
-    );
-  }
+      {currentScreen === 'teacher_grading' && (
+        <ProtectedRoute currentUser={currentUser} setCurrentScreen={setCurrentScreen}>
+          <TeacherGrading
+            classroom={activeClassroom}
+            assignment={activeAssignment}
+            onLogout={handleLogout}
+            onBack={() => setCurrentScreen('teacher_classwork')}
+            onStartMonitoring={(assignment) => {
+              setActiveAssignment(assignment);
+              setCurrentScreen('teacher_proctoring');
+            }}
+          />
+        </ProtectedRoute>
+      )}
 
-  if (currentScreen === 'teacher_proctoring') {
-    return (
-      <TeacherView
-        socket={socket}
-        assignment={activeAssignment}
-        classroom={activeClassroom}
-        onLogout={() => setCurrentScreen('teacher_classwork')}
-      />
-    );
-  }
+      {currentScreen === 'teacher_proctoring' && (
+        <ProtectedRoute currentUser={currentUser} setCurrentScreen={setCurrentScreen}>
+          <TeacherView
+            socket={socket}
+            assignment={activeAssignment}
+            classroom={activeClassroom}
+            onLogout={() => setCurrentScreen('teacher_classwork')}
+          />
+        </ProtectedRoute>
+      )}
 
-  // Fallback
-  return <div>Unknown Screen</div>;
+      {/* Fallback for unknown screens */}
+      {currentUser && !['student_dashboard', 'classroom_view', 'student_workspace', 'admin_dashboard', 'teacher_dashboard', 'teacher_classwork', 'teacher_grading', 'teacher_proctoring'].includes(currentScreen) && (
+        <NotFound />
+      )}
+
+      {/* Final fallback - if nothing matches, show login screen to prevent white screen */}
+      {!currentUser && !['login', 'register'].includes(currentScreen) && (
+        <Login
+          onLogin={(user) => {
+            setCurrentUser(user);
+            if (user.role === 'Admin') {
+              setCurrentScreen('admin_dashboard');
+            } else if (user.role === 'Teacher') {
+              setCurrentScreen('teacher_dashboard');
+            } else {
+              lockDown(); // students only
+              setCurrentScreen('student_dashboard');
+            }
+          }}
+          onGoToRegister={() => setCurrentScreen('register')}
+        />
+      )}
+    </>
+  );
 }

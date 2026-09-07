@@ -77,7 +77,7 @@ export default function StudentCalendar({ classrooms }) {
     : classrooms.find(c => c.id.toString() === filterClass)?.name || 'All classes';
 
   return (
-    <div className="animate-fade-in-up" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div  style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', position: 'relative' }}>
         <div style={{ position: 'relative' }}>
           <div 

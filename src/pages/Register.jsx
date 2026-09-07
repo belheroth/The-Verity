@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { GoogleLogin } from '@react-oauth/google';
 
 export default function Register({ onBackToLogin }) {
   const [formData, setFormData] = useState({
@@ -10,6 +11,30 @@ export default function Register({ onBackToLogin }) {
     role: 'Student'
   });
   const [message, setMessage] = useState(null); // { type: 'error' | 'success', text }
+
+  
+const handleGoogleSuccess = async (credentialResponse) => {
+     try {
+         const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/google`, {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({ token: credentialResponse.credential, role: formData.role })
+         });
+         const data = await response.json();
+         if (response.ok) {
+             setMessage({ type: 'success', text: 'Google Registration successful! Redirecting...' });
+             setTimeout(() => onBackToLogin(), 1200);
+         } else {
+             setMessage({ type: 'error', text: data.message || 'Google registration failed on server' });
+         }
+     } catch (_) {
+         setMessage({ type: 'error', text: 'Could not connect to server.' });
+     }
+ };
+
+  const handleGoogleError = () => {
+    setMessage({ type: 'error', text: 'Google Registration failed' });
+  };
 
   const handleRegister = async (e) => {
     e.preventDefault();
@@ -27,12 +52,12 @@ export default function Register({ onBackToLogin }) {
       role: formData.role
     };
 
-    try {
-        const response = await fetch('http://localhost:3001/register', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(userToSave)
-        });
+try {
+         const response = await fetch(`${import.meta.env.VITE_API_URL}/register`, {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify(userToSave)
+         });
 
         const data = await response.json();
 
@@ -53,7 +78,7 @@ export default function Register({ onBackToLogin }) {
       {/* Top Left Logo */}
       <div style={styles.logoContainer}>
         <span style={styles.logoV}>V</span>
-        <span style={styles.logoText}>erity</span>
+            <span style={styles.logoText}>erity</span>
       </div>
 
       {/* Main Registration Card */}
@@ -134,6 +159,21 @@ export default function Register({ onBackToLogin }) {
 
           {/* Submit Button */}
           <button type="submit" style={styles.button}>Register</button>
+          <div style={{ display: 'flex', alignItems: 'center', margin: '10px 0' }}>
+            <div style={{ flex: 1, height: '1px', backgroundColor: '#e5e7eb' }}></div>
+            <span style={{ padding: '0 10px', color: '#9ca3af', fontSize: '0.9rem' }}>OR</span>
+            <div style={{ flex: 1, height: '1px', backgroundColor: '#e5e7eb' }}></div>
+          </div>
+          
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <GoogleLogin
+              onSuccess={handleGoogleSuccess}
+              onError={handleGoogleError}
+              text="signup_with"
+              useOneTap
+            />
+          </div>
+
           
           {/* Back to login link */}
           <p style={styles.loginText}>

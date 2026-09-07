@@ -38,6 +38,51 @@ export default function TeacherClasswork({ classroom, onBack, onLogout, onStartM
     setCollapsed(next);
     localStorage.setItem('verity_sidebar_collapsed', next);
   };
+  const navRef_classrooms = useRef(null);
+  const navRef_calendar = useRef(null);
+  const navRef_archived = useRef(null);
+  const [indicatorStyle, setIndicatorStyle] = useState({ top: Number(sessionStorage.getItem('verity_nav_top')) || 0, height: 40, opacity: 0 });
+  const [enrolledIndicator, setEnrolledIndicator] = useState({ top: Number(sessionStorage.getItem('verity_nav_top')) || 0, height: 40, opacity: 0 });
+  const enrolledRefs = useRef({});
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+        let activeRef = null;
+        if (activeRef && activeRef.current) {
+              const el = activeRef.current;
+              setIndicatorStyle(prev => {
+                  if (prev.top === el.offsetTop && prev.height === el.offsetHeight && prev.opacity === 1) return prev;
+                  sessionStorage.setItem('verity_nav_top', el.offsetTop); return { top: el.offsetTop, height: el.offsetHeight, opacity: 1 };
+              });
+          } else {
+              setIndicatorStyle(prev => {
+                  if (prev.opacity === 0) return prev;
+                  return { ...prev, opacity: 0 };
+              });
+          }
+        
+        let activeBotRef = null;
+        if (typeof classroom !== 'undefined' && classroom) {
+            activeBotRef = enrolledRefs.current['cls_' + classroom.id];
+        }
+        
+        if (activeBotRef) {
+            const el = activeBotRef;
+            setEnrolledIndicator(prev => {
+                if (prev.top === el.offsetTop && prev.height === el.offsetHeight && prev.opacity === 1) return prev;
+                sessionStorage.setItem('verity_nav_top', el.offsetTop); return { top: el.offsetTop, height: el.offsetHeight, opacity: 1 };
+            });
+        } else {
+            setEnrolledIndicator(prev => {
+                if (prev.opacity === 0) return prev;
+                return { ...prev, opacity: 0 };
+            });
+        }
+    }, 10);
+    return () => clearTimeout(timer);
+  });
+
+
 
   // Persist classwork per classroom so it survives a refresh.
   const storageKey = `verity_classwork_${classroom?.id ?? 'default'}`;
@@ -56,22 +101,22 @@ export default function TeacherClasswork({ classroom, onBack, onLogout, onStartM
   // the initial fetched/default list straight back to the server.
   const hydrated = useRef(false);
 
-  // Load the authoritative classwork list from the backend on mount so it
-  // syncs across machines (not just this browser's localStorage).
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`http://localhost:3001/classwork/${classroomId}`)
-      .then(res => res.json())
-      .then(data => {
-        if (cancelled) return;
-        if (Array.isArray(data.classwork) && data.classwork.length > 0) {
-          setClasswork(data.classwork);
-        }
-      })
-      .catch(() => { /* offline — fall back to localStorage copy */ })
-      .finally(() => { hydrated.current = true; });
-    return () => { cancelled = true; };
-  }, [classroomId]);
+// Load the authoritative classwork list from the backend on mount so it
+    // syncs across machines (not just this browser's localStorage).
+    useEffect(() => {
+      let cancelled = false;
+      fetch(`${import.meta.env.VITE_API_URL}/classwork/${classroomId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (cancelled) return;
+          if (Array.isArray(data.classwork) && data.classwork.length > 0) {
+            setClasswork(data.classwork);
+          }
+        })
+        .catch(() => { /* offline — fall back to localStorage copy */ })
+        .finally(() => { hydrated.current = true; });
+      return () => { cancelled = true; };
+    }, [classroomId]);
 
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(classwork));
@@ -88,22 +133,23 @@ export default function TeacherClasswork({ classroom, onBack, onLogout, onStartM
 
   const toggleExpand = (id) => setExpandedId(prev => (prev === id ? null : id));
 
-  // Load submission counts on mount and refresh periodically so "Turned in"
-  // updates as students submit.
-  useEffect(() => {
-    const load = () => {
-      fetch('http://localhost:3001/submission-counts')
-        .then(res => res.json())
-        .then(data => setSubmissionData({ counts: data.counts || {}, studentCount: data.studentCount || 0 }))
-        .catch(() => { /* offline — leave previous numbers */ });
-    };
-    load();
-    const interval = setInterval(load, 10000);
-    return () => clearInterval(interval);
-  }, []);
+// Load submission counts on mount and refresh periodically so "Turned in"
+// updates as students submit.
+    useEffect(() => {
+      const load = () => {
+        fetch(`${import.meta.env.VITE_API_URL}/submission-counts`)
+          .then(res => res.json())
+          .then(data => setSubmissionData({ counts: data.counts || {}, studentCount: data.studentCount || 0 }))
+          .catch(() => { /* offline — leave previous numbers */ });
+      };
+      load();
+      const interval = setInterval(load, 10000);
+      return () => clearInterval(interval);
+    }, []);
 
   // Modal state — also reused for "Modify" (edit) by tracking editingId.
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [uploading, setUploading] = useState(false);
@@ -113,24 +159,24 @@ export default function TeacherClasswork({ classroom, onBack, onLogout, onStartM
   // Read a file as a base64 data URL, send it to the backend, and return the
   // stored attachment ({ type, name, url }). Falls back to an inline data URL
   // if the server can't be reached so the preview still works offline.
-  const uploadFile = (file, type) => new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = reader.result;
-      try {
-        const res = await fetch('http://localhost:3001/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filename: file.name, dataUrl })
-        });
-        const data = await res.json();
-        resolve({ type, name: file.name, url: data.url });
-      } catch {
-        resolve({ type, name: file.name, url: dataUrl });
-      }
-    };
-    reader.readAsDataURL(file);
-  });
+const uploadFile = (file, type) => new Promise((resolve) => {
+     const reader = new FileReader();
+     reader.onload = async () => {
+       const dataUrl = reader.result;
+       try {
+         const res = await fetch(`${import.meta.env.VITE_API_URL}/upload`, {
+           method: 'POST',
+           headers: { 'Content-Type': 'application/json' },
+           body: JSON.stringify({ filename: file.name, dataUrl })
+         });
+         const data = await res.json();
+         resolve({ type, name: file.name, url: data.url });
+       } catch {
+         resolve({ type, name: file.name, url: dataUrl });
+       }
+     };
+     reader.readAsDataURL(file);
+   });
 
   const handleFilePicked = async (e, type) => {
     const file = e.target.files?.[0];
@@ -157,6 +203,13 @@ export default function TeacherClasswork({ classroom, onBack, onLogout, onStartM
   const toggleMenu = (e, id) => {
     e.stopPropagation();
     setActiveMenu(activeMenu === id ? null : id);
+  };
+  const handleDeleteClasswork = (e, id) => {
+    e.stopPropagation();
+    if (window.confirm("Are you sure you want to delete this classwork?")) {
+      setClasswork(classwork.filter(c => c.id !== id));
+    }
+    setActiveMenu(null);
   };
 
   const openCreate = () => {
@@ -217,12 +270,6 @@ export default function TeacherClasswork({ classroom, onBack, onLogout, onStartM
     setActiveMenu(null);
   };
 
-  const handleDelete = (e, id) => {
-    e.stopPropagation();
-    setClasswork(classwork.filter(item => item.id !== id));
-    setActiveMenu(null);
-  };
-
   const visibleClasswork = classwork.filter(item => !item.archived);
 
   return (
@@ -230,29 +277,75 @@ export default function TeacherClasswork({ classroom, onBack, onLogout, onStartM
 
       {/* LEFT SIDEBAR */}
       <div style={{ ...styles.sidebar, width: collapsed ? '110px' : '250px', padding: '30px' }}>
-        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '15px', whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '15px', whiteSpace: 'nowrap', width: 'max-content', transform: collapsed ? 'translateX(13px)' : 'none', transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
           <Menu size={24} color="#10b981" style={{ cursor: 'pointer', flexShrink: 0 }} onClick={toggleSidebar} />
           <div style={styles.logoContainer}>
           <span style={styles.logoV}>V</span>
-          <span style={styles.logoText}>erity</span>
-          <span style={styles.badge}>Instructor</span>
+            <span style={styles.logoText}>erity</span>
+          {!collapsed && <span style={styles.badge}>Instructor</span>}
         </div>
         </div>
 
+        
+
+        
+          
+
+                {/* Liquid sliding indicator */}
+        <div style={{
+          position: 'absolute',
+          left: '30px',
+          right: '30px',
+          top: indicatorStyle.top,
+          height: indicatorStyle.height,
+          background: 'rgba(255,255,255,0.25)',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+          borderRadius: '14px',
+          boxShadow: '0 4px 16px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
+          border: '1px solid rgba(255,255,255,0.35)',
+          transition: 'top 0.6s cubic-bezier(0.5, 1.6, 0.2, 1), height 0.3s ease, opacity 0.2s ease',
+          opacity: indicatorStyle.opacity,
+          pointerEvents: 'none',
+          zIndex: 0,
+        }} />
+        {/* Liquid sliding indicator for classrooms */}
+        <div style={{
+          position: 'absolute',
+          left: '30px',
+          right: '30px',
+          top: enrolledIndicator.top,
+          height: enrolledIndicator.height,
+          background: 'rgba(255,255,255,0.25)',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+          borderRadius: '14px',
+          boxShadow: '0 4px 16px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
+          border: '1px solid rgba(255,255,255,0.35)',
+          transition: 'top 0.6s cubic-bezier(0.5, 1.6, 0.2, 1), height 0.3s ease, opacity 0.2s ease',
+          opacity: enrolledIndicator.opacity,
+          pointerEvents: 'none',
+          zIndex: 0,
+        }} />
+
         <div style={styles.navGroup}>
-          <div style={{...styles.navItem, ...styles.activeNavItem}} onClick={() => { localStorage.setItem('verity_teacher_view', 'classrooms'); onBack(); }}>
-            <Home size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Classrooms</span>}
+          
+          
+          <div ref={navRef_classrooms} style={{...styles.navItem, position: 'relative', zIndex: 1, padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start'}} onClick={() => { localStorage.setItem('verity_teacher_view', 'classrooms'); onBack(); }}>
+            <Home size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Home</span>}
           </div>
-          <div style={{...styles.navItem}} onClick={() => { localStorage.setItem('verity_teacher_view', 'calendar'); onBack(); }}>
+          <div ref={navRef_calendar} style={{...styles.navItem, position: 'relative', zIndex: 1, padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start'}} onClick={() => { localStorage.setItem('verity_teacher_view', 'calendar'); onBack(); }}>
             <Calendar size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Calendar</span>}
           </div>
-          <div style={{...styles.navItem}}>
-            <Archive size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Archived Classrooms</span>}
+          <div ref={navRef_archived} style={{...styles.navItem, position: 'relative', zIndex: 1, padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start'}} onClick={() => { localStorage.setItem('verity_teacher_view', 'archived'); onBack(); }}>
+            <Archive size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Archived</span>}
           </div>
         </div>
 
         {classrooms.length > 0 && (
           <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            
+
             {!collapsed && (
               <div style={{ 
                 padding: '0 20px', 
@@ -266,20 +359,15 @@ export default function TeacherClasswork({ classroom, onBack, onLogout, onStartM
                 Teaching
               </div>
             )}
-            {classrooms.map((cls) => {
+            {classrooms.filter(c => !c.archived).map((cls) => {
               const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
               const color = colors[cls.id % colors.length];
               
               return (
                 <div 
-                  key={cls.id} 
-                  style={{...styles.navItem, ...(classroom?.id === cls.id ? styles.activeNavItem : {})}}
-                  onClick={() => {
-                     // In TeacherClasswork/Grading, we can use App.js's onEnterClassroom if passed,
-                     // but it's not passed currently. We'll just fall back to dashboard.
-                     localStorage.setItem('verity_teacher_view', 'classrooms');
-                     onBack(); 
-                  }}
+                  key={cls.id} ref={el => enrolledRefs.current['cls_' + cls.id] = el}
+                  style={{...styles.navItem, ...(classroom?.id === cls.id ? styles.activeNavItem : {}), justifyContent: collapsed ? 'center' : 'flex-start'}} 
+                  onClick={() => { if (onEnterClassroom) onEnterClassroom(cls); }}
                   title={cls.name}
                 >
                   <div style={{
@@ -304,15 +392,15 @@ export default function TeacherClasswork({ classroom, onBack, onLogout, onStartM
           </div>
         )}
         
-        <div style={{ flex: 1 }}></div>
+        
 
-        <div style={{...styles.navItem}} >
+        <div style={{...styles.navItem, position: 'relative', zIndex: 1, marginTop: 'auto', padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start'}} onClick={() => { localStorage.setItem('verity_teacher_view', 'settings'); onBack(); }}>
           <Settings size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Settings</span>}
         </div>
       </div>
 
       {/* MAIN CONTENT AREA */}
-      <div className="content-padding" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'linear-gradient(to bottom, #f3f4f6 0%, #cbd5e1 100%)' }}>
+      <div style={styles.mainContent}>
 
         {/* Top Bar */}
         <div style={styles.topBar}>
@@ -354,7 +442,7 @@ export default function TeacherClasswork({ classroom, onBack, onLogout, onStartM
                           <div style={styles.dropdownItem} onClick={(e) => openModify(e, item)}>Modify</div>
                           <div style={styles.dropdownItem} onClick={(e) => handleArchive(e, item.id)}>Archive</div>
                           <div style={styles.dropdownItem} onClick={(e) => handleCopy(e, item)}>Copy</div>
-                          <div style={{ ...styles.dropdownItem, color: '#ef4444' }} onClick={(e) => handleDelete(e, item.id)}>Delete</div>
+                          <div style={{ ...styles.dropdownItem, color: '#ef4444' }} onClick={(e) => { e.stopPropagation(); handleDeleteClasswork(e, item.id); setActiveMenu(null); }}>Delete</div>
                         </div>
                       )}
                     </div>
@@ -566,14 +654,14 @@ export default function TeacherClasswork({ classroom, onBack, onLogout, onStartM
 
 // STYLES (matching the dashboard / classroom look)
 const styles = {
-  container: { height: '100%', display: 'flex', background: 'linear-gradient(to bottom, #f3f4f6 0%, #cbd5e1 100%)', fontFamily: 'sans-serif', position: 'relative' },
-  sidebar: { width: '250px', padding: '30px', display: 'flex', flexDirection: 'column', gap: '40px', zIndex: 10, transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)' },
+  container: { height: '100%', width: '100%', display: 'flex', background: 'linear-gradient(to bottom, #f3f4f6 0%, #cbd5e1 100%)', fontFamily: 'sans-serif', position: 'relative' },
+  sidebar: { width: '250px', padding: '30px', display: 'flex', flexDirection: 'column', gap: '20px', zIndex: 10, height: '100%', boxSizing: 'border-box', overflowX: 'hidden', position: 'relative', transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)' },
   logoContainer: { display: 'flex', alignItems: 'baseline', fontSize: '2.5rem', fontWeight: '900', fontStyle: 'italic', textShadow: '2px 2px 4px rgba(0,0,0,0.1)' },
   logoV: { color: '#10b981' },
-  logoText: { color: 'white' },
-  badge: { fontSize: '0.7rem', backgroundColor: '#4b5563', color: 'white', padding: '3px 8px', borderRadius: '10px', marginLeft: '10px', fontStyle: 'normal', transform: 'translateY(-5px)' },
+  logoText: { color: 'white', textShadow: '0 2px 4px rgba(0,0,0,0.3)' },
+  badge: {  fontSize: '0.7rem', backgroundColor: '#4b5563', color: 'white', padding: '3px 8px', borderRadius: '10px', marginLeft: '6px', fontStyle: 'normal', transform: 'translateY(-5px)' },
   navGroup: { display: 'flex', flexDirection: 'column', gap: '15px' },
-  navItem: { display: 'flex', alignItems: 'center', padding: '12px 20px', color: '#6b7280', fontWeight: '600', cursor: 'pointer', transition: 'color 0.15s', borderRadius: '10px' , whiteSpace: 'nowrap' },
+  navItem: { position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', padding: '12px 20px', color: '#6b7280', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s ease', borderRadius: '14px' , whiteSpace: 'nowrap' },
   activeNavItem: { color: '#10b981', fontWeight: '700' },
   settingsIcon: { color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center' },
   mainContent: { flex: 1, padding: 'clamp(20px, 4vw, 30px) clamp(15px, 5vw, 50px)', display: 'flex', flexDirection: 'column', zIndex: 1 },

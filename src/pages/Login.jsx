@@ -7,57 +7,57 @@ export default function Login({ onLogin, onGoToRegister }) {
   const [error, setError] = useState('');
 
   
-  const handleGoogleSuccess = async (credentialResponse) => {
-    try {
-        const response = await fetch('http://localhost:3001/auth/google', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token: credentialResponse.credential })
-        });
-        const data = await response.json();
-        if (response.ok) {
-            onLogin(data.user);
-        } else {
-            setError(data.message || 'Google login failed on server');
-        }
-    } catch (_) {
-        setError('Could not connect to server.');
-    }
-  };
+const handleGoogleSuccess = async (credentialResponse) => {
+     try {
+         const response = await fetch(`${import.meta.env.VITE_API_URL}/auth/google`, {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({ token: credentialResponse.credential })
+         });
+         const data = await response.json();
+         if (response.ok) {
+             onLogin(data.user);
+         } else {
+             setError(data.message || 'Google login failed on server');
+         }
+     } catch (_) {
+         setError('Could not connect to server.');
+     }
+ };
 
   const handleGoogleError = () => {
     setError('Google Login failed');
   };
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setError('');
+const handleLogin = async (e) => {
+     e.preventDefault();
+     setError('');
 
-    try {
-        const response = await fetch('http://localhost:3001/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password })
-        });
+     try {
+         const response = await fetch(`${import.meta.env.VITE_API_URL}/login`, {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({ email, password })
+         });
 
-        const data = await response.json();
+         const data = await response.json();
 
-        if (response.ok) {
-            onLogin(data.user);
-        } else {
-            setError(data.message || 'Invalid login credentials');
-        }
-    } catch (_) {
-        setError('Could not connect to server. Is server.js running?');
-    }
-  };
+         if (response.ok) {
+             onLogin(data.user);
+         } else {
+             setError(data.message || 'Invalid login credentials');
+         }
+     } catch (_) {
+         setError('Could not connect to server. Is server.js running?');
+     }
+ };
 
   return (
     <div style={styles.container}>
       
       <div style={styles.logoContainer}>
         <span style={styles.logoV}>V</span>
-        <span style={styles.logoText}>erity</span>
+            <span style={styles.logoText}>erity</span>
       </div>
 
       <div style={styles.card}>

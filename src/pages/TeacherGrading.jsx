@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Home, Calendar, ClipboardList, Settings, ArrowLeft, Activity, PlayCircle, Menu, Archive } from 'lucide-react';
 import ProfileMenu from './ProfileMenu';
 
@@ -33,6 +33,56 @@ export default function TeacherGrading({ classroom, assignment, onBack, onLogout
     setCollapsed(next);
     localStorage.setItem('verity_sidebar_collapsed', next);
   };
+  const navRef_classrooms = useRef(null);
+  const navRef_calendar = useRef(null);
+  const navRef_archived = useRef(null);
+  const [indicatorStyle, setIndicatorStyle] = useState({ top: Number(sessionStorage.getItem('verity_nav_top')) || 0, height: 40, opacity: 0 });
+  const [enrolledIndicator, setEnrolledIndicator] = useState({ top: Number(sessionStorage.getItem('verity_nav_top')) || 0, height: 40, opacity: 0 });
+  const enrolledRefs = useRef({});
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+        let activeRef = null;
+        if (activeRef && activeRef.current) {
+              const el = activeRef.current;
+              setIndicatorStyle(prev => {
+                  if (prev.top === el.offsetTop && prev.height === el.offsetHeight && prev.opacity === 1) return prev;
+                  sessionStorage.setItem('verity_nav_top', el.offsetTop); return { top: el.offsetTop, height: el.offsetHeight, opacity: 1 };
+              });
+          } else {
+              setIndicatorStyle(prev => {
+                  if (prev.opacity === 0) return prev;
+                  return { ...prev, opacity: 0 };
+              });
+          }
+        
+        let activeBotRef = null;
+        if (typeof classroom !== 'undefined' && classroom) {
+            activeBotRef = enrolledRefs.current['cls_' + classroom.id];
+        } else if (typeof activeView !== 'undefined' && Number(localStorage.getItem('verity_active_classroom_id'))) {
+            // Optional: If they want it in Dashboards too, we can track it based on localStorage, but Dashboards don't have an "active" classroom in UI.
+            // But we can let it highlight if we want. Let's just track it if it matches.
+            // Wait, we removed the localStorage highlight in Dashboard earlier. Let's just keep it null in Dashboard.
+            activeBotRef = null; 
+        }
+        
+        if (activeBotRef) {
+            const el = activeBotRef;
+            setEnrolledIndicator(prev => {
+                if (prev.top === el.offsetTop && prev.height === el.offsetHeight && prev.opacity === 1) return prev;
+                sessionStorage.setItem('verity_nav_top', el.offsetTop); return { top: el.offsetTop, height: el.offsetHeight, opacity: 1 };
+            });
+        } else {
+            setEnrolledIndicator(prev => {
+                if (prev.opacity === 0) return prev;
+                return { ...prev, opacity: 0 };
+            });
+        }
+    }, 10);
+    return () => clearTimeout(timer);
+  });
+
+
 
   const maxPoints = parseInt(assignment?.points, 10) || 100;
   const gradesKey = `verity_grades_${assignment?.id ?? 'default'}`;
@@ -53,21 +103,21 @@ export default function TeacherGrading({ classroom, assignment, onBack, onLogout
   const [grade, setGrade] = useState(String(maxPoints));
   const [feedback, setFeedback] = useState('');
 
-  // Load the real student roster from the backend; fall back to placeholders.
-  useEffect(() => {
-    let cancelled = false;
-    fetch('http://localhost:3001/users')
-      .then((res) => res.json())
-      .then((data) => {
-        if (cancelled) return;
-        const list = (data.users || [])
-          .filter((u) => (u.role || '').toLowerCase() === 'student')
-          .map((u) => ({ id: u.email || u.name, name: u.name || u.email }));
-        if (list.length > 0) setStudents(list);
-      })
-      .catch(() => { /* offline — keep placeholders */ });
-    return () => { cancelled = true; };
-  }, []);
+// Load the real student roster from the backend; fall back to placeholders.
+   useEffect(() => {
+     let cancelled = false;
+     fetch(`${import.meta.env.VITE_API_URL}/users`)
+       .then((res) => res.json())
+       .then((data) => {
+         if (cancelled) return;
+         const list = (data.users || [])
+           .filter((u) => (u.role || '').toLowerCase() === 'student')
+           .map((u) => ({ id: u.email || u.name, name: u.name || u.email }));
+         if (list.length > 0) setStudents(list);
+       })
+       .catch(() => { /* offline — keep placeholders */ });
+     return () => { cancelled = true; };
+   }, []);
 
   useEffect(() => {
     localStorage.setItem(gradesKey, JSON.stringify(grades));
@@ -120,29 +170,75 @@ export default function TeacherGrading({ classroom, assignment, onBack, onLogout
 
       {/* LEFT SIDEBAR */}
       <div style={{ ...styles.sidebar, width: collapsed ? '110px' : '250px', padding: '30px' }}>
-        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '15px', whiteSpace: 'nowrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '15px', whiteSpace: 'nowrap', width: 'max-content', transform: collapsed ? 'translateX(13px)' : 'none', transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
           <Menu size={24} color="#10b981" style={{ cursor: 'pointer', flexShrink: 0 }} onClick={toggleSidebar} />
           <div style={styles.logoContainer}>
           <span style={styles.logoV}>V</span>
-          <span style={styles.logoText}>erity</span>
-          <span style={styles.badge}>Instructor</span>
+            <span style={styles.logoText}>erity</span>
+          {!collapsed && <span style={styles.badge}>Instructor</span>}
         </div>
         </div>
 
+        
+
+        
+          
+
+                {/* Liquid sliding indicator */}
+        <div style={{
+          position: 'absolute',
+          left: '30px',
+          right: '30px',
+          top: indicatorStyle.top,
+          height: indicatorStyle.height,
+          background: 'rgba(255,255,255,0.25)',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+          borderRadius: '14px',
+          boxShadow: '0 4px 16px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
+          border: '1px solid rgba(255,255,255,0.35)',
+          transition: 'top 0.6s cubic-bezier(0.5, 1.6, 0.2, 1), height 0.3s ease, opacity 0.2s ease',
+          opacity: indicatorStyle.opacity,
+          pointerEvents: 'none',
+          zIndex: 0,
+        }} />
+        {/* Liquid sliding indicator for classrooms */}
+        <div style={{
+          position: 'absolute',
+          left: '30px',
+          right: '30px',
+          top: enrolledIndicator.top,
+          height: enrolledIndicator.height,
+          background: 'rgba(255,255,255,0.25)',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+          borderRadius: '14px',
+          boxShadow: '0 4px 16px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
+          border: '1px solid rgba(255,255,255,0.35)',
+          transition: 'top 0.6s cubic-bezier(0.5, 1.6, 0.2, 1), height 0.3s ease, opacity 0.2s ease',
+          opacity: enrolledIndicator.opacity,
+          pointerEvents: 'none',
+          zIndex: 0,
+        }} />
+
         <div style={styles.navGroup}>
-          <div style={{...styles.navItem, ...styles.activeNavItem}} onClick={() => { localStorage.setItem('verity_teacher_view', 'classrooms'); onBack(); }}>
-            <Home size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Classrooms</span>}
+          
+          
+          <div ref={navRef_classrooms} style={{...styles.navItem, position: 'relative', zIndex: 1, padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start'}} onClick={() => { localStorage.setItem('verity_teacher_view', 'classrooms'); onBack(); }}>
+            <Home size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Home</span>}
           </div>
-          <div style={{...styles.navItem}} onClick={() => { localStorage.setItem('verity_teacher_view', 'calendar'); onBack(); }}>
+          <div ref={navRef_calendar} style={{...styles.navItem, position: 'relative', zIndex: 1, padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start'}} onClick={() => { localStorage.setItem('verity_teacher_view', 'calendar'); onBack(); }}>
             <Calendar size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Calendar</span>}
           </div>
-          <div style={{...styles.navItem}}>
-            <Archive size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Archived Classrooms</span>}
+          <div ref={navRef_archived} style={{...styles.navItem, position: 'relative', zIndex: 1, padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start'}} onClick={() => { localStorage.setItem('verity_teacher_view', 'archived'); onBack(); }}>
+            <Archive size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Archived</span>}
           </div>
         </div>
 
         {classrooms.length > 0 && (
           <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            
+
             {!collapsed && (
               <div style={{ 
                 padding: '0 20px', 
@@ -156,20 +252,15 @@ export default function TeacherGrading({ classroom, assignment, onBack, onLogout
                 Teaching
               </div>
             )}
-            {classrooms.map((cls) => {
+            {classrooms.filter(c => !c.archived).map((cls) => {
               const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
               const color = colors[cls.id % colors.length];
               
               return (
                 <div 
-                  key={cls.id} 
-                  style={{...styles.navItem, ...(classroom?.id === cls.id ? styles.activeNavItem : {})}}
-                  onClick={() => {
-                     // In TeacherClasswork/Grading, we can use App.js's onEnterClassroom if passed,
-                     // but it's not passed currently. We'll just fall back to dashboard.
-                     localStorage.setItem('verity_teacher_view', 'classrooms');
-                     onBack(); 
-                  }}
+                  key={cls.id} ref={el => enrolledRefs.current['cls_' + cls.id] = el}
+                  style={{...styles.navItem, ...(classroom?.id === cls.id ? styles.activeNavItem : {}), justifyContent: collapsed ? 'center' : 'flex-start'}} 
+                  onClick={() => { if (onEnterClassroom) onEnterClassroom(cls); }}
                   title={cls.name}
                 >
                   <div style={{
@@ -194,15 +285,15 @@ export default function TeacherGrading({ classroom, assignment, onBack, onLogout
           </div>
         )}
         
-        <div style={{ flex: 1 }}></div>
+        
 
-        <div style={{...styles.navItem}} >
+        <div style={{...styles.navItem, position: 'relative', zIndex: 1, marginTop: 'auto', padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start'}} onClick={() => { localStorage.setItem('verity_teacher_view', 'settings'); onBack(); }}>
           <Settings size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Settings</span>}
         </div>
       </div>
 
       {/* MAIN CONTENT */}
-      <div className="content-padding" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'linear-gradient(to bottom, #f3f4f6 0%, #cbd5e1 100%)' }}>
+      <div style={styles.mainContent}>
 
         {/* Top Bar */}
         <div style={styles.topBar}>
@@ -314,21 +405,21 @@ export default function TeacherGrading({ classroom, assignment, onBack, onLogout
 }
 
 const styles = {
-  container: { height: '100%', display: 'flex', background: 'linear-gradient(to bottom, #f3f4f6 0%, #cbd5e1 100%)', fontFamily: 'sans-serif', position: 'relative' },
+  container: { height: '100%', width: '100%', display: 'flex', background: 'linear-gradient(to bottom, #f3f4f6 0%, #cbd5e1 100%)', fontFamily: 'sans-serif', position: 'relative' },
 
   // Sidebar (mirrors TeacherClasswork)
-  sidebar: { width: '250px', padding: '30px', display: 'flex', flexDirection: 'column', gap: '40px' , zIndex: 10, transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)'},
+  sidebar: { width: '250px', padding: '30px', display: 'flex', flexDirection: 'column', gap: '20px', zIndex: 10, height: '100%', boxSizing: 'border-box', overflowX: 'hidden', position: 'relative', transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)'},
   logoContainer: { display: 'flex', alignItems: 'baseline', fontSize: '2.5rem', fontWeight: 900, fontStyle: 'italic', textShadow: '2px 2px 4px rgba(0,0,0,0.1)' },
   logoV: { color: '#10b981' },
-  logoText: { color: 'white' },
-  badge: { fontSize: '0.7rem', backgroundColor: '#4b5563', color: 'white', padding: '3px 8px', borderRadius: '10px', marginLeft: '10px', fontStyle: 'normal', transform: 'translateY(-5px)' },
+  logoText: { color: 'white', textShadow: '0 2px 4px rgba(0,0,0,0.3)' },
+  badge: {  fontSize: '0.7rem', backgroundColor: '#4b5563', color: 'white', padding: '3px 8px', borderRadius: '10px', marginLeft: '6px', fontStyle: 'normal', transform: 'translateY(-5px)' },
   navGroup: { display: 'flex', flexDirection: 'column', gap: '15px' },
-  navItem: { display: 'flex', alignItems: 'center', padding: '12px 20px', color: '#6b7280', fontWeight: '600', cursor: 'pointer', transition: 'color 0.15s', borderRadius: '10px' , whiteSpace: 'nowrap' },
+  navItem: { position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', padding: '12px 20px', color: '#6b7280', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s ease', borderRadius: '14px' , whiteSpace: 'nowrap' },
   activeNavItem: { color: '#10b981', fontWeight: '700' },
   settingsIcon: { color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center' },
 
   // Main
-  mainContent: { flex: 1, padding: 'clamp(20px, 4vw, 30px) clamp(15px, 5vw, 50px)', display: 'flex', flexDirection: 'column' },
+  mainContent: { flex: 1, padding: 'clamp(20px, 4vw, 30px) clamp(15px, 5vw, 50px)', display: 'flex', flexDirection: 'column', zIndex: 1 },
   topBar: { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: '20px' },
   whiteCard: { backgroundColor: 'white', flex: 1, borderRadius: '24px', padding: 'clamp(20px, 4vw, 40px)', boxShadow: '0 10px 25px rgba(0,0,0,0.05)', overflowY: 'auto' },
   classTitle: { color: '#374151', margin: 0, fontSize: '1.6rem' },
