@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 // IMPORTING PROFESSIONAL SVGS
 import { Home, Calendar, ClipboardList, Settings, User, MoreVertical, Play, ArrowLeft, Menu, Archive } from 'lucide-react';
 import ProfileMenu from './ProfileMenu';
+import { motion, AnimatePresence } from 'framer-motion';
 
 // Fallback shown only if the teacher hasn't created any classwork for this class yet.
 const DEFAULT_ASSIGNMENTS = [
@@ -26,37 +27,39 @@ export default function ClassroomView({ classroom, onBack, onOpenAssignment, soc
   const navRef_classrooms = useRef(null);
   const navRef_calendar = useRef(null);
   const navRef_archived = useRef(null);
+  const navRef_settings = useRef(null);
   const [indicatorStyle, setIndicatorStyle] = useState({ top: Number(sessionStorage.getItem('verity_nav_top')) || 0, height: 40, opacity: 0 });
   const [enrolledIndicator, setEnrolledIndicator] = useState({ top: Number(sessionStorage.getItem('verity_nav_top')) || 0, height: 40, opacity: 0 });
+  const [activeView, setActiveView] = useState(() => localStorage.getItem('verity_student_view') || 'classrooms');
   const enrolledRefs = useRef({});
 
   useEffect(() => {
     const timer = setTimeout(() => {
-        let activeBotRef = null;
-        if (typeof classroom !== 'undefined' && classroom) {
-            activeBotRef = enrolledRefs.current['cls_' + classroom.id];
-        }
-        
-        if (activeBotRef) {
-            const el = activeBotRef;
-            setEnrolledIndicator(prev => {
-                if (prev.top === el.offsetTop && prev.height === el.offsetHeight && prev.opacity === 1) return prev;
-                sessionStorage.setItem('verity_nav_top', el.offsetTop); return { top: el.offsetTop, height: el.offsetHeight, opacity: 1 };
-            });
-        } else {
-            setEnrolledIndicator(prev => {
-                if (prev.opacity === 0) return prev;
-                return { ...prev, opacity: 0 };
-            });
-        }
+      let activeBotRef = null;
+      if (typeof classroom !== 'undefined' && classroom) {
+        activeBotRef = enrolledRefs.current['cls_' + classroom.id];
+      }
 
-        setIndicatorStyle(prev => {
-            if (prev.opacity === 0) return prev;
-            return { ...prev, opacity: 0 };
+      if (activeBotRef) {
+        const el = activeBotRef;
+        setEnrolledIndicator(prev => {
+          if (prev.top === el.offsetTop && prev.height === el.offsetHeight && prev.opacity === 1) return prev;
+          sessionStorage.setItem('verity_nav_top', el.offsetTop); return { top: el.offsetTop, height: el.offsetHeight, opacity: 1 };
         });
+      } else {
+        setEnrolledIndicator(prev => {
+          if (prev.opacity === 0) return prev;
+          return { ...prev, opacity: 0 };
+        });
+      }
+
+      setIndicatorStyle(prev => {
+        if (prev.opacity === 0) return prev;
+        return { ...prev, opacity: 0 };
+      });
     }, 10);
     return () => clearTimeout(timer);
-  });
+  }, [classroom]);
 
   const [expandedId, setExpandedId] = useState(null);
   const [assignments, setAssignments] = useState([]);
@@ -87,9 +90,9 @@ export default function ClassroomView({ classroom, onBack, onOpenAssignment, soc
       }
     };
 
-// 1. Try the backend first.
-     let cancelled = false;
-     fetch(`${import.meta.env.VITE_API_URL}/classwork/${classroomId}`)
+    // 1. Try the backend first.
+    let cancelled = false;
+    fetch(`${import.meta.env.VITE_API_URL}/classwork/${classroomId}`)
       .then(res => res.json())
       .then(data => {
         if (cancelled) return;
@@ -126,62 +129,60 @@ export default function ClassroomView({ classroom, onBack, onOpenAssignment, soc
 
   return (
     <div style={styles.container}>
-      
+
       {/* LEFT SIDEBAR */}
       <div style={{ ...styles.sidebar, width: collapsed ? '110px' : '250px', padding: '30px' }}>
         <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '15px', whiteSpace: 'nowrap', width: 'max-content', transform: collapsed ? 'translateX(13px)' : 'none', transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
           <Menu size={24} color="#10b981" style={{ cursor: 'pointer', flexShrink: 0 }} onClick={toggleSidebar} />
           <div style={styles.logoContainer}>
-          <span style={styles.logoV}>V</span>
-          <span style={styles.logoText}>erity</span>
-        </div>
+            <span style={styles.logoV}>V</span>
+            <span style={styles.logoText}>erity</span>
+          </div>
         </div>
 
         {/* Liquid sliding indicator for top nav */}
-        <div style={{
+        <div className={indicatorStyle.opacity === 1 ? 'glass-active' : ''} style={{
           position: 'absolute',
-          left: '30px',
-          right: '30px',
+          left: '20px',
+          right: '20px',
           top: indicatorStyle.top,
           height: indicatorStyle.height,
-          background: 'rgba(255,255,255,0.25)',
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
+          backgroundColor: 'rgba(255, 255, 255, 0.4)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
           borderRadius: '14px',
-          boxShadow: '0 4px 16px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
-          border: '1px solid rgba(255,255,255,0.35)',
-          transition: 'top 0.6s cubic-bezier(0.5, 1.6, 0.2, 1), height 0.3s ease, opacity 0.2s ease',
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05), inset 0 0 0 1px rgba(255, 255, 255, 0.3)',
+          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
           opacity: indicatorStyle.opacity,
           pointerEvents: 'none',
           zIndex: 0,
         }} />
         {/* Liquid sliding indicator for classrooms */}
-        <div style={{
+        <div className={enrolledIndicator.opacity === 1 ? 'glass-active' : ''} style={{
           position: 'absolute',
-          left: '30px',
-          right: '30px',
+          left: '20px',
+          right: '20px',
           top: enrolledIndicator.top,
           height: enrolledIndicator.height,
-          background: 'rgba(255,255,255,0.25)',
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
+          backgroundColor: 'rgba(255, 255, 255, 0.4)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
           borderRadius: '14px',
-          boxShadow: '0 4px 16px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
-          border: '1px solid rgba(255,255,255,0.35)',
-          transition: 'top 0.6s cubic-bezier(0.5, 1.6, 0.2, 1), height 0.3s ease, opacity 0.2s ease',
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05), inset 0 0 0 1px rgba(255, 255, 255, 0.3)',
+          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
           opacity: enrolledIndicator.opacity,
           pointerEvents: 'none',
           zIndex: 0,
         }} />
 
         <div style={styles.navGroup}>
-          <div ref={navRef_classrooms} style={{...styles.navItem, position: 'relative', zIndex: 1, padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start'}} onClick={() => { localStorage.setItem('verity_student_view', 'classrooms'); onBack(); }}>
+          <div ref={navRef_classrooms} style={{ ...styles.navItem, position: 'relative', zIndex: 1, padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start' }} onClick={() => { setActiveView('classrooms'); localStorage.setItem('verity_student_view', 'classrooms'); onBack(); }}>
             <Home size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Home</span>}
           </div>
-          <div ref={navRef_calendar} style={{...styles.navItem, position: 'relative', zIndex: 1, padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start'}} onClick={() => { localStorage.setItem('verity_student_view', 'calendar'); onBack(); }}>
+          <div ref={navRef_calendar} style={{ ...styles.navItem, position: 'relative', zIndex: 1, padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start' }} onClick={() => { setActiveView('calendar'); localStorage.setItem('verity_student_view', 'calendar'); onBack(); }}>
             <Calendar size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Calendar</span>}
           </div>
-          <div ref={navRef_archived} style={{...styles.navItem, position: 'relative', zIndex: 1, padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start'}} onClick={() => { localStorage.setItem('verity_student_view', 'archived'); onBack(); }}>
+          <div ref={navRef_archived} style={{ ...styles.navItem, position: 'relative', zIndex: 1, padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start' }} onClick={() => { setActiveView('archived'); localStorage.setItem('verity_student_view', 'archived'); onBack(); }}>
             <Archive size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Archived</span>}
           </div>
         </div>
@@ -189,12 +190,12 @@ export default function ClassroomView({ classroom, onBack, onOpenAssignment, soc
         {classrooms.length > 0 && (
           <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '5px' }}>
             {!collapsed && (
-              <div style={{ 
-                padding: '0 20px', 
-                fontSize: '0.75rem', 
-                fontWeight: 'bold', 
-                color: '#9ca3af', 
-                textTransform: 'uppercase', 
+              <div style={{
+                padding: '0 20px',
+                fontSize: '0.75rem',
+                fontWeight: 'bold',
+                color: '#9ca3af',
+                textTransform: 'uppercase',
                 letterSpacing: '0.05em',
                 marginBottom: '5px'
               }}>
@@ -204,24 +205,24 @@ export default function ClassroomView({ classroom, onBack, onOpenAssignment, soc
             {classrooms.map((cls) => {
               const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
               const color = colors[cls.id % colors.length];
-              
+
               return (
-                <div 
+                <div
                   key={cls.id} ref={el => enrolledRefs.current['cls_' + cls.id] = el}
-                  style={{...styles.navItem, ...(classroom?.id === cls.id ? styles.activeNavItem : {}), padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start'}}
+                  style={{ ...styles.navItem, ...(classroom?.id === cls.id ? { ...styles.activeNavItem, color: '#10b981', fontWeight: '700' } : {}), position: 'relative', zIndex: 1, padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start' }}
                   onClick={() => {
-                     if (onEnterClassroom) onEnterClassroom(cls);
+                    if (onEnterClassroom) onEnterClassroom(cls);
                   }}
                   title={cls.name}
                 >
                   <div style={{
-                    width: '24px', 
-                    height: '24px', 
-                    borderRadius: '6px', 
-                    backgroundColor: color, 
-                    color: 'white', 
-                    display: 'flex', 
-                    alignItems: 'center', 
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '6px',
+                    backgroundColor: color,
+                    color: 'white',
+                    display: 'flex',
+                    alignItems: 'center',
                     justifyContent: 'center',
                     fontSize: '0.8rem',
                     fontWeight: 'bold',
@@ -235,17 +236,17 @@ export default function ClassroomView({ classroom, onBack, onOpenAssignment, soc
             })}
           </div>
         )}
-        
+
         <div style={{ flex: 1 }}></div>
 
-        <div style={{...styles.navItem}} >
+        <div ref={navRef_settings} style={{ ...styles.navItem }} onClick={() => { setActiveView('settings'); localStorage.setItem('verity_student_view', 'settings'); onBack(); }}>
           <Settings size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Settings</span>}
         </div>
       </div>
 
       {/* MAIN CONTENT AREA */}
       <div style={styles.mainContent}>
-        
+
         {/* Top Bar */}
         <div style={styles.topBar}>
           <div style={styles.profileCircle}>
@@ -270,40 +271,58 @@ export default function ClassroomView({ classroom, onBack, onOpenAssignment, soc
               const isExpanded = expandedId === task.id;
               return (
                 <div key={task.id} style={styles.assignmentWrapper}>
-
-                  <div style={styles.assignmentHeader}>
-                    <div style={styles.titlePill} onClick={() => toggleActivity(task.id)}>{task.title}</div>
-                    <div style={styles.threeDots}><MoreVertical size={20} /></div>
-                  </div>
+                  <motion.div
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    <div style={styles.assignmentHeader}>
+                      <motion.div
+                        layoutId={`task-title-${task.id}`}
+                        onClick={() => toggleActivity(task.id)}
+                        style={styles.titlePill}
+                      >
+                        {task.title}
+                      </motion.div>
+                      <div style={styles.threeDots}><MoreVertical size={20} /></div>
+                    </div>
+                  </motion.div>
 
                   {/* The "Details" Box — only shown when the activity is expanded */}
                   {isExpanded && (
-                    <div style={styles.detailsBox}>
-                      <p style={{ margin: 0, color: '#4b5563', lineHeight: '1.5' }}>{task.details}</p>
+                    <motion.div
+                      layoutId={`task-details-${task.id}`}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2, ease: "easeOut" }}
+                    >
+                      <div style={styles.detailsBox}>
+                        <p style={{ margin: 0, color: '#4b5563', lineHeight: '1.5' }}>{task.details}</p>
 
-                      {task.attachments?.length > 0 && (
-                        <div style={styles.cardAttachments}>
-                          {task.attachments.map((att, i) => {
-                            if (att.type === 'image') {
-                              return <a key={i} href={att.url} target="_blank" rel="noreferrer"><img src={att.url} alt={att.name} style={styles.attachThumb} /></a>;
-                            }
-                            if (att.type === 'video') {
-                              return <video key={i} src={att.url} controls style={styles.attachVideo} />;
-                            }
-                            return (
-                              <a key={i} href={att.url} target="_blank" rel="noreferrer" style={styles.attachLink}>🔗 {att.name}</a>
-                            );
-                          })}
+                        {task.attachments?.length > 0 && (
+                          <div style={styles.cardAttachments}>
+                            {task.attachments.map((att, i) => {
+                              if (att.type === 'image') {
+                                return <a key={i} href={att.url} target="_blank" rel="noreferrer"><img src={att.url} alt={att.name} style={styles.attachThumb} /></a>;
+                              }
+                              if (att.type === 'video') {
+                                return <video key={i} src={att.url} controls style={styles.attachVideo} />;
+                              }
+                              return (
+                                <a key={i} href={att.url} target="_blank" rel="noreferrer" style={styles.attachLink}>🔗 {att.name}</a>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        <div style={{ marginTop: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.85rem', color: '#6b7280', fontWeight: 'bold' }}>{task.dueDate ? `Due: ${task.dueDate}` : 'No Due Date'}</span>
+                          <button style={styles.startButton} onClick={() => onOpenAssignment(task)}>
+                            Start Coding <Play size={14} fill="currentColor" style={{ marginLeft: '6px' }} />
+                          </button>
                         </div>
-                      )}
-
-                      <div style={{ marginTop: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.85rem', color: '#6b7280', fontWeight: 'bold' }}>{task.dueDate ? `Due: ${task.dueDate}` : 'No Due Date'}</span>
-                        <button style={styles.startButton} onClick={() => onOpenAssignment(task)}>
-                          Start Coding <Play size={14} fill="currentColor" style={{ marginLeft: '6px' }} />
-                        </button>
                       </div>
-                    </div>
+                    </motion.div>
                   )}
 
                 </div>
@@ -319,13 +338,13 @@ export default function ClassroomView({ classroom, onBack, onOpenAssignment, soc
 
 // STYLES matching prototype
 const styles = {
-  container: { height: '100%', display: 'flex', background: 'linear-gradient(to bottom, #f3f4f6 0%, #cbd5e1 100%)', fontFamily: 'sans-serif' },
-  sidebar: { width: '250px', padding: '30px', display: 'flex', flexDirection: 'column', gap: '40px' , zIndex: 10, transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)'},
+  container: { minHeight: '100vh', width: '100%', display: 'flex', background: 'linear-gradient(to bottom, #f3f4f6 0%, #cbd5e1 100%)', fontFamily: 'sans-serif', position: 'relative' },
+  sidebar: { width: '250px', padding: '30px', display: 'flex', flexDirection: 'column', gap: '40px', zIndex: 10, position: 'relative', transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)' },
   logoContainer: { fontSize: '2.5rem', fontWeight: '900', fontStyle: 'italic', textShadow: '2px 2px 4px rgba(0,0,0,0.1)' },
   logoV: { color: '#10b981' },
   logoText: { color: 'white' },
   navGroup: { display: 'flex', flexDirection: 'column', gap: '15px' },
-  navItem: { display: 'flex', alignItems: 'center', padding: '12px 20px', color: '#6b7280', fontWeight: '600', cursor: 'pointer', transition: 'color 0.15s', borderRadius: '10px', background: 'transparent', boxShadow: 'none' , whiteSpace: 'nowrap' },
+  navItem: { position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', padding: '12px 20px', color: '#6b7280', fontWeight: '600', cursor: 'pointer', transition: 'color 0.15s', borderRadius: '10px', background: 'transparent', boxShadow: 'none', whiteSpace: 'nowrap' },
   activeNavItem: { color: '#10b981', fontWeight: '700', backgroundColor: 'transparent', boxShadow: 'none' },
   settingsIcon: { color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center' },
   mainContent: { flex: 1, padding: 'clamp(20px, 4vw, 30px) clamp(15px, 5vw, 50px)', display: 'flex', flexDirection: 'column' },

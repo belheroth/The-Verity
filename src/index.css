@@ -5,7 +5,9 @@
   margin: 0 !important;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   margin: 0 !important;
   padding: 0 !important;
   width: 100% !important;
@@ -167,7 +169,8 @@ html, body, #root {
 
 @media (max-width: 768px) {
   .sidebar-responsive {
-    display: none; /* Hide sidebar on mobile, would need hamburger menu */
+    display: none;
+    /* Hide sidebar on mobile, would need hamburger menu */
   }
 }
 
@@ -196,18 +199,37 @@ html, body, #root {
    ======================================== */
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes scaleIn {
-  from { opacity: 0; transform: scale(0.92); }
-  to { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 @keyframes slideDown {
-  from { opacity: 0; transform: translateY(-8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .animate-fade-in {
@@ -226,6 +248,7 @@ html, body, #root {
 .nav-item-anim {
   transition: color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
 }
+
 .nav-item-anim:hover {
   color: #10b981;
   background-color: rgba(16, 185, 129, 0.08);
@@ -236,10 +259,12 @@ html, body, #root {
 .btn-anim {
   transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
 }
+
 .btn-anim:hover {
   transform: translateY(-1px);
   filter: brightness(1.05);
 }
+
 .btn-anim:active {
   transform: translateY(0) scale(0.97);
 }
@@ -252,14 +277,15 @@ html, body, #root {
 /* Sidebar collapse transition */
 .sidebar-anim {
   transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-              min-width 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-              padding 0.3s ease;
+    min-width 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+    padding 0.3s ease;
 }
 
 /* Icon button hover */
 .icon-btn-anim {
   transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
 }
+
 .icon-btn-anim:hover {
   background-color: rgba(16, 185, 129, 0.10);
   color: #10b981;
@@ -274,10 +300,11 @@ html, body, #root {
     backdrop-filter: blur(0px) !important;
     -webkit-backdrop-filter: blur(0px) !important;
   }
+
   to {
-    background: rgba(255,255,255,0.25) !important;
-    box-shadow: 0 4px 16px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.5) !important;
-    border-color: rgba(255,255,255,0.35) !important;
+    background: rgba(255, 255, 255, 0.25) !important;
+    box-shadow: 0 4px 16px rgba(16, 185, 129, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
+    border-color: rgba(255, 255, 255, 0.35) !important;
     backdrop-filter: blur(8px) !important;
     -webkit-backdrop-filter: blur(8px) !important;
   }
@@ -285,7 +312,6 @@ html, body, #root {
 
 .glass-active {
   animation: glassFadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
-  border: 1px solid transparent !important;
 }
 
 /* ========================================
@@ -331,4 +357,3 @@ html, body, #root {
   transform: translateY(-3px);
   box-shadow: 0 12px 24px rgba(31, 38, 135, 0.08) !important;
 }
-

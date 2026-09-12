@@ -45,15 +45,15 @@ app.post('/upload', (req, res) => {
 app.get('/health', (req, res) => {
     try {
         db.prepare('SELECT 1').get();
-        res.status(200).json({ 
-            status: 'operational', 
+        res.status(200).json({
+            status: 'operational',
             uptime: process.uptime(),
             db: 'connected',
             timestamp: new Date().toISOString()
         });
     } catch (err) {
-        res.status(500).json({ 
-            status: 'error', 
+        res.status(500).json({
+            status: 'error',
             error: err.message,
             uptime: process.uptime(),
             db: 'error',
@@ -81,9 +81,11 @@ app.post('/register', (req, res) => {
     if (existing) {
         return res.status(400).json({ message: 'Email already exists' });
     }
+    const userRole = role || 'Student';
+    const status = userRole === 'Teacher' ? 'Pending' : 'Active';
     const stmt = db.prepare('INSERT INTO users (name, email, password, role, status) VALUES (?, ?, ?, ?, ?)');
-    const info = stmt.run(name, email, password, role || 'Student', 'Active');
-    res.status(201).json({ message: 'User registered successfully', user: { id: info.lastInsertRowid, name, email, password, role: role || 'Student' } });
+    const info = stmt.run(name, email, password, userRole, status);
+    res.status(201).json({ message: 'User registered successfully', user: { id: info.lastInsertRowid, name, email, password, role: userRole, status } });
 });
 
 app.post('/login', (req, res) => {
@@ -92,9 +94,11 @@ app.post('/login', (req, res) => {
     if (!user) {
         return res.status(401).json({ message: 'Invalid credentials' });
     }
+    if (user.status === 'Pending') {
+        return res.status(403).json({ message: 'Your account is pending admin approval' });
+    }
     user.lastLogin = new Date().toISOString();
-    user.status = 'Active';
-    db.prepare('UPDATE users SET lastLogin = ?, status = ? WHERE id = ?').run(user.lastLogin, user.status, user.id);
+    db.prepare('UPDATE users SET lastLogin = ? WHERE id = ?').run(user.lastLogin, user.id);
     res.status(200).json({ message: 'Login successful', user });
 });
 
@@ -102,31 +106,35 @@ app.post('/login', (req, res) => {
 app.post('/auth/google', async (req, res) => {
     const { token, role: userRole } = req.body;
     try {
-        // NOTE: In production, the client ID must be replaced!
         const ticket = await googleClient.verifyIdToken({
             idToken: token,
             audience: '985650202101-p4jb6nlaqjeq14v1g2kqldhm7clphkk7.apps.googleusercontent.com'
         });
         const payload = ticket.getPayload();
         const { email, name } = payload;
-        
+
         let user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
-        
+
         if (user) {
+            if (user.status === 'Pending') {
+                return res.status(403).json({ message: 'Your account is pending admin approval' });
+            }
             user.lastLogin = new Date().toISOString();
-            user.status = 'Active';
-            db.prepare('UPDATE users SET lastLogin = ?, status = ? WHERE id = ?').run(user.lastLogin, user.status, user.id);
+            db.prepare('UPDATE users SET lastLogin = ? WHERE id = ?').run(user.lastLogin, user.id);
         } else {
             const role = userRole || 'Student';
-            const status = 'Active';
+            const status = role === 'Teacher' ? 'Pending' : 'Active';
             const lastLogin = new Date().toISOString();
-            const password = 'google_sso_user'; // dummy password for db constraint
-            
+            const password = 'google_sso_user';
+
             const info = db.prepare('INSERT INTO users (name, email, password, role, lastLogin, status) VALUES (?, ?, ?, ?, ?, ?)').run(name, email, password, role, lastLogin, status);
-            
             user = { id: info.lastInsertRowid, name, email, password, role, lastLogin, status };
+
+            if (status === 'Pending') {
+                return res.status(403).json({ message: 'Your account is pending admin approval', user });
+            }
         }
-        
+
         res.status(200).json({ message: 'Google login successful', user });
     } catch (error) {
         console.error('Google Auth Error:', error);
@@ -151,6 +159,14 @@ app.delete('/users/:email', (req, res) => {
     res.status(200).json({ message: 'User deleted' });
 });
 
+app.put('/users/:email/status', (req, res) => {
+    const email = decodeURIComponent(req.params.email);
+    const { status } = req.body;
+    const info = db.prepare('UPDATE users SET status = ? WHERE email = ?').run(status, email);
+    if (info.changes === 0) return res.status(404).json({ message: 'User not found' });
+    res.status(200).json({ message: 'User status updated' });
+});
+
 // --- CLASSWORK PERSISTENCE ---
 app.get('/classwork/:classroomId', (req, res) => {
     const classwork = db.prepare('SELECT * FROM classwork WHERE classroom_id = ?').all(req.params.classroomId);
@@ -161,10 +177,10 @@ app.put('/classwork/:classroomId', (req, res) => {
     const { classroomId } = req.params;
     const { classwork } = req.body;
     if (!Array.isArray(classwork)) return res.status(400).json({ message: 'classwork must be an array' });
-    
+
     const deleteStmt = db.prepare('DELETE FROM classwork WHERE classroom_id = ?');
     const insertStmt = db.prepare('INSERT INTO classwork (id, classroom_id, title, description, dueDate, type) VALUES (?, ?, ?, ?, ?, ?)');
-    
+
     db.transaction(() => {
         deleteStmt.run(classroomId);
         classwork.forEach(cw => {
@@ -183,10 +199,10 @@ app.get('/classrooms', (req, res) => {
 app.put('/classrooms', (req, res) => {
     const { classrooms } = req.body;
     if (!Array.isArray(classrooms)) return res.status(400).json({ message: 'classrooms must be an array' });
-    
+
     const deleteStmt = db.prepare('DELETE FROM classrooms');
     const insertStmt = db.prepare('INSERT INTO classrooms (id, code, section, name, subject, instructor) VALUES (?, ?, ?, ?, ?, ?)');
-    
+
     db.transaction(() => {
         deleteStmt.run();
         classrooms.forEach(c => {
@@ -270,11 +286,11 @@ io.on('connection', (socket) => {
     // viewing that classroom to refresh their list in real time.
     socket.on('classwork_updated', ({ classroomId, classwork }) => {
         if (classroomId == null || !Array.isArray(classwork)) return;
-        
+
         try {
             const deleteStmt = db.prepare('DELETE FROM classwork WHERE classroom_id = ?');
             const insertStmt = db.prepare('INSERT INTO classwork (id, classroom_id, title, description, dueDate, type) VALUES (?, ?, ?, ?, ?, ?)');
-            
+
             db.transaction(() => {
                 deleteStmt.run(classroomId);
                 classwork.forEach(cw => {
@@ -286,7 +302,7 @@ io.on('connection', (socket) => {
                     // Let's just insert all. We might need an 'archived' column, but let's just use description as a JSON if needed,
                     // or just add it to SQLite if it's missing. Wait, let's just add it if it doesn't crash.
                     // Actually, let's just store the whole classwork array as JSON in a new way, or just update the SQLite DB!
-                    
+
                     // The easiest fix for right now without altering schema is just ignore archived flag on backend,
                     // but the frontend uses localStorage anyway! 
                     // Let's just do a basic insert.
@@ -294,56 +310,80 @@ io.on('connection', (socket) => {
                 });
             })();
             io.emit('classwork_changed', { classroomId, classwork });
-        } catch(e) { console.error(e); }
+        } catch (e) { console.error(e); }
     });
+
+    // Track project directories per session to avoid recreating .NET projects
+    const sessionProjects = new Map();
 
     socket.on('compile_code', (data) => {
         const { code } = data;
         const sessionId = socket.id.replace(/[^a-zA-Z0-9]/g, '');
-        const projectDir = path.join(os.tmpdir(), `verity_temp_${sessionId}`);
+        let projectDir = sessionProjects.get(sessionId);
+        const isFirstCompile = !projectDir;
+
+        if (!projectDir) {
+            projectDir = path.join(os.tmpdir(), `verity_temp_${sessionId}`);
+            sessionProjects.set(sessionId, projectDir);
+        }
 
         if (activeProcess) activeProcess.kill();
 
-        socket.emit('terminal_output', "Initializing compiler environment...\n");
+        // Only create new project if this is the first compilation for this session
+        if (isFirstCompile) {
+            socket.emit('terminal_output', "Initializing compiler environment...\n");
 
-        exec(`dotnet new console -n temp_${sessionId} -o "${projectDir}"`, (newErr) => {
-            if (newErr) {
-                return socket.emit('terminal_output', "Error: Could not initialize .NET.\n");
-            }
+            exec(`dotnet new console -n temp_${sessionId} -o "${projectDir}"`, (newErr) => {
+                if (newErr) {
+                    // Clean up the map entry since project creation failed
+                    sessionProjects.delete(sessionId);
+                    return socket.emit('terminal_output', "Error: Could not initialize .NET.\n");
+                }
 
-            fs.writeFileSync(path.join(projectDir, 'Program.cs'), code);
-            socket.emit('terminal_output', "Compiling and running...\n\n");
-
-            activeProcess = spawn('dotnet', ['run', '-v', 'q', '-p:WarningLevel=0', '--project', projectDir]);
-
-            // The program's first output means compilation is done and it's now
-            // actually running — tell the client so it can reveal the input box.
-            let started = false;
-            const markStarted = () => {
-                if (started) return;
-                started = true;
-                socket.emit('program_started');
-            };
-
-            activeProcess.stdout.on('data', (data) => {
-                markStarted();
-                socket.emit('terminal_output', data.toString());
+                // Continue with writing code and compiling
+                compileStudentCode(projectDir, code, socket);
             });
-
-            activeProcess.stderr.on('data', (data) => {
-                markStarted();
-                socket.emit('terminal_output', data.toString());
-            });
-
-            activeProcess.on('close', (code) => {
-                socket.emit('terminal_output', `\n[Process exited with code ${code}]\n`);
-                socket.emit('process_exit'); 
-                
-                activeProcess = null;
-                fs.rm(projectDir, { recursive: true, force: true }, () => {});
-            });
-        });
+        } else {
+            // Project already exists, just update the code and compile
+            compileStudentCode(projectDir, code, socket);
+        }
     });
+
+    function compileStudentCode(projectDir, code, socket) {
+        // Write the student's code to Program.cs
+        fs.writeFileSync(path.join(projectDir, 'Program.cs'), code);
+        socket.emit('terminal_output', "Compiling and running...\n\n");
+
+        activeProcess = spawn('dotnet', ['run', '-v', 'q', '-p:WarningLevel=0', '--project', projectDir]);
+
+        // The program's first output means compilation is done and it's now
+        // actually running — tell the client so it can reveal the input box.
+        let started = false;
+        const markStarted = () => {
+            if (started) return;
+            started = true;
+            socket.emit('program_started');
+        };
+
+        activeProcess.stdout.on('data', (data) => {
+            markStarted();
+            socket.emit('terminal_output', data.toString());
+        });
+
+        activeProcess.stderr.on('data', (data) => {
+            markStarted();
+            socket.emit('terminal_output', data.toString());
+        });
+
+        activeProcess.on('close', (code) => {
+            socket.emit('terminal_output', `\n[Process exited with code ${code}]\n`);
+            socket.emit('process_exit');
+
+            activeProcess = null;
+            // Note: We don't delete the projectDir here anymore since we're reusing it
+            // It will be cleaned up when the session ends (disconnect)
+        });
+    }
 
     socket.on('terminal_input', (input) => {
         if (activeProcess && activeProcess.stdin) {
@@ -396,11 +436,11 @@ io.on('connection', (socket) => {
             socket.to(roomName).emit('teacher_receive_alert', data);
         }
         // Count it as a security flag for today (drives the Admin dashboard).
-        
+
         try {
             const key = todayKey();
             db.prepare('INSERT INTO security_flags (date_string, count) VALUES (?, 1) ON CONFLICT(date_string) DO UPDATE SET count = count + 1').run(key);
-        } catch(e) { console.error(e); }
+        } catch (e) { console.error(e); }
     });
 
     // 3. When a student clicks Submit — broadcast live AND persist it so it
@@ -421,17 +461,17 @@ io.on('connection', (socket) => {
         }
 
         const assignmentId = data.assignmentId != null ? String(data.assignmentId) : 'unassigned';
-        
+
         try {
             const deleteStmt = db.prepare('DELETE FROM submissions WHERE assignment_id = ? AND student_name = ?');
             const insertStmt = db.prepare('INSERT INTO submissions (assignment_id, student_name, history, submittedAt) VALUES (?, ?, ?, ?)');
-            
+
             db.transaction(() => {
                 deleteStmt.run(assignmentId, data.studentName || 'Unknown');
                 const historyStr = JSON.stringify(Array.isArray(data.codeHistory) ? data.codeHistory : []);
                 insertStmt.run(assignmentId, data.studentName || 'Unknown', historyStr, new Date().toISOString());
             })();
-        } catch(e) { console.error(e); }
+        } catch (e) { console.error(e); }
     });
 
     // 4. When a student's terminal updates, forward it to teachers in the same classroom/assignment!
@@ -447,9 +487,190 @@ io.on('connection', (socket) => {
             socket.broadcast.emit('teacher_student_left', { studentId: socket.data.studentId });
         }
         const sessionId = socket.id.replace(/[^a-zA-Z0-9]/g, '');
+        // Clean up the session project
+        sessionProjects.delete(sessionId);
         const projectDir = path.join(os.tmpdir(), `verity_temp_${sessionId}`);
-        fs.rm(projectDir, { recursive: true, force: true }, () => {});
+        fs.rm(projectDir, { recursive: true, force: true }, () => { });
     });
+});
+
+// --- AUDIT LOGS ---
+app.get('/audit-logs', (req, res) => {
+    try {
+        const logs = db.prepare('SELECT * FROM audit_logs ORDER BY id DESC LIMIT 300').all();
+        res.status(200).json({ logs });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+app.post('/audit-logs', (req, res) => {
+    try {
+        const { user = 'System', type = 'Event', severity = 'Normal', desc = '' } = req.body || {};
+        const timestamp = new Date().toISOString();
+        db.prepare('INSERT INTO audit_logs (timestamp, user, type, severity, desc) VALUES (?, ?, ?, ?, ?)')
+            .run(timestamp, user, type, severity, desc);
+
+        // Bump today's security flag count for High-severity events
+        if (severity === 'High' || severity === 'Warning') {
+            const key = todayKey();
+            db.prepare('INSERT INTO security_flags (date_string, count) VALUES (?, 1) ON CONFLICT(date_string) DO UPDATE SET count = count + 1').run(key);
+        }
+
+        res.status(201).json({ message: 'Log entry saved', timestamp });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+// --- SYSTEM SETTINGS API ---
+app.get('/system-settings', (req, res) => {
+    try {
+        const rows = db.prepare('SELECT key, value FROM system_settings').all();
+        const settings = {};
+        rows.forEach(r => {
+            try { settings[r.key] = JSON.parse(r.value); }
+            catch (e) { settings[r.key] = r.value; }
+        });
+        res.status(200).json({ settings });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+app.post('/system-settings', (req, res) => {
+    try {
+        const { settings } = req.body || {};
+        if (!settings || typeof settings !== 'object') {
+            return res.status(400).json({ message: 'Invalid settings object' });
+        }
+        const insertStmt = db.prepare('INSERT INTO system_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+        db.transaction(() => {
+            Object.entries(settings).forEach(([key, val]) => {
+                const strVal = typeof val === 'object' ? JSON.stringify(val) : String(val);
+                insertStmt.run(key, strVal);
+            });
+        })();
+        res.status(200).json({ message: 'Settings saved successfully' });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+// --- ACCESS TOKENS API ---
+app.get('/access-tokens', (req, res) => {
+    try {
+        const tokens = db.prepare('SELECT * FROM access_tokens ORDER BY id DESC').all();
+        res.status(200).json({ tokens });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+app.post('/access-tokens', (req, res) => {
+    try {
+        const { studentName, classroom, count = 1 } = req.body || {};
+        const generated = [];
+        const insertStmt = db.prepare('INSERT INTO access_tokens (token, student_name, classroom, created_at) VALUES (?, ?, ?, ?)');
+
+        db.transaction(() => {
+            for (let i = 0; i < count; i++) {
+                const randPart = Math.random().toString(36).substring(2, 6).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+                const tokenStr = `VRTY-EXAM-${randPart}`;
+                const name = studentName || `Student ${i + 1}`;
+                const cls = classroom || 'General Roster';
+                const created = new Date().toISOString();
+                insertStmt.run(tokenStr, name, cls, created);
+                generated.push({ token: tokenStr, student_name: name, classroom: cls, created_at: created });
+            }
+        })();
+        res.status(201).json({ message: `${count} token(s) generated`, tokens: generated });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+app.delete('/access-tokens/:id', (req, res) => {
+    try {
+        db.prepare('DELETE FROM access_tokens WHERE id = ?').run(req.params.id);
+        res.status(200).json({ message: 'Token deleted' });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+// --- ROSTER IMPORT API ---
+app.post('/users/import', (req, res) => {
+    try {
+        const { users } = req.body || {};
+        if (!Array.isArray(users)) return res.status(400).json({ message: 'users array required' });
+
+        const checkStmt = db.prepare('SELECT id FROM users WHERE email = ?');
+        const insertStmt = db.prepare('INSERT INTO users (name, email, password, role, status) VALUES (?, ?, ?, ?, ?)');
+        let added = 0;
+        let skipped = 0;
+
+        db.transaction(() => {
+            users.forEach(u => {
+                if (!u.email || !u.name) return;
+                const existing = checkStmt.get(u.email);
+                if (existing) {
+                    skipped++;
+                } else {
+                    const pass = u.password || 'verity2026';
+                    const role = u.role || 'Student';
+                    const status = u.status || 'Active';
+                    insertStmt.run(u.name, u.email, pass, role, status);
+                    added++;
+                }
+            });
+        })();
+
+        res.status(200).json({ message: `Roster import complete: ${added} added, ${skipped} skipped (already exists).`, added, skipped });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+// --- QUESTION BANK API ---
+app.get('/question-bank', (req, res) => {
+    try {
+        const questions = db.prepare('SELECT * FROM question_bank ORDER BY id DESC').all().map(q => ({
+            ...q,
+            test_cases: JSON.parse(q.test_cases || '[]')
+        }));
+        res.status(200).json({ questions });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+app.post('/question-bank', (req, res) => {
+    try {
+        const { id, title, description, starter_code, test_cases = [], points = 100 } = req.body || {};
+        const tcStr = JSON.stringify(test_cases);
+
+        if (id) {
+            db.prepare('UPDATE question_bank SET title = ?, description = ?, starter_code = ?, test_cases = ?, points = ? WHERE id = ?')
+                .run(title, description, starter_code, tcStr, points, id);
+            res.status(200).json({ message: 'Question updated' });
+        } else {
+            const info = db.prepare('INSERT INTO question_bank (title, description, starter_code, test_cases, points) VALUES (?, ?, ?, ?, ?)')
+                .run(title, description, starter_code, tcStr, points);
+            res.status(201).json({ message: 'Question created', id: info.lastInsertRowid });
+        }
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+app.delete('/question-bank/:id', (req, res) => {
+    try {
+        db.prepare('DELETE FROM question_bank WHERE id = ?').run(req.params.id);
+        res.status(200).json({ message: 'Question deleted' });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
 });
 
 // START SERVER (deferred when loaded from Electron; auto-start when run directly)

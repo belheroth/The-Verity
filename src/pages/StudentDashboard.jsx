@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 // IMPORTING PROFESSIONAL SVGS
 import { Home, Calendar, ClipboardList, Settings, MoreVertical, Plus, LogOut, User, X, Menu, Archive } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import SettingsPanel from './SettingsPanel';
 import ProfileMenu from './ProfileMenu';
 import StudentCalendar from './StudentCalendar';
 import ClassroomSettings from './ClassroomSettings';
+import UITransitionsShowcase from '../components/UITransitionsShowcase';
 
 const STORAGE_KEY = 'verity_student_classrooms';
 
@@ -30,6 +32,23 @@ export default function StudentDashboard({ onLogout, onEnterClassroom }) {
   const [indicatorStyle, setIndicatorStyle] = useState({ top: Number(sessionStorage.getItem('verity_nav_top')) || 0, height: 40, opacity: 0 });
   const [enrolledIndicator, setEnrolledIndicator] = useState({ top: Number(sessionStorage.getItem('verity_nav_top')) || 0, height: 40, opacity: 0 });
 
+  const getViewTitle = (view) => {
+    switch (view) {
+      case 'classrooms':
+        return 'My Classrooms';
+      case 'calendar':
+        return 'Calendar';
+      case 'archived':
+        return 'Archived Classrooms';
+      case 'settings':
+        return 'Settings';
+      case 'classroomSettings':
+        return 'Classroom Settings';
+      default:
+        return 'Classrooms';
+    }
+  };
+
   const [activeMenu, setActiveMenu] = useState(null);
   const [settingsClassroom, setSettingsClassroom] = useState(null);
   const [activeView, setActiveView] = useState(() => localStorage.getItem('verity_student_view') || 'classrooms');
@@ -40,27 +59,27 @@ export default function StudentDashboard({ onLogout, onEnterClassroom }) {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-        let activeRef = null;
-        if (typeof activeView !== 'undefined') {
-            activeRef = activeView === 'calendar' ? navRef_calendar : (activeView === 'archived' ? navRef_archived : (activeView === 'settings' ? navRef_settings : navRef_classrooms));
-        } else {
-            activeRef = navRef_classrooms;
-        }
-        if (activeRef && activeRef.current) {
-            const el = activeRef.current;
-            setIndicatorStyle(prev => {
-                if (prev.top === el.offsetTop && prev.height === el.offsetHeight && prev.opacity === 1) return prev;
-                sessionStorage.setItem('verity_nav_top', el.offsetTop); return { top: el.offsetTop, height: el.offsetHeight, opacity: 1 };
-            });
-        }
-        
-        let activeBotRef = null;
-        // The dashboard doesn't have an "active" classroom state stored in a variable, but let's just clear it or handle it if we want it to highlight.
-        // Usually clicking a class navigates away, so we don't strictly need it to stay active, but we should render the indicator div.
-        setEnrolledIndicator(prev => {
-            if (prev.opacity === 0) return prev;
-            return { ...prev, opacity: 0 };
+      let activeRef = null;
+      if (typeof activeView !== 'undefined') {
+        activeRef = activeView === 'calendar' ? navRef_calendar : (activeView === 'archived' ? navRef_archived : (activeView === 'settings' ? navRef_settings : navRef_classrooms));
+      } else {
+        activeRef = navRef_classrooms;
+      }
+      if (activeRef && activeRef.current) {
+        const el = activeRef.current;
+        setIndicatorStyle(prev => {
+          if (prev.top === el.offsetTop && prev.height === el.offsetHeight && prev.opacity === 1) return prev;
+          sessionStorage.setItem('verity_nav_top', el.offsetTop); return { top: el.offsetTop, height: el.offsetHeight, opacity: 1 };
         });
+      }
+
+      let activeBotRef = null;
+      // The dashboard doesn't have an "active" classroom state stored in a variable, but let's just clear it or handle it if we want it to highlight.
+      // Usually clicking a class navigates away, so we don't strictly need it to stay active, but we should render the indicator div.
+      setEnrolledIndicator(prev => {
+        if (prev.opacity === 0) return prev;
+        return { ...prev, opacity: 0 };
+      });
 
     }, 10);
     return () => clearTimeout(timer);
@@ -86,6 +105,7 @@ export default function StudentDashboard({ onLogout, onEnterClassroom }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [classCode, setClassCode] = useState('');
   const [joinError, setJoinError] = useState('');
+  const [inputFocused, setInputFocused] = useState(false);
 
   const toggleMenu = (e, id) => {
     e.stopPropagation();
@@ -160,13 +180,13 @@ export default function StudentDashboard({ onLogout, onEnterClassroom }) {
   };
   // STYLES
   const styles = {
-    container: { height: '100%', display: 'flex', background: 'linear-gradient(to bottom, #f3f4f6 0%, #cbd5e1 100%)', fontFamily: 'sans-serif', position: 'relative' },
-    sidebar: { width: collapsed ? '72px' : '250px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px', zIndex: 10, height: '100%', boxSizing: 'border-box', overflowX: 'hidden', position: 'relative', transition: 'width 0.3s ease' },
+    container: { minHeight: '100vh', width: '100%', display: 'flex', background: 'linear-gradient(to bottom, #f3f4f6 0%, #cbd5e1 100%)', fontFamily: 'sans-serif', position: 'relative' },
+    sidebar: { width: '250px', padding: '30px', display: 'flex', flexDirection: 'column', gap: '40px', zIndex: 10, position: 'relative', transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)' },
     logoContainer: { fontSize: '2.5rem', fontWeight: '900', fontStyle: 'italic', textShadow: '2px 2px 4px rgba(0,0,0,0.1)' },
     logoV: { color: '#10b981' },
     logoText: { color: 'white' },
     navGroup: { display: 'flex', flexDirection: 'column', gap: '15px' },
-    navItem: { display: 'flex', alignItems: 'center', padding: '12px 20px', color: '#6b7280', fontWeight: '600', cursor: 'pointer', transition: 'color 0.15s', borderRadius: '10px', background: 'transparent', boxShadow: 'none' , whiteSpace: 'nowrap' },
+    navItem: { position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', padding: '12px 20px', color: '#6b7280', fontWeight: '600', cursor: 'pointer', transition: 'color 0.15s', borderRadius: '10px', background: 'transparent', boxShadow: 'none', whiteSpace: 'nowrap' },
     activeNavItem: { color: '#10b981', fontWeight: '700', backgroundColor: 'transparent', boxShadow: 'none' },
     settingsIcon: { color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center' },
     mainContent: { flex: 1, padding: 'clamp(20px, 4vw, 30px) clamp(15px, 5vw, 50px)', display: 'flex', flexDirection: 'column' },
@@ -198,87 +218,101 @@ export default function StudentDashboard({ onLogout, onEnterClassroom }) {
     <div style={styles.container}>
 
       {/* LEFT SIDEBAR */}
-      <div style={{ ...styles.sidebar }}>
+      <div style={{ ...styles.sidebar, width: collapsed ? '110px' : '250px', padding: '30px' }}>
         <div style={{
           display: 'flex',
           flexDirection: 'row',
           alignItems: 'center',
-          gap: collapsed ? 0 : '15px',
+          gap: '15px',
           whiteSpace: 'nowrap',
-          width: '100%',
-          justifyContent: collapsed ? 'center' : 'flex-start',
-          transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
+          width: 'max-content',
+          transform: collapsed ? 'translateX(13px)' : 'none',
+          transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
         }}>
           <Menu size={24} color="#10b981" style={{ cursor: 'pointer', flexShrink: 0 }} onClick={toggleSidebar} />
           <div style={styles.logoContainer}>
-              <span style={styles.logoV}>V</span>
-              {!collapsed && <span style={styles.logoText}>erity</span>}
-            </div>
+            <span style={styles.logoV}>V</span>
+            <span style={styles.logoText}>erity</span>
+          </div>
         </div>
 
-        <div className="nav-indicator" style={{
-            position: 'absolute',
-            left: '20px',
-            right: '20px',
-            backgroundColor: 'rgba(255, 255, 255, 0.4)',
-            backdropFilter: 'blur(10px)',
-            borderRadius: '14px',
-            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-            top: indicatorStyle.top,
-            height: indicatorStyle.height,
-            opacity: indicatorStyle.opacity,
-            pointerEvents: 'none',
-            zIndex: 0,
-            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05), inset 0 0 0 1px rgba(255, 255, 255, 0.3)'
-          }} />
+        {/* Liquid sliding indicator for top nav */}
+        <div className={indicatorStyle.opacity === 1 ? 'glass-active' : ''} style={{
+          position: 'absolute',
+          left: '20px',
+          right: '20px',
+          backgroundColor: 'rgba(255, 255, 255, 0.4)',
+          backdropFilter: 'blur(10px)',
+          WebkitBackdropFilter: 'blur(10px)',
+          borderRadius: '14px',
+          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          top: indicatorStyle.top,
+          height: indicatorStyle.height,
+          opacity: indicatorStyle.opacity,
+          pointerEvents: 'none',
+          zIndex: 0,
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05), inset 0 0 0 1px rgba(255, 255, 255, 0.3)'
+        }} />
 
-          <div style={styles.navGroup}>
-            <div ref={navRef_classrooms} style={{...styles.navItem, ...(activeView === 'classrooms' ? {...styles.activeNavItem, background: 'transparent', boxShadow: 'none', border: 'none', color: '#10b981', fontWeight: '700'} : {}), position: 'relative', zIndex: 1, justifyContent: collapsed ? 'center' : 'flex-start'}} onClick={() => handleSetView('classrooms')}>
-              <Home size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Home</span>}
-            </div>
-            <div ref={navRef_calendar} style={{...styles.navItem, ...(activeView === 'calendar' ? {...styles.activeNavItem, background: 'transparent', boxShadow: 'none', border: 'none', color: '#10b981', fontWeight: '700'} : {}), position: 'relative', zIndex: 1, justifyContent: collapsed ? 'center' : 'flex-start'}} onClick={() => handleSetView('calendar')}>
-              <Calendar size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Calendar</span>}
-            </div>
-            <div ref={navRef_archived} style={{...styles.navItem, ...(activeView === 'archived' ? {...styles.activeNavItem, background: 'transparent', boxShadow: 'none', border: 'none', color: '#10b981', fontWeight: '700'} : {}), position: 'relative', zIndex: 1, justifyContent: collapsed ? 'center' : 'flex-start'}} onClick={() => handleSetView('archived')}>
-              <Archive size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Archived</span>}
-            </div>
+        <div style={styles.navGroup}>
+          <div
+            ref={navRef_classrooms}
+            style={{ ...styles.navItem, ...(activeView === 'classrooms' ? { ...styles.activeNavItem, color: '#10b981', fontWeight: '700' } : {}), position: 'relative', zIndex: 1, padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start' }}
+            onClick={() => handleSetView('classrooms')}
+          >
+            <Home size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Home</span>}
           </div>
+          <div
+            ref={navRef_calendar}
+            style={{ ...styles.navItem, ...(activeView === 'calendar' ? { ...styles.activeNavItem, color: '#10b981', fontWeight: '700' } : {}), position: 'relative', zIndex: 1, padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start' }}
+            onClick={() => handleSetView('calendar')}
+          >
+            <Calendar size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Calendar</span>}
+          </div>
+          <div
+            ref={navRef_archived}
+            style={{ ...styles.navItem, ...(activeView === 'archived' ? { ...styles.activeNavItem, color: '#10b981', fontWeight: '700' } : {}), position: 'relative', zIndex: 1, padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start' }}
+            onClick={() => handleSetView('archived')}
+          >
+            <Archive size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Archived</span>}
+          </div>
+        </div>
 
-          {classrooms.length > 0 && (
+        {classrooms.length > 0 && (
           <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '5px' }}>
             {!collapsed && (
-              <div style={{ 
-                padding: '0 20px', 
-                fontSize: '0.75rem', 
-                fontWeight: 'bold', 
-                color: '#9ca3af', 
-                textTransform: 'uppercase', 
+              <div style={{
+                padding: '0 20px',
+                fontSize: '0.75rem',
+                fontWeight: 'bold',
+                color: '#9ca3af',
+                textTransform: 'uppercase',
                 letterSpacing: '0.05em',
                 marginBottom: '5px'
               }}>
                 Enrolled
               </div>
             )}
-            {classrooms.filter(c => !c.archived).map((cls, i) => {
+            {classrooms.filter(c => !c.archived).map((cls) => {
               // Generate a deterministic color based on the index or ID
               const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981'];
               const color = colors[cls.id % colors.length];
-              
+
               return (
-                <div 
+                <div
                   key={cls.id} ref={el => enrolledRefs.current['cls_' + cls.id] = el}
-                  style={{...styles.navItem, padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start'}} 
+                  style={{ ...styles.navItem, position: 'relative', zIndex: 1, padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start' }}
                   onClick={() => onEnterClassroom(cls)}
                   title={cls.name}
                 >
                   <div style={{
-                    width: '24px', 
-                    height: '24px', 
-                    borderRadius: '6px', 
-                    backgroundColor: color, 
-                    color: 'white', 
-                    display: 'flex', 
-                    alignItems: 'center', 
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '6px',
+                    backgroundColor: color,
+                    color: 'white',
+                    display: 'flex',
+                    alignItems: 'center',
                     justifyContent: 'center',
                     fontSize: '0.8rem',
                     fontWeight: 'bold',
@@ -292,10 +326,15 @@ export default function StudentDashboard({ onLogout, onEnterClassroom }) {
             })}
           </div>
         )}
-        
+
         <div style={{ flex: 1 }}></div>
 
-        <div ref={navRef_settings} style={{...styles.navItem, ...(activeView === 'settings' ? {...styles.activeNavItem, background: 'transparent', boxShadow: 'none', border: 'none', color: '#10b981', fontWeight: '700'} : {}), position: 'relative', zIndex: 1, marginTop: 'auto', justifyContent: collapsed ? 'center' : 'flex-start'}} onClick={() => handleSetView('settings')} title="Settings">
+        <div
+          ref={navRef_settings}
+          style={{ ...styles.navItem, ...(activeView === 'settings' ? { ...styles.activeNavItem, color: '#10b981', fontWeight: '700' } : {}), position: 'relative', zIndex: 1, padding: collapsed ? '12px 0' : '12px 20px', justifyContent: collapsed ? 'center' : 'flex-start' }}
+          onClick={() => handleSetView('settings')}
+          title="Settings"
+        >
           <Settings size={24} style={{ flexShrink: 0 }} /> {!collapsed && <span style={{ marginLeft: '10px' }}>Settings</span>}
         </div>
       </div>
@@ -310,27 +349,42 @@ export default function StudentDashboard({ onLogout, onEnterClassroom }) {
 
         {/* The Main White Card */}
         <div style={styles.whiteCard}>
+          {/* Consistent View Header */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '0 0 20px 0',
+            borderBottom: '1px solid #e5e7eb',
+            marginBottom: '20px'
+          }}>
+            <h2 style={{
+              color: '#4b5563',
+              fontWeight: '600',
+              fontSize: '1.5rem',
+              margin: 0
+            }}>
+              {getViewTitle(activeView)}
+            </h2>
+            {/* Optional: Add view-specific actions here if needed */}
+          </div>
 
           {activeView === 'settings' && <SettingsPanel role="Student" />}
-          
+
           {activeView === 'calendar' && (
             <StudentCalendar classrooms={classrooms} />
           )}
 
           {activeView === 'classroomSettings' && settingsClassroom && (
-            <ClassroomSettings 
+            <ClassroomSettings
               role="student"
-              classroom={settingsClassroom} 
+              classroom={settingsClassroom}
               onClose={() => { setSettingsClassroom(null); handleSetView('classrooms'); }}
             />
           )}
 
           {activeView === 'archived' && (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', padding: '0 10px' }}>
-                <h2 style={{ color: '#4b5563', margin: 0 }}>Archived Classrooms</h2>
-              </div>
-              
               {classrooms.filter(c => c.archived).length === 0 ? (
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
                   <h3 style={{ margin: 0 }}>No Archived Classrooms</h3>
@@ -339,21 +393,40 @@ export default function StudentDashboard({ onLogout, onEnterClassroom }) {
               ) : (
                 <div style={styles.grid}>
                   {classrooms.filter(c => c.archived).map(cls => (
-                    <div key={cls.id} style={{...styles.cardContainer, opacity: 0.7}} onClick={() => onEnterClassroom(cls)}>
+                    <div key={cls.id} style={{ ...styles.cardContainer, opacity: 0.7 }} onClick={() => onEnterClassroom(cls)}>
                       <div style={styles.cardPill}>{cls.code}</div>
 
                       <div style={styles.cardBody}>
                         <h3 style={{ color: '#4b5563', margin: '0 0 10px 0' }}>{cls.name}</h3>
                         <p style={{ color: '#6b7280', margin: 0, fontSize: '0.9rem' }}>{cls.instructor}</p>
 
-                        <div style={styles.dots} onClick={(e) => toggleMenu(e, cls.id)}>
+                        <motion.div
+                          style={styles.dots}
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={(e) => toggleMenu(e, cls.id)}
+                        >
                           <MoreVertical size={18} />
-                        </div>
+                        </motion.div>
 
                         {activeMenu === cls.id && (
                           <div style={styles.dropdownMenu} onClick={(e) => e.stopPropagation()}>
-                            <div style={styles.dropdownItem} onClick={(e) => handleUnarchiveClass(e, cls.id)}>Restore</div>
-                            <div style={{...styles.dropdownItem, color: '#ef4444'}} onClick={(e) => { e.stopPropagation(); handleDelete(e, cls.id); setActiveMenu(null); }}>Delete</div>
+                            <motion.div
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              style={styles.dropdownItem}
+                              onClick={(e) => handleUnarchiveClass(e, cls.id)}
+                            >
+                              Restore
+                            </motion.div>
+                            <motion.div
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              style={{ ...styles.dropdownItem, color: '#ef4444' }}
+                              onClick={(e) => { e.stopPropagation(); handleDelete(e, cls.id); setActiveMenu(null); }}
+                            >
+                              Delete
+                            </motion.div>
                           </div>
                         )}
                       </div>
@@ -366,11 +439,16 @@ export default function StudentDashboard({ onLogout, onEnterClassroom }) {
 
           {activeView === 'classrooms' && (
             <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', padding: '0 10px' }}>
-                <h2 style={{ color: '#4b5563', margin: 0 }}>My Classrooms</h2>
-                <button onClick={() => { setJoinError(''); setClassCode(''); setIsModalOpen(true); }} style={styles.addButton}>
+              <UITransitionsShowcase />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => { setJoinError(''); setClassCode(''); setIsModalOpen(true); }}
+                  style={styles.addButton}
+                >
                   <Plus size={18} style={{ marginRight: '5px' }} /> Add
-                </button>
+                </motion.button>
               </div>
 
               {/* Classroom Grid */}
@@ -383,15 +461,41 @@ export default function StudentDashboard({ onLogout, onEnterClassroom }) {
                       <h3 style={{ color: '#4b5563', margin: '0 0 10px 0' }}>{cls.name}</h3>
                       <p style={{ color: '#6b7280', margin: 0, fontSize: '0.9rem' }}>{cls.instructor}</p>
 
-                      <div style={styles.dots} onClick={(e) => toggleMenu(e, cls.id)}>
+                      <motion.div
+                        style={styles.dots}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={(e) => toggleMenu(e, cls.id)}
+                      >
                         <MoreVertical size={18} />
-                      </div>
+                      </motion.div>
 
                       {activeMenu === cls.id && (
                         <div style={styles.dropdownMenu} onClick={(e) => e.stopPropagation()}>
-                          <div style={styles.dropdownItem} onClick={(e) => handleArchiveClass(e, cls.id)}>Archive</div>
-                          <div style={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); setSettingsClassroom(cls); handleSetView('classroomSettings'); setActiveMenu(null); }}>Settings</div>
-                          <div style={{...styles.dropdownItem, color: '#ef4444'}} onClick={(e) => { e.stopPropagation(); handleDelete(e, cls.id); setActiveMenu(null); }}>Delete</div>
+                          <motion.div
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            style={styles.dropdownItem}
+                            onClick={(e) => handleArchiveClass(e, cls.id)}
+                          >
+                            Archive
+                          </motion.div>
+                          <motion.div
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            style={styles.dropdownItem}
+                            onClick={(e) => { e.stopPropagation(); setSettingsClassroom(cls); handleSetView('classroomSettings'); setActiveMenu(null); }}
+                          >
+                            Settings
+                          </motion.div>
+                          <motion.div
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            style={{ ...styles.dropdownItem, color: '#ef4444' }}
+                            onClick={(e) => { e.stopPropagation(); handleDelete(e, cls.id); setActiveMenu(null); }}
+                          >
+                            Delete
+                          </motion.div>
                         </div>
                       )}
                     </div>
@@ -415,17 +519,32 @@ export default function StudentDashboard({ onLogout, onEnterClassroom }) {
             </div>
 
             <form onSubmit={handleJoin} style={styles.form}>
-              <input
-                type="text"
-                autoFocus
+              <motion.input
                 placeholder="e.g. CS101"
                 value={classCode}
                 onChange={(e) => { setClassCode(e.target.value); if (joinError) setJoinError(''); }}
-                style={styles.input}
+                style={{
+                  width: inputFocused ? '100%' : '80%',
+                  padding: '12px',
+                  borderRadius: '9999px',
+                  border: inputFocused ? '2px solid #007bff' : '1px solid #e2e8f0',
+                  backgroundColor: 'white',
+                  fontSize: '0.875rem',
+                  transition: 'width 0.3s, border-color 0.3s'
+                }}
+                onFocus={() => setInputFocused(true)}
+                onBlur={() => setInputFocused(false)}
               />
               {joinError && <p style={styles.errorText}>{joinError}</p>}
               <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px' }}>
-                <button type="submit" style={styles.joinButton}>Join</button>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  type="submit"
+                  style={styles.joinButton}
+                >
+                  Join
+                </motion.button>
               </div>
             </form>
           </div>

@@ -654,7 +654,7 @@ const uploadFile = (file, type) => new Promise((resolve) => {
 
 // STYLES (matching the dashboard / classroom look)
 const styles = {
-  container: { height: '100%', width: '100%', display: 'flex', background: 'linear-gradient(to bottom, #f3f4f6 0%, #cbd5e1 100%)', fontFamily: 'sans-serif', position: 'relative' },
+  container: { minHeight: '100vh', width: '100%', display: 'flex', background: 'linear-gradient(to bottom, #f3f4f6 0%, #cbd5e1 100%)', fontFamily: 'sans-serif', position: 'relative' },
   sidebar: { width: '250px', padding: '30px', display: 'flex', flexDirection: 'column', gap: '20px', zIndex: 10, height: '100%', boxSizing: 'border-box', overflowX: 'hidden', position: 'relative', transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)' },
   logoContainer: { display: 'flex', alignItems: 'baseline', fontSize: '2.5rem', fontWeight: '900', fontStyle: 'italic', textShadow: '2px 2px 4px rgba(0,0,0,0.1)' },
   logoV: { color: '#10b981' },

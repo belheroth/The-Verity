@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
+import { motion, AnimatePresence } from 'framer-motion';
 
 // IMPORT ALL PAGES
 import Login from './pages/Login';
@@ -118,24 +119,32 @@ export default function App() {
 // ==========================
 
   return (
-    <>
-      {/* --- AUTH ROUTES --- */}
-      {currentScreen === 'login' && (
-        <Login
-          onLogin={(user) => {
-            setCurrentUser(user);
-            if (user.role === 'Admin') {
-              setCurrentScreen('admin_dashboard');
-            } else if (user.role === 'Teacher') {
-              setCurrentScreen('teacher_dashboard');
-            } else {
-              lockDown(); // students only
-              setCurrentScreen('student_dashboard');
-            }
-          }}
-          onGoToRegister={() => setCurrentScreen('register')}
-        />
-      )}
+    <div style={{ height: '100%', width: '100%' }}>
+      <AnimatePresence>
+        <motion.div
+          key={currentScreen}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.25, ease: "easeInOut" }}
+        >
+          {/* --- AUTH ROUTES --- */}
+          {currentScreen === 'login' && (
+            <Login
+              onLogin={(user) => {
+                setCurrentUser(user);
+                if (user.role === 'Admin') {
+                  setCurrentScreen('admin_dashboard');
+                } else if (user.role === 'Teacher') {
+                  setCurrentScreen('teacher_dashboard');
+                } else {
+                  lockDown(); // students only
+                  setCurrentScreen('student_dashboard');
+                }
+              }}
+              onGoToRegister={() => setCurrentScreen('register')}
+            />
+          )}
 
       {currentScreen === 'register' && (
         <Register onBackToLogin={() => setCurrentScreen('login')} />
@@ -274,6 +283,8 @@ export default function App() {
           onGoToRegister={() => setCurrentScreen('register')}
         />
       )}
-    </>
+        </motion.div>
+      </AnimatePresence>
+    </div>
   );
 }

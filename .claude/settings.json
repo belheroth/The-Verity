@@ -1,6 +1,8 @@
 {
   "enabledPlugins": {
     "zero-hallucination-coder@claude-code-skills": true,
-    "engineering-advanced-skills@claude-code-skills": true
+    "engineering-advanced-skills@claude-code-skills": true,
+    "caveman@claude-code-skills": true,
+    "andrej-karpathy-skills@karpathy-skills": true
   }
 }

@@ -54,6 +54,38 @@ db.exec(`
         date_string TEXT UNIQUE,
         count INTEGER DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+        user TEXT,
+        type TEXT,
+        severity TEXT DEFAULT 'Normal',
+        desc TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS system_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS access_tokens (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token TEXT UNIQUE,
+        student_name TEXT,
+        classroom TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS question_bank (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        description TEXT,
+        starter_code TEXT,
+        test_cases TEXT,
+        points INTEGER DEFAULT 100,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
 `);
 
 module.exports = db;
