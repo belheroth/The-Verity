@@ -1,8 +1,9 @@
 node_modules
-npm-debug.log
-temp_*
+*/node_modules
 *.sqlite*
 database.sqlite*
 uploads/*
 .git
 .env
+frontend
+.vscode

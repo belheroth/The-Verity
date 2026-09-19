@@ -40,11 +40,19 @@ function normalizeRow(row) {
 
 function initSqlite() {
     if (sqliteDb) return;
-    const Database = require('better-sqlite3');
-    const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..');
-    const DB_FILE = path.join(DATA_DIR, 'database.sqlite');
-    sqliteDb = new Database(DB_FILE);
-    sqliteDb.pragma('journal_mode = WAL');
+    try {
+        const Database = require('better-sqlite3');
+        const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..');
+        const DB_FILE = path.join(DATA_DIR, 'database.sqlite');
+        sqliteDb = new Database(DB_FILE);
+        
+        // WAL mode uses POSIX shared memory (mmap) which segfaults (exit 139) in Docker overlayfs
+        if (process.platform === 'win32') {
+            try { sqliteDb.pragma('journal_mode = WAL'); } catch (e) {}
+        } else {
+            try { sqliteDb.pragma('journal_mode = DELETE'); } catch (e) {}
+        }
+        try { sqliteDb.pragma('busy_timeout = 5000'); } catch (e) {}
 
     // Run basic SQLite schema directly on this instance
     sqliteDb.exec(`
@@ -138,6 +146,9 @@ function initSqlite() {
 
     provider = 'sqlite';
     console.log(`[Database] Connected to SQLite (Local Storage): ${DB_FILE}`);
+    } catch (err) {
+        console.error('[Database] Failed to initialize SQLite:', err.message);
+    }
 }
 
 async function initPostgres() {
@@ -191,6 +202,10 @@ const readyPromise = (async () => {
             return;
         } catch (err) {
             console.warn(`[Database] PostgreSQL connection failed: ${err.message}`);
+            if (err.code === 'ENETUNREACH' || (DATABASE_URL && DATABASE_URL.includes('db.') && DATABASE_URL.includes('.supabase.co'))) {
+                console.warn('⚠️  [Database] IPv6 Error: Render does not support outbound IPv6 connections (db.*.supabase.co).');
+                console.warn('⚠️  [Database] Fix: In your Supabase Dashboard, click "Connect" -> select "Connection Pooler" (pooler.supabase.com:6543 or 5432) which supports IPv4!');
+            }
             console.warn('[Database] Falling back to local SQLite so your app stays fully functional.');
         }
     } else {

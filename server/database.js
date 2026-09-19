@@ -7,7 +7,11 @@ const DB_FILE = path.join(DATA_DIR, 'database.sqlite');
 
 const db = new Database(DB_FILE);
 
-db.pragma('journal_mode = WAL');
+if (process.platform === 'win32') {
+    try { db.pragma('journal_mode = WAL'); } catch (e) {}
+} else {
+    try { db.pragma('journal_mode = DELETE'); } catch (e) {}
+}
 
 db.exec(`
     CREATE TABLE IF NOT EXISTS users (
