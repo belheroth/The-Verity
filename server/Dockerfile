@@ -11,8 +11,11 @@ RUN apt-get update && apt-get install -y curl build-essential python3 make g++ s
 
 WORKDIR /app
 
+# Cache buster to ensure Render compiles fresh binaries for Linux
+ARG BUILD_ID=2026-09-20-v2
+
 # Install server dependencies and compile native binaries for Linux
-COPY package*.json ./
+COPY package.json ./
 RUN npm install --production && npm rebuild better-sqlite3 --build-from-source
 
 # Copy server application code

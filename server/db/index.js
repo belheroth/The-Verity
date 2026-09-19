@@ -151,16 +151,48 @@ function initSqlite() {
     }
 }
 
-async function initPostgres() {
+function parseDatabaseUrl(raw) {
+    if (!raw || typeof raw !== 'string') return null;
+    let url = raw.trim();
+
+    // 1. Remove wrapping quotes if present
+    if ((url.startsWith('"') && url.endsWith('"')) || (url.startsWith("'") && url.endsWith("'"))) {
+        url = url.slice(1, -1).trim();
+    }
+
+    // 2. Extract URL if prefixed with "psql "
+    const psqlMatch = url.match(/postgres(?:ql)?:\/\/[^\s'"]+/);
+    if (psqlMatch) {
+        url = psqlMatch[0];
+    }
+
+    // 3. Check for placeholders
+    const hasPlaceholder = url.includes('[YOUR-PASSWORD]') || 
+                           url.includes('[PASSWORD]') || 
+                           url.includes(':YOUR-PASSWORD@') || 
+                           url.includes(':PASSWORD@');
+
+    // 4. Auto-strip brackets around password ONLY if user typed :[myActualPassword]@
+    if (!hasPlaceholder) {
+        url = url.replace(/:\[([^\]]+)\]@/, ':$1@');
+    }
+
+    return { url, hasPlaceholder };
+}
+
+const parsedDb = parseDatabaseUrl(DATABASE_URL);
+const cleanedUrl = parsedDb ? parsedDb.url : null;
+
+async function initPostgres(connStr = cleanedUrl) {
     const { Pool } = require('pg');
     // Supabase requires SSL with rejectUnauthorized: false in Node environments
-    const isSupabase = DATABASE_URL.includes('supabase.co') || DATABASE_URL.includes('pooler.supabase.com');
-    const sslConfig = isSupabase || process.env.PG_SSL === 'true' || !DATABASE_URL.includes('localhost')
+    const isSupabase = connStr.includes('supabase.co') || connStr.includes('pooler.supabase.com');
+    const sslConfig = isSupabase || process.env.PG_SSL === 'true' || !connStr.includes('localhost')
         ? { rejectUnauthorized: false } 
         : undefined;
 
     pgPool = new Pool({
-        connectionString: DATABASE_URL,
+        connectionString: connStr,
         ssl: sslConfig,
         max: 15,
         idleTimeoutMillis: 30000,
@@ -184,29 +216,27 @@ async function initPostgres() {
     }
 }
 
-const isValidPgUrl = (url) => {
-    if (!url || typeof url !== 'string') return false;
-    const trimmed = url.trim();
-    return (trimmed.startsWith('postgres://') || trimmed.startsWith('postgresql://')) && 
-           trimmed.includes('@') && 
-           !trimmed.includes('[PASSWORD]') && 
-           !trimmed.includes('[YOUR-PASSWORD]');
-};
-
 // Initialization promise
 const readyPromise = (async () => {
-    if (isValidPgUrl(DATABASE_URL)) {
-        try {
-            console.log('[Database] Attempting connection to PostgreSQL...');
-            await initPostgres();
-            return;
-        } catch (err) {
-            console.warn(`[Database] PostgreSQL connection failed: ${err.message}`);
-            if (err.code === 'ENETUNREACH' || (DATABASE_URL && DATABASE_URL.includes('db.') && DATABASE_URL.includes('.supabase.co'))) {
-                console.warn('⚠️  [Database] IPv6 Error: Render does not support outbound IPv6 connections (db.*.supabase.co).');
-                console.warn('⚠️  [Database] Fix: In your Supabase Dashboard, click "Connect" -> select "Connection Pooler" (pooler.supabase.com:6543 or 5432) which supports IPv4!');
+    if (cleanedUrl) {
+        if (parsedDb && parsedDb.hasPlaceholder) {
+            console.error('❌ [Database] Configuration Error: Your DATABASE_URL still contains the placeholder "[YOUR-PASSWORD]".');
+            console.error('👉 Please go to Render Dashboard -> Environment -> edit DATABASE_URL and replace [YOUR-PASSWORD] with your actual Supabase database password.');
+        } else if (!cleanedUrl.startsWith('postgres://') && !cleanedUrl.startsWith('postgresql://')) {
+            console.error(`❌ [Database] Provided DATABASE_URL is not recognized as a PostgreSQL URL (must start with postgresql:// or postgres://).`);
+        } else {
+            try {
+                console.log('[Database] Attempting connection to PostgreSQL...');
+                await initPostgres(cleanedUrl);
+                return;
+            } catch (err) {
+                console.warn(`[Database] PostgreSQL connection failed: ${err.message}`);
+                if (err.code === 'ENETUNREACH' || (cleanedUrl.includes('db.') && cleanedUrl.includes('.supabase.co'))) {
+                    console.warn('⚠️  [Database] IPv6 Error: Render does not support direct IPv6 connections (db.*.supabase.co).');
+                    console.warn('⚠️  [Database] Fix: In your Supabase Dashboard, click "Connect" -> select "Connection Pooler" (pooler.supabase.com:6543 or 5432) which supports IPv4!');
+                }
+                console.warn('[Database] Falling back to local SQLite so your app stays fully functional.');
             }
-            console.warn('[Database] Falling back to local SQLite so your app stays fully functional.');
         }
     } else {
         if (DATABASE_URL && DATABASE_URL.trim().length > 0) {
