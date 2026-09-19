@@ -931,12 +931,13 @@ app.delete('/question-bank/:id', authenticateToken, requireRole('Admin', 'Teache
 });
 
 // START SERVER (deferred when loaded from Electron; auto-start when run directly)
-function start(port = 3001) {
+function start(port = process.env.PORT || 3001) {
     return new Promise((resolve) => {
-        server.listen(port, () => {
-            console.log(`✅ BACKEND IS ALIVE: http://localhost:${port}`);
+        const p = parseInt(port, 10) || 3001;
+        server.listen(p, '0.0.0.0', () => {
+            console.log(`✅ BACKEND IS ALIVE: http://0.0.0.0:${p}`);
             console.log(`📦 Database Provider: ${db.providerName}`);
-            resolve(port);
+            resolve(p);
         });
     });
 }
@@ -950,7 +951,8 @@ function stop() {
 
 // Run immediately when this file is executed directly (e.g. `node server/server.js`).
 if (require.main === module) {
-    start(3001);
+    const port = process.env.PORT || 3001;
+    start(port);
 }
 
 module.exports = { start, stop, app };

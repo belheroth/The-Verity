@@ -39,14 +39,103 @@ function normalizeRow(row) {
 }
 
 function initSqlite() {
+    if (sqliteDb) return;
     const Database = require('better-sqlite3');
     const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..');
     const DB_FILE = path.join(DATA_DIR, 'database.sqlite');
     sqliteDb = new Database(DB_FILE);
     sqliteDb.pragma('journal_mode = WAL');
 
-    // Run basic SQLite schema if needed
-    require('../database.js');
+    // Run basic SQLite schema directly on this instance
+    sqliteDb.exec(`
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            role TEXT NOT NULL,
+            lastLogin TEXT,
+            status TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS classrooms (
+            id INTEGER PRIMARY KEY,
+            code TEXT,
+            section TEXT,
+            name TEXT,
+            subject TEXT,
+            instructor TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS classwork (
+            id INTEGER PRIMARY KEY,
+            classroom_id INTEGER,
+            title TEXT,
+            description TEXT,
+            dueDate TEXT,
+            type TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (classroom_id) REFERENCES classrooms(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS submissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            assignment_id INTEGER,
+            student_name TEXT,
+            history TEXT,
+            submittedAt TEXT,
+            FOREIGN KEY (assignment_id) REFERENCES classwork(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS security_flags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date_string TEXT UNIQUE,
+            count INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+            "user" TEXT,
+            type TEXT,
+            severity TEXT DEFAULT 'Normal',
+            "desc" TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS system_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS access_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            token TEXT UNIQUE,
+            student_name TEXT,
+            classroom TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS question_bank (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT,
+            description TEXT,
+            starter_code TEXT,
+            test_cases TEXT,
+            points INTEGER DEFAULT 100,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS grades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            assignment_id TEXT,
+            student_id TEXT,
+            grade TEXT,
+            feedback TEXT,
+            graded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(assignment_id, student_id)
+        );
+    `);
+
     provider = 'sqlite';
     console.log(`[Database] Connected to SQLite (Local Storage): ${DB_FILE}`);
 }
@@ -84,9 +173,18 @@ async function initPostgres() {
     }
 }
 
+const isValidPgUrl = (url) => {
+    if (!url || typeof url !== 'string') return false;
+    const trimmed = url.trim();
+    return (trimmed.startsWith('postgres://') || trimmed.startsWith('postgresql://')) && 
+           trimmed.includes('@') && 
+           !trimmed.includes('[PASSWORD]') && 
+           !trimmed.includes('[YOUR-PASSWORD]');
+};
+
 // Initialization promise
 const readyPromise = (async () => {
-    if (DATABASE_URL) {
+    if (isValidPgUrl(DATABASE_URL)) {
         try {
             console.log('[Database] Attempting connection to PostgreSQL...');
             await initPostgres();
@@ -96,7 +194,11 @@ const readyPromise = (async () => {
             console.warn('[Database] Falling back to local SQLite so your app stays fully functional.');
         }
     } else {
-        console.log('[Database] No DATABASE_URL found. Running with local SQLite database.');
+        if (DATABASE_URL && DATABASE_URL.trim().length > 0) {
+            console.warn(`[Database] Provided DATABASE_URL is not a valid PostgreSQL connection string. Falling back to local SQLite.`);
+        } else {
+            console.log('[Database] No DATABASE_URL found. Running with local SQLite database.');
+        }
     }
     initSqlite();
 })();
