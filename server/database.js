@@ -86,6 +86,16 @@ db.exec(`
         points INTEGER DEFAULT 100,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS grades (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        assignment_id TEXT,
+        student_id TEXT,
+        grade TEXT,
+        feedback TEXT,
+        graded_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(assignment_id, student_id)
+    );
 `);
 
 module.exports = db;

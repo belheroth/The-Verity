@@ -34,33 +34,40 @@ The app runs as an Electron desktop app and can also be served as a standard web
 
 - **Always use forward slashes** (`/`) in all file paths and imports, even on Windows.
 - Import aliases: use relative paths (e.g. `../components/Foo`). There are no configured `@` aliases.
-- Source lives in `src/`. Never write runtime code outside `src/`, `server/`, or `electron/`.
+- Frontend source lives in `frontend/src/`. Never write runtime code outside `frontend/src/`, `server/`, or `electron/`.
 
 ---
 
 ## 4. Project Structure
 
 ```
-src/
-  pages/
-    AdminDashboard.jsx      ← Multi-tab admin SPA (>1500 lines — prime refactor candidate)
-    TeacherDashboard.jsx    ← Teacher home
-    StudentDashboard.jsx    ← Student home
-    Login.jsx / Register.jsx
-    ClassroomView.jsx / ClassroomSettings.jsx
-    TeacherClasswork.jsx / TeacherGrading.jsx / TeacherView.jsx
-    StudentView.jsx / StudentCalendar.jsx / TeacherCalendar.jsx
-    SettingsPanel.jsx / ProfileMenu.jsx / NotFound.jsx
-  components/
-    PendingInstructorApproval.jsx   ← Standalone approval-queue card
-    UITransitionsShowcase.jsx
-    MicroInteractionsShowcase.jsx
-    FilterChip.jsx
-    ProtectedRoute.jsx
-  App.jsx       ← Top-level router
-  index.css     ← Global Neumorphism design tokens
-server/         ← Express API
-electron/       ← Electron main process
+frontend/                   ← All React / Vite code
+  src/
+    pages/
+      AdminDashboard.jsx      ← Multi-tab admin SPA (>1500 lines — prime refactor candidate)
+      TeacherDashboard.jsx    ← Teacher home
+      StudentDashboard.jsx    ← Student home
+      Login.jsx / Register.jsx
+      ClassroomView.jsx / ClassroomSettings.jsx
+      TeacherClasswork.jsx / TeacherGrading.jsx / TeacherView.jsx
+      StudentView.jsx / StudentCalendar.jsx / TeacherCalendar.jsx
+      SettingsPanel.jsx / ProfileMenu.jsx / NotFound.jsx
+    components/
+      PendingInstructorApproval.jsx   ← Standalone approval-queue card
+      UITransitionsShowcase.jsx
+      MicroInteractionsShowcase.jsx
+      FilterChip.jsx
+      ProtectedRoute.jsx
+    App.jsx       ← Top-level router
+    index.css     ← Global Neumorphism design tokens
+  public/             ← Static assets
+  index.html          ← Vite entry HTML
+  vite.config.js      ← Builds to root dist/ for electron-builder
+  package.json        ← Frontend deps (React, Vite, etc.)
+  scripts/            ← One-off utility scripts
+server/             ← Express API
+electron/           ← Electron main process
+dist/               ← Vite production build output (root, for electron-builder)
 ```
 
 ---
@@ -191,7 +198,10 @@ if (!res.ok) { /* handle error via data.message */ }
 
 ## 11. Environment
 
-- Dev server: `npm run dev` → http://localhost:5173
-- API server: runs on port 3001 (started separately or via Electron)
-- Node: check `package.json` for exact version requirements
+- Dev server: `npm run dev` (from project root) → starts both Vite (http://localhost:5173) and Express backend
+- Vite can also be run standalone: `cd frontend && npm run dev`
+- API server: runs on port 3001
+- Frontend deps: install with `cd frontend && npm install`
+- Backend deps: install with `cd server && npm install`
+- Root deps (electron/concurrently): install with `npm install` at project root
 - Windows environment — use PowerShell-compatible commands; use `/` for all JS/JSX paths

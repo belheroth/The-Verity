@@ -8,6 +8,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+frontend/node_modules
 dist
 dist-ssr
 *.local
@@ -27,8 +28,11 @@ dist-ssr
 *.sln
 *.sw?
 
-# Verity Backend Data
+# Verity Backend & Client Data
 server/temp_*
 server/database.json
 server/database.sqlite*
+*.sqlite*
+local-cache.*
 server/uploads/
+

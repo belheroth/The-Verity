@@ -2,6 +2,7 @@ const { app, BrowserWindow, globalShortcut, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { fork, spawn } = require('child_process');
+const { initLocalDb, localDbAPI } = require('./local-db.cjs');
 
 let mainWindow;
 let serverProcess = null;
@@ -59,7 +60,7 @@ function seedDatabase(dataDir) {
   const dbPath = path.join(dataDir, 'database.json');
   const seedPath = app.isPackaged
     ? path.join(process.resourcesPath, 'database.json')
-    : path.join(__dirname, 'server', 'database.json');
+    : path.join(__dirname, '..', 'server', 'database.json');
 
   let current = { users: [], classwork: {}, classrooms: [], securityFlags: {} };
   if (fs.existsSync(dbPath)) {
@@ -123,12 +124,26 @@ function stopServer() {
 // Shortcuts we swallow while a student is locked in.
 const LOCKED_SHORTCUTS = [
   'Alt+Tab',
+  'Alt+F4',
+  'Alt+Escape',
+  'Alt+Space',
   'Super',            // Windows key
-  'Super+D',
-  'Super+Tab',
+  'Super+Tab',        // Task View
+  'Meta+Tab',         // Task View (alternate key name)
+  'Super+D',          // Show Desktop
+  'Super+M',          // Minimize all
+  'Super+E',          // File Explorer
+  'Super+L',          // Lock screen
+  'Super+R',          // Run dialog
+  'Super+S',          // Search
+  'Super+A',          // Action center
+  'Super+I',          // Settings
+  'Super+X',          // Quick link menu
   'CommandOrControl+W',
   'CommandOrControl+Shift+W',
-  'Alt+F4',
+  'CommandOrControl+Tab',
+  'CommandOrControl+Alt+Delete',
+  'F11',
 ];
 
 function createWindow() {
@@ -145,7 +160,7 @@ function createWindow() {
 
   if (app.isPackaged) {
     // Production: load the Vite build output.
-    mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
+    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   } else {
     // Development: load the live Vite dev server.
     mainWindow.loadURL('http://localhost:5173');
@@ -218,6 +233,12 @@ function disableLockdown() {
 }
 
 app.whenReady().then(() => {
+  try {
+    initLocalDb(app.getPath('userData'));
+  } catch (e) {
+    console.error('[main] initLocalDb error:', e);
+  }
+
   if (app.isPackaged) {
     // Production: start the backend server + native keyboard hook, then open
     // the window after a short delay to give the server time to bind its port.
@@ -244,6 +265,30 @@ ipcMain.on('close-app', () => {
   disableLockdown(); // make sure the close handler lets us quit
   app.quit();
 });
+
+// Local SQLite storage IPC handlers
+ipcMain.handle('local-db:saveDraft', (_, assignmentId, studentId, code, history) => 
+  localDbAPI.saveDraft(assignmentId, studentId, code, history));
+ipcMain.handle('local-db:getDraft', (_, assignmentId, studentId) => 
+  localDbAPI.getDraft(assignmentId, studentId));
+ipcMain.handle('local-db:cacheClassrooms', (_, classrooms) => 
+  localDbAPI.cacheClassrooms(classrooms));
+ipcMain.handle('local-db:getCachedClassrooms', () => 
+  localDbAPI.getCachedClassrooms());
+ipcMain.handle('local-db:cacheClasswork', (_, classroomId, classwork) => 
+  localDbAPI.cacheClasswork(classroomId, classwork));
+ipcMain.handle('local-db:getCachedClasswork', (_, classroomId) => 
+  localDbAPI.getCachedClasswork(classroomId));
+ipcMain.handle('local-db:addToSyncQueue', (_, action, url, method, body) => 
+  localDbAPI.addToSyncQueue(action, url, method, body));
+ipcMain.handle('local-db:getSyncQueue', () => 
+  localDbAPI.getSyncQueue());
+ipcMain.handle('local-db:removeFromSyncQueue', (_, id) => 
+  localDbAPI.removeFromSyncQueue(id));
+ipcMain.handle('local-db:setLocal', (_, key, value) => 
+  localDbAPI.setLocal(key, value));
+ipcMain.handle('local-db:getLocal', (_, key) => 
+  localDbAPI.getLocal(key));
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();

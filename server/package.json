@@ -1,1 +1,1 @@
-{"type":"commonjs","dependencies":{"better-sqlite3":"^13.0.3","cors":"^2.8.6","express":"^5.2.1","google-auth-library":"^11.0.2","socket.io":"^4.8.3"}}
+{"type":"commonjs","dependencies":{"better-sqlite3":"^13.0.3","cors":"^2.8.6","dotenv":"^18.0.1","express":"^5.2.1","google-auth-library":"^11.0.2","jsonwebtoken":"^9.0.3","pg":"^8.23.0","socket.io":"^4.8.3"}}
