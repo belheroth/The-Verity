@@ -12,11 +12,11 @@ RUN apt-get update && apt-get install -y curl && \
 WORKDIR /app
 
 # Install server dependencies
-COPY server/package*.json ./
+COPY package*.json ./
 RUN npm install --production
 
 # Copy server application code
-COPY server/ ./
+COPY . ./
 
 # Environment configuration
 ENV PORT=3001
