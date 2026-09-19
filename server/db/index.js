@@ -142,6 +142,9 @@ function initSqlite() {
             graded_at TEXT DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(assignment_id, student_id)
         );
+
+        INSERT OR IGNORE INTO users (name, email, password, role, status)
+        VALUES ('System Admin', 'admin@verity.com', 'admin', 'Admin', 'Active');
     `);
 
     provider = 'sqlite';

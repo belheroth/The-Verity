@@ -90,3 +90,8 @@ CREATE INDEX IF NOT EXISTS idx_classwork_classroom ON classwork(classroom_id);
 CREATE INDEX IF NOT EXISTS idx_submissions_assignment ON submissions(assignment_id);
 CREATE INDEX IF NOT EXISTS idx_submissions_student ON submissions(student_name);
 CREATE INDEX IF NOT EXISTS idx_grades_assignment_student ON grades(assignment_id, student_id);
+
+-- Default Admin Account
+INSERT INTO users (name, email, password, role, status)
+VALUES ('System Admin', 'admin@verity.com', 'admin', 'Admin', 'Active')
+ON CONFLICT (email) DO NOTHING;
