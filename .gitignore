@@ -21,8 +21,14 @@ dist-ssr
 .vscode/*
 ! .vscode/extensions.json
 .idea
+CLAUDE.md
+GEMINI.md
+AGENTS.md
 .claude/
 .agents/
+.gemini/
+.cursor/
+.cursorrules/
 frontend-design/
 .DS_Store
 *.suo
