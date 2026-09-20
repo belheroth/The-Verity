@@ -177,6 +177,7 @@ function createWindow() {
     width: 1200,
     height: 800,
     show: false, // Initially hidden while splash screen is active
+    icon: path.join(__dirname, 'assets', 'icon.png'),
     kiosk: false, // start unlocked — only students get locked down (after login)
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

@@ -59,7 +59,8 @@
       }
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "electron/assets/icon.ico"
     },
     "nsis": {
       "oneClick": false,
@@ -68,6 +69,8 @@
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "shortcutName": "The Verity",
+      "installerIcon": "electron/assets/icon.ico",
+      "uninstallerIcon": "electron/assets/icon.ico",
       "runAfterFinish": true
     }
   }
