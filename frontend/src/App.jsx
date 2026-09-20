@@ -26,6 +26,10 @@ const socket = io(CLOUD_SOCKET || LOCAL_SOCKET, {
   reconnectionAttempts: 10,
   reconnectionDelay: 2000,
   timeout: 5000,
+  auth: (cb) => {
+    const token = localStorage.getItem('verity_token') || localStorage.getItem('token');
+    cb({ token });
+  }
 });
 
 if (CLOUD_SOCKET && CLOUD_SOCKET !== LOCAL_SOCKET) {
@@ -148,6 +152,10 @@ export default function App() {
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem('currentUser', JSON.stringify(currentUser));
+      const token = localStorage.getItem('verity_token') || localStorage.getItem('token');
+      if (token) {
+        socket.emit('authenticate', token);
+      }
     } else {
       localStorage.removeItem('currentUser');
     }

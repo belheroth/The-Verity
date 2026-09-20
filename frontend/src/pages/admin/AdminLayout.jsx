@@ -1,6 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { BarChart3, Users, Home, Shield, Settings, Search, Bell, Plus, X, Trash2, User, Menu, X as XIcon, Filter, CheckCircle, AlertCircle } from 'lucide-react';
+import ProfileMenu from '../ProfileMenu';
 
 // Shared styles (moved from original file for layout concerns)
 const layoutStyles = {
@@ -15,9 +16,9 @@ const layoutStyles = {
     zIndex: 50
   },
   sidebar: (collapsed) => ({
-    width: collapsed ? '88px' : '240px',
-    minWidth: collapsed ? '88px' : '240px',
-    padding: collapsed ? '20px 8px 20px' : '20px 14px 20px',
+    width: collapsed ? '84px' : '240px',
+    minWidth: collapsed ? '84px' : '240px',
+    padding: '20px 14px 20px',
     display: 'flex',
     flexDirection: 'column',
     flexShrink: 0,
@@ -25,6 +26,35 @@ const layoutStyles = {
     background: 'transparent',
     overflowY: 'auto'
   }),
+  sidebarBtn: (collapsed) => ({
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: '16px',
+    padding: '10px 18px',
+    width: '100%',
+    height: '42px',
+    borderRadius: '14px',
+    border: 'none',
+    backgroundColor: 'transparent',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    overflow: 'hidden',
+    whiteSpace: 'nowrap',
+    position: 'relative',
+    zIndex: 1
+  }),
+  badge: {
+    fontSize: '0.7rem',
+    backgroundColor: '#EEF0F3',
+    color: '#475569',
+    padding: '3px 8px',
+    borderRadius: '10px',
+    marginLeft: '6px',
+    fontStyle: 'normal',
+    transform: 'translateY(-5px)',
+    border: '1px solid #cbd5e1'
+  },
   mainContent: {
     flex: 1,
     display: 'flex',
@@ -101,36 +131,41 @@ export default function AdminLayout({
   const finalSetShowSelectUsersPopup = setShowSelectUsersPopup || setLocalShowSelectUsersPopup;
 
   const navRefs = useRef({});
-  const [indicatorStyle, setIndicatorStyle] = useState({ top: 0, height: 42, opacity: 0, transition: false });
-  const isReady = useRef(false);
+  const [indicatorStyle, setIndicatorStyle] = useState(() => {
+    try {
+      const savedTop = sessionStorage.getItem('verity_admin_nav_indicator_top');
+      const savedHeight = sessionStorage.getItem('verity_admin_nav_indicator_height');
+      if (savedTop !== null && !isNaN(Number(savedTop))) {
+        return {
+          top: Number(savedTop),
+          height: savedHeight ? Number(savedHeight) : 42,
+          opacity: 1,
+          transition: true
+        };
+      }
+    } catch { /* ignore */ }
+    return { top: 0, height: 42, opacity: 0, transition: false };
+  });
 
   useLayoutEffect(() => {
     const update = () => {
-      const activeRef = navRefs.current[activeTab];
+      const activeRef = navRefs.current[currentActiveTab];
       if (activeRef) {
-        if (!isReady.current) {
-          isReady.current = true;
-          setIndicatorStyle({
-            top: activeRef.offsetTop,
-            height: activeRef.offsetHeight,
-            opacity: 1,
-            transition: false
-          });
-          const t = setTimeout(() => {
-            setIndicatorStyle(prev => ({ ...prev, transition: true }));
-          }, 60);
-          return () => clearTimeout(t);
-        } else {
-          setIndicatorStyle(prev => {
-            const distance = Math.abs(activeRef.offsetTop - prev.top);
-            const transitionStr = distance > 110
-              ? 'top 0.35s cubic-bezier(0.16, 1, 0.3, 1), height 0.25s ease, opacity 0.2s ease'
-              : 'top 0.38s cubic-bezier(0.34, 1.18, 0.64, 1), height 0.25s ease, opacity 0.2s ease';
+        try {
+          sessionStorage.setItem('verity_admin_nav_indicator_top', String(activeRef.offsetTop));
+          sessionStorage.setItem('verity_admin_nav_indicator_height', String(activeRef.offsetHeight));
+        } catch { /* ignore */ }
 
-            if (prev.top === activeRef.offsetTop && prev.height === activeRef.offsetHeight && prev.opacity === 1 && prev.transition === transitionStr) return prev;
-            return { top: activeRef.offsetTop, height: activeRef.offsetHeight, opacity: 1, transition: transitionStr };
-          });
-        }
+        setIndicatorStyle(prev => {
+          const distance = Math.abs(activeRef.offsetTop - prev.top);
+          const bounceOvershoot = distance > 0 ? Math.min(0.42, Math.max(0.03, 16 / distance)) : 0;
+          const bounceRatio = (1 + bounceOvershoot).toFixed(3);
+          const duration = distance > 150 ? '0.46s' : '0.38s';
+          const transitionStr = `top ${duration} cubic-bezier(0.34, ${bounceRatio}, 0.64, 1), height 0.25s ease, opacity 0.2s ease`;
+
+          if (prev.top === activeRef.offsetTop && prev.height === activeRef.offsetHeight && prev.opacity === 1 && prev.transition === transitionStr) return prev;
+          return { top: activeRef.offsetTop, height: activeRef.offsetHeight, opacity: 1, transition: transitionStr };
+        });
       } else {
         setIndicatorStyle(prev => prev.opacity === 0 ? prev : { ...prev, opacity: 0 });
       }
@@ -139,7 +174,7 @@ export default function AdminLayout({
     update();
     const timer = setTimeout(update, 20);
     return () => clearTimeout(timer);
-  }, [activeTab, sidebarCollapsed]);
+  }, [currentActiveTab, currentSidebarCollapsed]);
 
   const navItems = [
     { id: 'dashboard', Icon: BarChart3, label: 'Dashboard Overview' },
@@ -162,62 +197,92 @@ export default function AdminLayout({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', minHeight: '100vh', backgroundColor: '#EEF0F3', fontFamily: 'Arial, Helvetica, sans-serif', position: 'relative', overflow: 'hidden' }}>
-      {/* ═══ GLOBAL TOP NAV (Google Classroom Style) ═══ */}
+      {/* ═══ GLOBAL TOP HEADER (Matched with Instructor/Student) ═══ */}
       <header style={layoutStyles.header}>
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <button
             onClick={() => finalSetSidebarCollapsed(!currentSidebarCollapsed)}
-            style={{ background: 'none', border: 'none', padding: '6px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', flexShrink: 0, marginRight: '16px' }}
+            style={{
+              background: 'none',
+              border: 'none',
+              padding: '6px',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#64748b',
+              flexShrink: 0,
+              marginRight: '16px'
+            }}
             title={currentSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             className="icon-btn-anim"
           >
             <Menu size={24} color="#64748b" />
           </button>
 
-          <div style={{ display: 'flex', alignItems: 'baseline', fontSize: '2.5rem', fontWeight: '900', fontStyle: 'italic', cursor: 'pointer', marginRight: '32px' }} onClick={() => finalSetActiveTab('dashboard')}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'baseline',
+              fontSize: '2.5rem',
+              fontWeight: '900',
+              fontStyle: 'italic',
+              cursor: 'pointer'
+            }}
+            onClick={() => finalSetActiveTab('dashboard')}
+          >
             <span style={{ color: '#10b981' }}>V</span>
             <span style={{ color: '#1e293b' }}>erity</span>
-            <span style={{ fontSize: '0.7rem', backgroundColor: '#EEF0F3', color: '#475569', padding: '3px 8px', borderRadius: '10px', marginLeft: '6px', fontStyle: 'normal', transform: 'translateY(-5px)' }}>Admin</span>
+            <span style={layoutStyles.badge}>Admin</span>
           </div>
-
-          <h1 style={{ margin: 0, fontSize: '1.4rem', fontWeight: '800', color: '#0f172a' }}>
-            {getHeaderTitle(currentActiveTab)}
-          </h1>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          {currentActiveTab === 'dashboard' && (
-            <div style={{ display: 'flex', alignItems: 'center', backgroundColor: '#f1f5f9', borderRadius: '9999px', padding: '8px 18px', width: '260px' }}>
-              <motion.input
-                value={currentQuery}
-                onChange={e => finalSetQuery(e.target.value)}
-                placeholder="Search..."
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  outline: 'none',
-                  width: currentDashboardSearchFocused ? '100%' : '80%',
-                  borderColor: currentDashboardSearchFocused ? '2px solid #007bff' : '1px solid #e2e8f0',
-                  fontSize: '0.875rem',
-                  color: '#334155',
-                  transition: 'width 0.3s, border-color 0.3s'
-                }}
-                onFocus={() => finalSetDashboardSearchFocused(true)}
-                onBlur={() => finalSetDashboardSearchFocused(false)}
-              />
-              <Search size={16} color="#64748b" />
-            </div>
-          )}
-
           <div style={{ position: 'relative' }}>
-            <button onClick={() => finalSetShowNotifications(!currentShowNotifications)} style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#f1f5f9', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Notifications">
+            <button
+              onClick={() => finalSetShowNotifications(!currentShowNotifications)}
+              style={{
+                width: '42px',
+                height: '42px',
+                borderRadius: '50%',
+                backgroundColor: '#e2e8f0',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '2px 2px 5px rgba(0,0,0,0.06)'
+              }}
+              title="Notifications"
+            >
               <Bell size={18} color="#475569" />
               {currentNotifications.length > 0 && (
-                <span style={{ position: 'absolute', top: '10px', right: '10px', width: '8px', height: '8px', backgroundColor: '#ef4444', borderRadius: '50%', border: '1px solid white' }} />
+                <span style={{
+                  position: 'absolute',
+                  top: '10px',
+                  right: '10px',
+                  width: '8px',
+                  height: '8px',
+                  backgroundColor: '#ef4444',
+                  borderRadius: '50%',
+                  border: '1.5px solid white'
+                }} />
               )}
             </button>
             {currentShowNotifications && (
-              <div style={{ position: 'absolute', top: '48px', right: 0, width: '320px', backgroundColor: 'white', borderRadius: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', zIndex: 100, padding: '16px', border: '1px solid #e2e8f0' }} className="animate-scale-in">
+              <div style={{
+                position: 'absolute',
+                top: '52px',
+                right: 0,
+                width: '320px',
+                backgroundColor: 'white',
+                borderRadius: '16px',
+                boxShadow: '0 10px 25px rgba(0,0,0,0.12)',
+                zIndex: 200,
+                padding: '16px',
+                border: '1px solid #e2e8f0'
+              }} className="animate-scale-in">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                   <h3 style={{ margin: 0, fontSize: '0.95rem', color: '#1e293b' }}>Notifications</h3>
                   {currentNotifications.length > 0 && (
@@ -242,6 +307,8 @@ export default function AdminLayout({
               </div>
             )}
           </div>
+
+          <ProfileMenu onLogout={onLogout} />
         </div>
       </header>
 
@@ -332,24 +399,7 @@ export default function AdminLayout({
                   key={id}
                   ref={el => navRefs.current[id] = el}
                   onClick={() => finalSetActiveTab(id)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'flex-start',
-                    gap: '16px',
-                    padding: '10px 18px',
-                    width: '100%',
-                    height: '42px',
-                    borderRadius: '14px',
-                    border: 'none',
-                    backgroundColor: 'transparent',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    overflow: 'hidden',
-                    whiteSpace: 'nowrap',
-                    position: 'relative',
-                    zIndex: 1
-                  }}
+                  style={layoutStyles.sidebarBtn(currentSidebarCollapsed)}
                   title={currentSidebarCollapsed ? label : ''}
                 >
                   <Icon size={20} color={active ? '#10b981' : '#475569'} style={{ flexShrink: 0 }} />
@@ -362,46 +412,6 @@ export default function AdminLayout({
               );
             })}
           </nav>
-
-          {/* Bottom Profile & Logout Pill */}
-          <div style={{
-            marginTop: 'auto',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px',
-            opacity: currentSidebarCollapsed ? 0 : 1,
-            pointerEvents: currentSidebarCollapsed ? 'none' : 'auto',
-            transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-            maxHeight: currentSidebarCollapsed ? 0 : '150px',
-            paddingTop: currentSidebarCollapsed ? 0 : '16px',
-            alignItems: 'center',
-            overflow: 'hidden'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', justifyContent: 'flex-start', paddingLeft: '18px' }}>
-              <div style={{ width: '38px', height: '38px', borderRadius: '50%', backgroundColor: '#cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.1)' }}>
-                <User size={20} color="#475569" />
-              </div>
-              <span style={{ fontSize: '0.88rem', fontWeight: '700', color: '#1e293b' }}>System Admin</span>
-            </div>
-            <button
-              onClick={onLogout}
-              style={{
-                backgroundColor: '#dc2626',
-                color: 'white',
-                border: 'none',
-                borderRadius: '9999px',
-                padding: '8px 24px',
-                fontWeight: '700',
-                fontSize: '0.82rem',
-                cursor: 'pointer',
-                boxShadow: '0 2px 8px rgba(220, 38, 38, 0.3)',
-                whiteSpace: 'nowrap'
-              }}
-              className="btn-anim"
-            >
-              Logout
-            </button>
-          </div>
         </aside>
 
         {/* ═══ MAIN CONTENT AREA ═══ */}

@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -6,8 +6,9 @@ import { fileURLToPath } from 'url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig(({ mode }) => {
-  const isDev = mode === 'development';
-  const defaultApiUrl = isDev ? 'http://localhost:3001' : 'https://verity-2z4v.onrender.com';
+  const env = loadEnv(mode, __dirname, '');
+  const apiUrl = env.VITE_API_URL || process.env.VITE_API_URL || 'http://localhost:3001';
+  const socketUrl = env.VITE_SOCKET_URL || process.env.VITE_SOCKET_URL || apiUrl;
 
   return {
     base: './', // relative asset paths so the build works from file:// in Electron
@@ -37,8 +38,8 @@ export default defineConfig(({ mode }) => {
       }
     },
     define: {
-      'import.meta.env.VITE_API_URL': JSON.stringify(process.env.VITE_API_URL || defaultApiUrl),
-      'import.meta.env.VITE_SOCKET_URL': JSON.stringify(process.env.VITE_SOCKET_URL || defaultApiUrl)
+      'import.meta.env.VITE_API_URL': JSON.stringify(apiUrl),
+      'import.meta.env.VITE_SOCKET_URL': JSON.stringify(socketUrl)
     }
   };
 })

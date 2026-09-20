@@ -1,4 +1,4 @@
-const { app, BrowserWindow, globalShortcut, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, globalShortcut, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { fork, spawn } = require('child_process');
@@ -145,6 +145,14 @@ const LOCKED_SHORTCUTS = [
   'CommandOrControl+Tab',
   'CommandOrControl+Alt+Delete',
   'F11',
+  'F12',
+  'CommandOrControl+Shift+I',
+  'CommandOrControl+Shift+J',
+  'CommandOrControl+Shift+C',
+  'CommandOrControl+U',
+  'CommandOrControl+R',
+  'CommandOrControl+Shift+R',
+  'F5',
 ];
 
 function createSplashWindow() {
@@ -179,11 +187,69 @@ function createWindow() {
     show: false, // Initially hidden while splash screen is active
     icon: path.join(__dirname, 'assets', 'icon.png'),
     kiosk: false, // start unlocked — only students get locked down (after login)
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       nodeIntegration: false,
       contextIsolation: true,
+      devTools: !app.isPackaged,
     },
+  });
+
+  // Explicitly remove the menu bar (File, Edit, View, Window) from the window
+  mainWindow.setMenu(null);
+  mainWindow.setMenuBarVisibility(false);
+
+  // If DevTools is opened, immediately close it in production or when student lockdown is active
+  mainWindow.webContents.on('devtools-opened', () => {
+    if (app.isPackaged || lockdownActive) {
+      mainWindow.webContents.closeDevTools();
+    }
+  });
+
+  // Block DevTools shortcuts and reload keys
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    const isDevToolsShortcut =
+      input.key === 'F12' ||
+      ((input.control || input.meta) && input.shift && ['I', 'i', 'J', 'j', 'C', 'c'].includes(input.key)) ||
+      ((input.control || input.meta) && ['u', 'U'].includes(input.key));
+
+    if (isDevToolsShortcut && (app.isPackaged || lockdownActive)) {
+      event.preventDefault();
+      return;
+    }
+
+    if (lockdownActive) {
+      const isReloadShortcut =
+        input.key === 'F5' ||
+        ((input.control || input.meta) && ['r', 'R'].includes(input.key));
+      if (isReloadShortcut) {
+        event.preventDefault();
+      }
+    }
+  });
+
+  // Restrict child window creation and external link navigation
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // Open external links safely in OS default browser rather than an uncontrolled Electron window
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    try {
+      const parsedUrl = new URL(navigationUrl);
+      // Prevent redirecting the main app window to external sites
+      if (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') {
+        if (!app.isPackaged && parsedUrl.host === 'localhost:5173') {
+          return; // Allow Vite dev server in local development
+        }
+        event.preventDefault();
+        shell.openExternal(navigationUrl);
+      }
+    } catch (_) {}
   });
 
   if (app.isPackaged) {
@@ -258,6 +324,14 @@ function createWindow() {
 function enableLockdown() {
   if (!mainWindow) return;
   lockdownActive = true;
+
+  // Immediately close developer options if open
+  try {
+    if (mainWindow.webContents && mainWindow.webContents.isDevToolsOpened()) {
+      mainWindow.webContents.closeDevTools();
+    }
+  } catch (_) {}
+
   mainWindow.setKiosk(true);
   mainWindow.setAlwaysOnTop(true, 'screen-saver');
   mainWindow.setVisibleOnAllWorkspaces(true);
@@ -286,6 +360,9 @@ function disableLockdown() {
 }
 
 app.whenReady().then(() => {
+  // Completely remove default application menu bar (File, Edit, View, Window, Help)
+  Menu.setApplicationMenu(null);
+
   createSplashWindow();
 
   try {

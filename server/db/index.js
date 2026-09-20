@@ -180,6 +180,15 @@ function parseDatabaseUrl(raw) {
         url = url.replace(/:\[([^\]]+)\]@/, ':$1@');
     }
 
+    // 5. Automatically encode special characters (% and ?) in passwords if unencoded
+    const authMatch = url.match(/^(postgres(?:ql)?:\/\/[^:]+:)(.*)(@[^@]+)$/);
+    if (authMatch && !hasPlaceholder) {
+        const [, prefix, rawPass, suffix] = authMatch;
+        if (!rawPass.includes('%25') && (rawPass.includes('%') || rawPass.includes('?'))) {
+            url = `${prefix}${encodeURIComponent(rawPass)}${suffix}`;
+        }
+    }
+
     return { url, hasPlaceholder };
 }
 

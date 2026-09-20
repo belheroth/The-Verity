@@ -14,11 +14,16 @@ const db = require('./db/index.js');
 const DATA_DIR = process.env.DATA_DIR || __dirname;
 
 const app = express();
+app.set('trust proxy', 1);
 const JWT_SECRET = process.env.JWT_SECRET || 'verity_super_secret_key';
 
+if (process.env.NODE_ENV === 'production' && JWT_SECRET === 'verity_super_secret_key') {
+    console.warn('⚠️  [SECURITY WARNING] JWT_SECRET is using the insecure default key in production! Set JWT_SECRET in your environment.');
+}
+
 app.use(cors());
-// Raised body limit so base64 image/video uploads fit in the request body.
-app.use(express.json({ limit: '200mb' }));
+// 10mb limit protects against event-loop starvation / memory exhaustion DoS
+app.use(express.json({ limit: '10mb' }));
 
 // --- MIDDLEWARE ---
 const authenticateToken = (req, res, next) => {
@@ -48,8 +53,19 @@ const requireRole = (...allowedRoles) => {
 // --- FILE UPLOADS (images / videos for assignments) ---
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-// Serve uploaded files statically at http://localhost:3001/uploads/<file>
-app.use('/uploads', express.static(UPLOADS_DIR));
+
+// Whitelist of permitted file extensions to prevent Stored XSS and arbitrary file execution
+const ALLOWED_UPLOAD_EXTS = new Set([
+    '.png', '.jpg', '.jpeg', '.gif', '.webp',
+    '.mp4', '.webm', '.ogg',
+    '.pdf', '.zip', '.txt'
+]);
+
+// Serve uploaded files statically at /uploads/<file> with security headers
+app.use('/uploads', (req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    next();
+}, express.static(UPLOADS_DIR));
 
 // Accepts { filename, dataUrl } (dataUrl = "data:<mime>;base64,<data>"),
 // writes the file to /uploads, and returns its public URL.
@@ -62,12 +78,22 @@ app.post('/upload', authenticateToken, requireRole('Teacher', 'Admin', 'Student'
     if (!match) {
         return res.status(400).json({ message: 'Invalid data URL' });
     }
+
+    const ext = path.extname(filename || '').toLowerCase();
+    if (!ALLOWED_UPLOAD_EXTS.has(ext)) {
+        return res.status(400).json({ 
+            message: `File type "${ext || 'unknown'}" is not allowed. Supported formats: images (.png, .jpg, .gif, .webp), videos (.mp4, .webm), pdf, zip, txt.` 
+        });
+    }
+
     const buffer = Buffer.from(match[2], 'base64');
     // Build a safe, unique filename.
     const safeName = (filename || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
     const unique = `${Date.now()}_${safeName}`;
     fs.writeFileSync(path.join(UPLOADS_DIR, unique), buffer);
-    res.status(201).json({ url: `http://localhost:3001/uploads/${unique}` });
+    const host = req.get('host');
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    res.status(201).json({ url: `${protocol}://${host}/uploads/${unique}` });
 });
 
 app.get('/health', async (req, res) => {
@@ -98,6 +124,21 @@ const io = new Server(server, {
     cors: { origin: "*" }
 });
 
+// Socket.IO Authentication Middleware
+io.use((socket, next) => {
+    const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+    if (token) {
+        jwt.verify(token, JWT_SECRET, (err, user) => {
+            if (!err && user) {
+                socket.user = user;
+            }
+            next();
+        });
+    } else {
+        next();
+    }
+});
+
 // --- DATABASE HELPERS ---
 const todayKey = () => {
     const d = new Date();
@@ -108,19 +149,50 @@ const todayKey = () => {
 app.post('/register', async (req, res) => {
     try {
         const { name, email, password, role } = req.body;
+        if (!email || !password || !name) {
+            return res.status(400).json({ message: 'Name, email, and password are required' });
+        }
+
         const existing = await db.get('SELECT id FROM users WHERE email = ?', email);
         if (existing) {
             return res.status(400).json({ message: 'Email already exists' });
         }
-        const userRole = role || 'Student';
-        const status = userRole === 'Teacher' ? 'Pending' : 'Active';
+
+        // Check if an existing Admin is creating this account
+        const authHeader = req.headers['authorization'];
+        const token = authHeader && authHeader.split(' ')[1];
+        let requesterIsAdmin = false;
+        if (token) {
+            try {
+                const decoded = jwt.verify(token, JWT_SECRET);
+                if (decoded && decoded.role === 'Admin') {
+                    requesterIsAdmin = true;
+                }
+            } catch (_) {}
+        }
+
+        let userRole = 'Student';
+        let status = 'Active';
+
+        if (requesterIsAdmin && role === 'Admin') {
+            userRole = 'Admin';
+            status = 'Active';
+        } else if (role === 'Teacher') {
+            userRole = 'Teacher';
+            // If created by an Admin, can be Active immediately; public signup requires admin approval
+            status = requesterIsAdmin ? 'Active' : 'Pending';
+        } else {
+            userRole = 'Student';
+            status = 'Active';
+        }
+
         const info = await db.run(
             'INSERT INTO users (name, email, password, role, status) VALUES (?, ?, ?, ?, ?)',
             name, email, password, userRole, status
         );
         const user = { id: info.lastInsertRowid, name, email, password, role: userRole, status };
-        const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET);
-        res.status(201).json({ message: 'User registered successfully', user, token });
+        const userToken = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET);
+        res.status(201).json({ message: 'User registered successfully', user, token: userToken });
     } catch (e) {
         res.status(500).json({ message: e.message });
     }
@@ -164,7 +236,8 @@ app.post('/auth/google', async (req, res) => {
             user.lastLogin = new Date().toISOString();
             await db.run('UPDATE users SET lastLogin = ? WHERE id = ?', user.lastLogin, user.id);
         } else {
-            const role = userRole || 'Student';
+            // Self-registration via Google OAuth: only Teacher or Student allowed (never Admin)
+            const role = (userRole === 'Teacher') ? 'Teacher' : 'Student';
             const status = role === 'Teacher' ? 'Pending' : 'Active';
             const lastLogin = new Date().toISOString();
             const password = 'google_sso_user';
@@ -346,10 +419,17 @@ app.put('/classrooms', authenticateToken, requireRole('Teacher', 'Admin'), async
     if (!Array.isArray(classrooms)) return res.status(400).json({ message: 'classrooms must be an array' });
 
     try {
-        await db.run('DELETE FROM classrooms');
         for (const c of classrooms) {
-            await db.run(
-                'INSERT INTO classrooms (id, code, section, name, subject, instructor) VALUES (?, ?, ?, ?, ?, ?)',
+            await db.run(`
+                INSERT INTO classrooms (id, code, section, name, subject, instructor) 
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    code = excluded.code,
+                    section = excluded.section,
+                    name = excluded.name,
+                    subject = excluded.subject,
+                    instructor = excluded.instructor
+            `,
                 c.id || Date.now(), c.code || '', c.section || '', c.name || '', c.subject || '', c.instructor || ''
             );
         }
@@ -362,7 +442,18 @@ app.put('/classrooms', authenticateToken, requireRole('Teacher', 'Admin'), async
 // --- SUBMISSIONS ---
 app.get('/submissions/:assignmentId', authenticateToken, requireRole('Teacher', 'Admin', 'Student'), async (req, res) => {
     try {
-        const rows = await db.all('SELECT * FROM submissions WHERE assignment_id = ?', req.params.assignmentId);
+        let rows;
+        if (req.user.role === 'Student') {
+            // Students are strictly scoped to only view their own submission (fixes IDOR)
+            rows = await db.all(
+                'SELECT * FROM submissions WHERE assignment_id = ? AND (student_name = ? OR student_name = ? OR LOWER(student_name) = LOWER(?) OR LOWER(student_name) = LOWER(?))',
+                req.params.assignmentId, req.user.name || '', req.user.email || '', req.user.name || '', req.user.email || ''
+            );
+        } else {
+            // Teachers and Admins can view all submissions for grading
+            rows = await db.all('SELECT * FROM submissions WHERE assignment_id = ?', req.params.assignmentId);
+        }
+
         const submissions = rows.map(s => {
             let history = [];
             try { history = JSON.parse(s.history); } catch {}
@@ -377,14 +468,15 @@ app.get('/submissions/:assignmentId', authenticateToken, requireRole('Teacher', 
 
 app.post('/submissions/:assignmentId', authenticateToken, requireRole('Student'), async (req, res) => {
     try {
-        const { studentName, studentId, finalCode, codeHistory } = req.body || {};
+        const { finalCode, codeHistory } = req.body || {};
         const assignmentId = req.params.assignmentId;
-        const name = studentName || studentId || 'Unknown';
+        // Bind student identity strictly to authenticated token (prevents submitting under others' names)
+        const name = req.user.name || req.user.email || 'Student';
         const historyStr = JSON.stringify(Array.isArray(codeHistory) && codeHistory.length > 0 ? codeHistory : [{ time: Date.now(), code: finalCode || '' }]);
 
         await db.run(
             'DELETE FROM submissions WHERE assignment_id = ? AND (student_name = ? OR student_name = ? OR LOWER(student_name) = LOWER(?))',
-            assignmentId, name, studentId || name, name.toLowerCase()
+            assignmentId, name, req.user.email || name, name.toLowerCase()
         );
         await db.run(
             'INSERT INTO submissions (assignment_id, student_name, history, submittedAt) VALUES (?, ?, ?, ?)',
@@ -400,6 +492,16 @@ app.post('/submissions/:assignmentId', authenticateToken, requireRole('Student')
 app.delete('/submissions/:assignmentId/:studentName', authenticateToken, requireRole('Teacher', 'Admin', 'Student'), async (req, res) => {
     try {
         const studentName = decodeURIComponent(req.params.studentName);
+        if (req.user.role === 'Student') {
+            // Students may only delete their own submission
+            const isSelf = (studentName === req.user.name || studentName === req.user.email ||
+                            studentName.toLowerCase() === (req.user.name || '').toLowerCase() ||
+                            studentName.toLowerCase() === (req.user.email || '').toLowerCase());
+            if (!isSelf) {
+                return res.status(403).json({ message: 'Access denied: You can only delete your own submission.' });
+            }
+        }
+
         await db.run(
             'DELETE FROM submissions WHERE assignment_id = ? AND (student_name = ? OR LOWER(student_name) = LOWER(?))',
             req.params.assignmentId, studentName, studentName
@@ -416,7 +518,21 @@ app.get('/grades/:assignmentId', authenticateToken, requireRole('Teacher', 'Admi
         const rows = await db.all('SELECT * FROM grades WHERE assignment_id = ?', req.params.assignmentId);
         const gradesMap = {};
         rows.forEach(r => {
-            gradesMap[r.student_id] = { grade: r.grade, feedback: r.feedback, gradedAt: r.graded_at };
+            // If Student, only expose their own grade (fixes IDOR)
+            if (req.user.role === 'Student') {
+                const isStudentGrade = (
+                    r.student_id === String(req.user.id) ||
+                    r.student_id === req.user.name ||
+                    r.student_id === req.user.email ||
+                    (req.user.name && r.student_id.toLowerCase() === req.user.name.toLowerCase()) ||
+                    (req.user.email && r.student_id.toLowerCase() === req.user.email.toLowerCase())
+                );
+                if (isStudentGrade) {
+                    gradesMap[r.student_id] = { grade: r.grade, feedback: r.feedback, gradedAt: r.graded_at };
+                }
+            } else {
+                gradesMap[r.student_id] = { grade: r.grade, feedback: r.feedback, gradedAt: r.graded_at };
+            }
         });
         res.status(200).json({ grades: gradesMap });
     } catch (e) {
@@ -531,11 +647,26 @@ io.on('connection', (socket) => {
 
     let activeProcess = null;
 
+    // Allow socket to authenticate after login
+    socket.on('authenticate', (token) => {
+        if (!token) return;
+        jwt.verify(token, JWT_SECRET, (err, user) => {
+            if (!err && user) {
+                socket.user = user;
+                socket.emit('authenticated', { user: { id: user.id, email: user.email, role: user.role } });
+            }
+        });
+    });
+
     if (currentInstruction) {
         socket.emit('instruction_update', currentInstruction);
     }
 
     socket.on('teacher_join', ({ classroomId, assignmentId }) => {
+        if (!socket.user || !['Teacher', 'Admin'].includes(socket.user.role)) {
+            return socket.emit('error', { message: 'Access denied: Teacher role required.' });
+        }
+
         const roomName = `classroom:${classroomId || 'none'}:assignment:${assignmentId || 'none'}`;
 
         if (socket.data.teacherRoom) {
@@ -554,11 +685,17 @@ io.on('connection', (socket) => {
     });
 
     socket.on('set_instruction', (text) => {
+        if (!socket.user || !['Teacher', 'Admin'].includes(socket.user.role)) {
+            return;
+        }
         currentInstruction = text;
         io.emit('instruction_update', text);
     });
 
     socket.on('classwork_updated', async ({ classroomId, classwork }) => {
+        if (!socket.user || !['Teacher', 'Admin'].includes(socket.user.role)) {
+            return socket.emit('error', { message: 'Access denied: Teacher role required.' });
+        }
         if (classroomId == null || !Array.isArray(classwork)) return;
 
         try {
@@ -574,6 +711,10 @@ io.on('connection', (socket) => {
     const sessionProjects = new Map();
 
     socket.on('compile_code', (data) => {
+        if (!socket.user) {
+            return socket.emit('terminal_output', "Error: Authentication required to execute code. Please log in.\n");
+        }
+
         const { code } = data;
         const sessionId = socket.id.replace(/[^a-zA-Z0-9]/g, '');
         let projectDir = sessionProjects.get(sessionId);
@@ -614,6 +755,16 @@ io.on('connection', (socket) => {
             socket.emit('program_started');
         };
 
+        // Enforce a maximum execution timeout of 20 seconds to prevent resource exhaustion / infinite loops
+        const executionTimeout = setTimeout(() => {
+            if (activeProcess) {
+                try { activeProcess.kill(); } catch (_) {}
+                socket.emit('terminal_output', "\n[Process terminated: Execution limit of 20s exceeded]\n");
+                socket.emit('process_exit');
+                activeProcess = null;
+            }
+        }, 20000);
+
         activeProcess.stdout.on('data', (data) => {
             markStarted();
             socket.emit('terminal_output', data.toString());
@@ -625,6 +776,7 @@ io.on('connection', (socket) => {
         });
 
         activeProcess.on('close', (code) => {
+            clearTimeout(executionTimeout);
             socket.emit('terminal_output', `\n[Process exited with code ${code}]\n`);
             socket.emit('process_exit');
             activeProcess = null;
@@ -680,33 +832,35 @@ io.on('connection', (socket) => {
     });
 
     socket.on('submit_exam', async (data) => {
-        if (data && data.studentId) {
-            const classroomId = data.classroomId || 'none';
-            const assignmentId = data.assignmentId || 'none';
-            const studentKey = `${classroomId}:${assignmentId}:${data.studentId}`;
-            if (activeStudents[studentKey]) {
-                activeStudents[studentKey] = { ...activeStudents[studentKey], ...data, status: 'Submitted' };
-            }
-
-            const roomName = `classroom:${classroomId}:assignment:${assignmentId}`;
-            socket.to(roomName).emit('teacher_receive_submission', data);
-        }
-
+        if (!socket.user) return;
+        const authenticatedName = socket.user.name || socket.user.email || 'Unknown';
+        const authenticatedId = socket.user.id || data.studentId;
+        const classroomId = data.classroomId || 'none';
         const assignmentId = data.assignmentId != null ? String(data.assignmentId) : 'unassigned';
+        const studentKey = `${classroomId}:${assignmentId}:${authenticatedId}`;
+        
+        const payload = { ...data, studentName: authenticatedName, studentId: authenticatedId };
+        activeStudents[studentKey] = { ...activeStudents[studentKey], ...payload, status: 'Submitted' };
+
+        const roomName = `classroom:${classroomId}:assignment:${assignmentId}`;
+        socket.to(roomName).emit('teacher_receive_submission', payload);
 
         try {
-            await db.run('DELETE FROM submissions WHERE assignment_id = ? AND student_name = ?', assignmentId, data.studentName || 'Unknown');
+            await db.run('DELETE FROM submissions WHERE assignment_id = ? AND student_name = ?', assignmentId, authenticatedName);
             const historyStr = JSON.stringify(Array.isArray(data.codeHistory) ? data.codeHistory : []);
-            await db.run('INSERT INTO submissions (assignment_id, student_name, history, submittedAt) VALUES (?, ?, ?, ?)', assignmentId, data.studentName || 'Unknown', historyStr, new Date().toISOString());
+            await db.run('INSERT INTO submissions (assignment_id, student_name, history, submittedAt) VALUES (?, ?, ?, ?)', assignmentId, authenticatedName, historyStr, new Date().toISOString());
         } catch (e) { console.error(e); }
     });
 
     socket.on('unsubmit_exam', async (data) => {
-        if (!data) return;
+        if (!socket.user || !data) return;
         const assignmentId = data.assignmentId != null ? String(data.assignmentId) : 'unassigned';
-        const studentName = data.studentName || data.studentId || 'Unknown';
+        const studentName = socket.user.role === 'Student' 
+            ? (socket.user.name || socket.user.email || 'Unknown')
+            : (data.studentName || data.studentId || 'Unknown');
+        const studentId = socket.user.role === 'Student' ? socket.user.id : data.studentId;
         const classroomId = data.classroomId || 'none';
-        const studentKey = `${classroomId}:${assignmentId}:${data.studentId || studentName}`;
+        const studentKey = `${classroomId}:${assignmentId}:${studentId || studentName}`;
 
         if (activeStudents[studentKey]) {
             activeStudents[studentKey] = { ...activeStudents[studentKey], status: 'Active' };
@@ -715,14 +869,14 @@ io.on('connection', (socket) => {
         try {
             await db.run(
                 'DELETE FROM submissions WHERE assignment_id = ? AND (student_name = ? OR student_name = ? OR LOWER(student_name) = LOWER(?) OR LOWER(student_name) = LOWER(?))',
-                assignmentId, studentName, data.studentId || studentName, studentName, data.studentId || studentName
+                assignmentId, studentName, studentName, studentName, studentName
             );
         } catch (e) { console.error(e); }
 
         const roomName = `classroom:${classroomId}:assignment:${assignmentId}`;
-        socket.to(roomName).emit('teacher_student_unsubmitted', { studentName, assignmentId, studentId: data.studentId });
-        socket.emit('student_unsubmitted', { studentName, assignmentId, studentId: data.studentId });
-        socket.broadcast.emit('student_unsubmitted', { studentName, assignmentId, studentId: data.studentId });
+        socket.to(roomName).emit('teacher_student_unsubmitted', { studentName, assignmentId, studentId });
+        socket.emit('student_unsubmitted', { studentName, assignmentId, studentId });
+        socket.broadcast.emit('student_unsubmitted', { studentName, assignmentId, studentId });
     });
 
     socket.on('student_terminal_update', (data) => {
