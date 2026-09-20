@@ -473,3 +473,72 @@ body, button, input, select, textarea {
   border-radius: 14px;
   margin-bottom: 10px;
 }
+
+/* ========================================
+   DARK MODE SYSTEM STYLES
+   ======================================== */
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark,
+html.dark body,
+html.dark #root {
+  background-color: #0b0f19 !important;
+  color: #f8fafc !important;
+}
+
+/* Dashboard background containers */
+html.dark [style*="#EEF0F3"],
+html.dark [style*="#eef0f3"],
+html.dark [style*="#e5e7eb"] {
+  background-color: #0b0f19 !important;
+}
+
+/* White cards & panels */
+html.dark [style*="background-color: white"],
+html.dark [style*="backgroundColor: white"],
+html.dark [style*="background-color: #ffffff"],
+html.dark [style*="backgroundColor: #ffffff"],
+html.dark [style*="background-color: #f9fafb"],
+html.dark [style*="backgroundColor: #f9fafb"],
+html.dark [style*="background-color: #f3f4f6"],
+html.dark [style*="backgroundColor: #f3f4f6"] {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+}
+
+/* Borders */
+html.dark [style*="border: 1px solid #d1d5db"],
+html.dark [style*="border: 1px solid #e5e7eb"],
+html.dark [style*="border: 1px solid #cbd5e1"] {
+  border-color: #334155 !important;
+}
+
+/* Text overrides in dark mode */
+html.dark [style*="color: #1f2937"],
+html.dark [style*="color: #111827"],
+html.dark [style*="color: #0f172a"],
+html.dark [style*="color: #334155"] {
+  color: #f8fafc !important;
+}
+
+html.dark [style*="color: #4b5563"],
+html.dark [style*="color: #6b7280"],
+html.dark [style*="color: #64748b"] {
+  color: #cbd5e1 !important;
+}
+
+/* Form controls in dark mode */
+html.dark input:not([type="checkbox"]):not([type="radio"]),
+html.dark textarea,
+html.dark select {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #64748b !important;
+}

@@ -1,8 +1,19 @@
 import React, { useState } from 'react';
-import { User, BookOpen, ShieldCheck, SlidersHorizontal, Bell, GraduationCap } from 'lucide-react';
+import { User, BookOpen, ShieldCheck, SlidersHorizontal, Bell, GraduationCap, Moon, Sun, Palette } from 'lucide-react';
+import { useDarkMode } from '../hooks/useDarkMode';
+
+const APPEARANCE_SECTION = {
+  icon: Moon,
+  title: 'Appearance & Display',
+  blurb: 'Customize the visual theme and interface appearance across your Verity workspace.',
+  fields: [
+    { label: 'Dark Mode', type: 'dark_toggle' },
+  ],
+};
 
 const SECTIONS = {
   Student: [
+    APPEARANCE_SECTION,
     {
       icon: User,
       title: 'Profile Management',
@@ -29,6 +40,7 @@ const SECTIONS = {
     },
   ],
   Instructor: [
+    APPEARANCE_SECTION,
     {
       icon: BookOpen,
       title: 'Course & Content Management',
@@ -53,6 +65,7 @@ const SECTIONS = {
     },
   ],
   Administrator: [
+    APPEARANCE_SECTION,
     {
       icon: ShieldCheck,
       title: 'User & Role Management',
@@ -81,6 +94,7 @@ const SECTIONS = {
 export default function SettingsPanel({ role = 'Student', onBack }) {
   const sections = SECTIONS[role] || SECTIONS.Student;
   const STORAGE_KEY = `verity:settings:${role}`;
+  const { isDark, toggle: toggleDarkMode } = useDarkMode();
   const [values, setValues] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -108,22 +122,43 @@ export default function SettingsPanel({ role = 'Student', onBack }) {
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerTitle}>
-          <h1 style={styles.title}>Settings</h1>
+          <h1 style={{ ...styles.title, ...(isDark ? { color: '#f8fafc' } : {}) }}>Settings</h1>
         </div>
       </div>
 
       {/* Settings sections */}
       {sections.map((section) => {
         const SectionIcon = section.icon;
+        const isAppearance = section.title === 'Appearance & Display';
+
         return (
-          <div key={section.title} style={styles.sectionCard}>
+          <div
+            key={section.title}
+            style={{
+              ...styles.sectionCard,
+              ...(isDark ? {
+                backgroundColor: '#1e293b',
+                boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
+                border: '1px solid #334155'
+              } : {})
+            }}
+          >
             <div style={styles.sectionHead}>
-              <div style={styles.sectionIconCircle}>
-                <SectionIcon size={22} color="#4b5563" />
+              <div
+                style={{
+                  ...styles.sectionIconCircle,
+                  ...(isDark ? {
+                    backgroundColor: '#0f172a',
+                    boxShadow: 'none',
+                    border: '1px solid #334155'
+                  } : {})
+                }}
+              >
+                <SectionIcon size={22} color={isDark ? '#38bdf8' : '#4b5563'} />
               </div>
               <div>
-                <h3 style={styles.sectionTitle}>{section.title}</h3>
-                <p style={styles.sectionBlurb}>{section.blurb}</p>
+                <h3 style={{ ...styles.sectionTitle, ...(isDark ? { color: '#f8fafc' } : {}) }}>{section.title}</h3>
+                <p style={{ ...styles.sectionBlurb, ...(isDark ? { color: '#94a3b8' } : {}) }}>{section.blurb}</p>
               </div>
             </div>
 
@@ -131,11 +166,68 @@ export default function SettingsPanel({ role = 'Student', onBack }) {
               {section.fields.map((f) => {
                 const key = `${section.title}:${f.label}`;
 
+                if (f.type === 'dark_toggle') {
+                  return (
+                    <div
+                      key={f.label}
+                      style={{
+                        ...styles.toggleRow,
+                        gridColumn: '1 / -1',
+                        ...(isDark ? {
+                          backgroundColor: '#0f172a',
+                          borderColor: '#334155'
+                        } : {})
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                        {isDark ? <Moon size={22} color="#818cf8" /> : <Sun size={22} color="#f59e0b" />}
+                        <div>
+                          <span style={{ ...styles.toggleLabel, display: 'block', ...(isDark ? { color: '#f8fafc' } : {}) }}>
+                            {isDark ? 'Dark Mode (Enabled)' : 'Dark Mode (Disabled)'}
+                          </span>
+                          <span style={{ fontSize: '0.8rem', color: isDark ? '#94a3b8' : '#64748b', display: 'block', marginTop: '2px' }}>
+                            {isDark ? 'Workspace and dashboard use a sleek dark theme' : 'Workspace and dashboard use a clean light theme'}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={isDark}
+                        onClick={toggleDarkMode}
+                        style={{
+                          ...styles.switch,
+                          backgroundColor: isDark ? '#10b981' : '#cbd5e1',
+                          transition: 'background-color 0.25s ease'
+                        }}
+                        title="Toggle Dark Mode"
+                      >
+                        <span
+                          style={{
+                            ...styles.knob,
+                            left: isDark ? '23px' : '3px',
+                            transition: 'left 0.25s ease'
+                          }}
+                        />
+                      </button>
+                    </div>
+                  );
+                }
+
                 if (f.type === 'toggle') {
                   const on = key in values ? values[key] : !!f.default;
                   return (
-                    <div key={f.label} style={styles.toggleRow}>
-                      <span style={styles.toggleLabel}>{f.label}</span>
+                    <div
+                      key={f.label}
+                      style={{
+                        ...styles.toggleRow,
+                        ...(isDark ? {
+                          backgroundColor: '#0f172a',
+                          borderColor: '#334155'
+                        } : {})
+                      }}
+                    >
+                      <span style={{ ...styles.toggleLabel, ...(isDark ? { color: '#f8fafc' } : {}) }}>{f.label}</span>
                       <button
                         type="button"
                         role="switch"
@@ -151,14 +243,27 @@ export default function SettingsPanel({ role = 'Student', onBack }) {
                 }
 
                 return (
-                  <label key={f.label} style={styles.fieldLabel}>
+                  <label
+                    key={f.label}
+                    style={{
+                      ...styles.fieldLabel,
+                      ...(isDark ? { color: '#cbd5e1' } : {})
+                    }}
+                  >
                     {f.label}
                     <input
                       type={f.type === 'password' ? 'password' : f.type === 'file' ? 'file' : 'text'}
                       placeholder={f.placeholder}
                       value={f.type === 'file' ? undefined : (values[key] || '')}
                       onChange={(e) => setValues({ ...values, [key]: e.target.value })}
-                      style={styles.input}
+                      style={{
+                        ...styles.input,
+                        ...(isDark ? {
+                          backgroundColor: '#0f172a',
+                          borderColor: '#334155',
+                          color: '#f8fafc'
+                        } : {})
+                      }}
                     />
                   </label>
                 );
@@ -166,16 +271,24 @@ export default function SettingsPanel({ role = 'Student', onBack }) {
             </div>
 
             <div style={styles.actions}>
-              <button
-                type="button"
-                style={styles.saveBtn}
-                onClick={() => handleSave(section.title)}
-                title="Save Changes"
-              >
-                Save Changes
-              </button>
-              {savedSection === section.title && (
-                <span style={styles.savedNote}>✓ Saved</span>
+              {isAppearance ? (
+                <span style={{ fontSize: '0.85rem', color: isDark ? '#94a3b8' : '#64748b', fontStyle: 'italic' }}>
+                  ✓ Theme preference is automatically applied and saved
+                </span>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    style={styles.saveBtn}
+                    onClick={() => handleSave(section.title)}
+                    title="Save Changes"
+                  >
+                    Save Changes
+                  </button>
+                  {savedSection === section.title && (
+                    <span style={styles.savedNote}>✓ Saved</span>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -194,6 +307,7 @@ const styles = {
     backgroundColor: 'white', borderRadius: '24px', padding: '36px',
     boxShadow: '0 10px 25px rgba(0,0,0,0.05)', maxWidth: '720px',
     display: 'flex', flexDirection: 'column', gap: '24px',
+    transition: 'background-color 0.25s ease, border-color 0.25s ease',
   },
   sectionHead: { display: 'flex', alignItems: 'flex-start', gap: '15px' },
   sectionIconCircle: {
@@ -220,6 +334,7 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
     padding: '13px 16px', borderRadius: '12px',
     border: '1px solid #d1d5db', backgroundColor: '#f9fafb',
+    transition: 'background-color 0.25s ease, border-color 0.25s ease',
   },
   toggleLabel: { color: '#4b5563', fontSize: '0.85rem', fontWeight: 'bold' },
   switch: {

@@ -140,6 +140,10 @@ const LOCKED_SHORTCUTS = [
   'Super+A',          // Action center
   'Super+I',          // Settings
   'Super+X',          // Quick link menu
+  'Super+V',          // Windows Clipboard History
+  'Meta+V',           // Windows Clipboard History alternate
+  'Super+Alt+V',
+  'CommandOrControl+Super+V',
   'CommandOrControl+W',
   'CommandOrControl+Shift+W',
   'CommandOrControl+Tab',
@@ -225,6 +229,14 @@ function createWindow() {
         ((input.control || input.meta) && ['r', 'R'].includes(input.key));
       if (isReloadShortcut) {
         event.preventDefault();
+        return;
+      }
+
+      const isClipboardHistory =
+        (input.meta || input.super) && ['v', 'V'].includes(input.key);
+      if (isClipboardHistory) {
+        event.preventDefault();
+        return;
       }
     }
   });

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import Editor from '@monaco-editor/react';
-import { ArrowLeft, Save, Play, Square, Send, Settings, TerminalSquare, Check, AlertTriangle, Trash2 } from 'lucide-react';
+import { ArrowLeft, Save, Play, Square, Settings, TerminalSquare, Check, AlertTriangle, Trash2, Moon, Sun, X } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import localStore from '../services/localStore';
+import { useDarkMode } from '../hooks/useDarkMode';
 
 // Strip whitespace so editor auto-indent on paste doesn't cause false mismatches.
 const normalize = (text) => (text || "").replace(/\s+/g, '');
@@ -45,6 +46,15 @@ export default function StudentView({ socket, currentUser, username, assignment,
   // Seed the instruction from the assignment the student opened ("details").
   const [instruction, setInstruction] = useState(assignment?.details || "");
   const [strictCompiler, setStrictCompiler] = useState(false);
+  const { isDark, toggle: toggleDarkMode } = useDarkMode();
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [editorFontSize, setEditorFontSize] = useState(() => {
+    try {
+      return Number(localStorage.getItem('verity_editor_font_size')) || 16;
+    } catch {
+      return 16;
+    }
+  });
 
   // Synchronize compiler strictness from Admin Settings and ensure socket authentication
   useEffect(() => {
@@ -722,12 +732,24 @@ export default function StudentView({ socket, currentUser, username, assignment,
   };
 
   return (
-    <div style={styles.container}>
-      <div style={styles.leftSidebar}>
-        <div style={styles.instructionSection}>
-          <h2 style={{ color: 'black', margin: '0 0 20px 0', fontSize: '1.2rem' }}>Instruction</h2>
+    <div style={{
+      ...styles.container,
+      ...(isDark ? { backgroundColor: '#0b0f19' } : {})
+    }}>
+      <div style={{
+        ...styles.leftSidebar,
+        ...(isDark ? { backgroundColor: '#0f172a', borderRight: '1px solid #1e293b' } : {})
+      }}>
+        <div style={{
+          ...styles.instructionSection,
+          ...(isDark ? { backgroundColor: '#0f172a' } : {})
+        }}>
+          <h2 style={{ color: isDark ? '#f8fafc' : 'black', margin: '0 0 20px 0', fontSize: '1.2rem' }}>Instruction</h2>
           {instruction ? (
-            <p style={styles.instructionText}>{instruction}</p>
+            <p style={{
+              ...styles.instructionText,
+              ...(isDark ? { color: '#cbd5e1' } : {})
+            }}>{instruction}</p>
           ) : (
             <p style={{ color: '#9ca3af', fontStyle: 'italic', fontSize: '0.9rem' }}>Waiting for instructions...</p>
           )}
@@ -749,7 +771,10 @@ export default function StudentView({ socket, currentUser, username, assignment,
           )}
         </div>
 
-        <div style={styles.warningSection}>
+        <div style={{
+          ...styles.warningSection,
+          ...(isDark ? { backgroundColor: '#1e293b', borderTop: '1px solid #334155' } : {})
+        }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
             <span style={{ fontSize: '1.1rem', color: 'white', fontWeight: 'bold' }}>Warning</span>
             <span style={{ fontSize: '1.1rem', color: 'white', fontWeight: 'bold' }}>Time</span>
@@ -770,13 +795,25 @@ export default function StudentView({ socket, currentUser, username, assignment,
       </div>
 
       <div style={styles.mainArea}>
-        <div style={styles.toolbar}>
+        <div style={{
+          ...styles.toolbar,
+          ...(isDark ? { backgroundColor: '#0f172a', borderBottom: '1px solid #1e293b' } : {})
+        }}>
           <div style={styles.toolGroupLeft}>
-            <button onClick={onBack} style={styles.backButton}><ArrowLeft size={18} /> Back</button>
+            <button
+              onClick={onBack}
+              style={{
+                ...styles.backButton,
+                ...(isDark ? { backgroundColor: '#1e293b', borderColor: '#334155', color: '#cbd5e1' } : {})
+              }}
+            >
+              <ArrowLeft size={18} /> Back
+            </button>
             <button
               onClick={handleSaveCode}
               style={{
                 ...styles.iconButton,
+                ...(isDark ? { backgroundColor: '#1e293b', borderColor: '#334155', color: '#cbd5e1' } : {}),
                 ...(saveStatus ? styles.iconButtonSaved : {})
               }}
               title="Save draft (Ctrl+S)"
@@ -807,7 +844,10 @@ export default function StudentView({ socket, currentUser, username, assignment,
             {submitted ? (
               <button
                 onClick={handleUnsubmit}
-                style={styles.unsubmitBtn}
+                style={{
+                  ...styles.unsubmitBtn,
+                  ...(isDark ? { backgroundColor: '#1e293b', borderColor: '#334155', color: '#cbd5e1' } : {})
+                }}
                 title="Unsubmit to edit and re-submit your code"
               >
                 Unsubmit
@@ -817,7 +857,7 @@ export default function StudentView({ socket, currentUser, username, assignment,
                 onClick={handleSubmit}
                 style={styles.submitButton}
               >
-                Submit <Send size={16} style={{ marginLeft: '5px' }} />
+                Submit
               </button>
             )}
             <div
@@ -825,7 +865,13 @@ export default function StudentView({ socket, currentUser, username, assignment,
               style={styles.recordingDot}
               title="Recording active: Your workspace activity is being recorded and proctored"
             />
-            <button style={styles.gearIcon}><Settings size={22} /></button>
+            <button
+              onClick={() => setShowSettingsModal(true)}
+              style={styles.gearIcon}
+              title="Settings"
+            >
+              <Settings size={22} color={isDark ? '#94a3b8' : '#6b7280'} />
+            </button>
           </div>
         </div>
 
@@ -833,7 +879,7 @@ export default function StudentView({ socket, currentUser, username, assignment,
           <Editor
             height="100%"
             language="csharp"
-            theme="vs-dark"
+            theme={isDark ? "vs-dark" : "light"}
             value={code}
             onChange={(newCode) => {
               if (diagnosticsRef.current?.length > 0) {
@@ -855,38 +901,45 @@ export default function StudentView({ socket, currentUser, username, assignment,
               });
             }}
             onMount={handleEditorDidMount}
-            options={{ fontSize: 16, minimap: { enabled: false } }}
+            options={{ fontSize: editorFontSize, minimap: { enabled: false } }}
           />
         </div>
 
         <div
-          style={styles.resizeHandle}
+          style={{
+            ...styles.resizeHandle,
+            ...(isDark ? { backgroundColor: '#0f172a', borderTop: '1px solid #1e293b', borderBottom: '1px solid #0f172a' } : {})
+          }}
           onMouseDown={handleDividerMouseDown}
           title="Drag up or down to resize terminal height"
         >
-          <div style={styles.resizeHandleGrip} />
+          <div style={{
+            ...styles.resizeHandleGrip,
+            ...(isDark ? { backgroundColor: '#475569' } : {})
+          }} />
         </div>
 
-        <div style={{ ...styles.terminalWrapper, height: `${terminalHeight}px` }}>
-          <div style={styles.terminalHeader}>
+        <div style={{
+          ...styles.terminalWrapper,
+          height: `${terminalHeight}px`,
+          ...(isDark ? { backgroundColor: '#0b0f19', borderTop: '1px solid #1e293b' } : {})
+        }}>
+          <div style={{
+            ...styles.terminalHeader,
+            ...(isDark ? { backgroundColor: '#0f172a', borderBottom: '1px solid #1e293b' } : {})
+          }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <TerminalSquare size={15} color="#4b5563" />
-              <span style={{ fontWeight: '600', fontSize: '0.82rem', color: '#1f2937', letterSpacing: '0.04em' }}>TERMINAL</span>
-              <div style={isRunning ? styles.statusBadgeRunning : styles.statusBadgeIdle}>
-                <span style={isRunning ? styles.statusDotRunning : styles.statusDotIdle} />
-                <span>{isRunning ? (programStarted ? 'Running' : 'Compiling') : 'Idle'}</span>
-              </div>
-              {useLocalCompiler && (
-                <span style={{ fontSize: '0.7rem', color: '#059669', backgroundColor: '#ecfdf5', padding: '1px 6px', borderRadius: '10px', border: '1px solid #a7f3d0', fontWeight: '500' }} title="Running on high-speed local engine">
-                  ⚡ Local Engine (~1s)
-                </span>
-              )}
+              <TerminalSquare size={15} color={isDark ? '#94a3b8' : '#4b5563'} />
+              <span style={{ fontWeight: '600', fontSize: '0.82rem', color: isDark ? '#f8fafc' : '#1f2937', letterSpacing: '0.04em' }}>TERMINAL</span>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button
                 onClick={handleClearTerminal}
-                style={styles.terminalActionBtn}
+                style={{
+                  ...styles.terminalActionBtn,
+                  ...(isDark ? { backgroundColor: '#1e293b', borderColor: '#334155', color: '#cbd5e1' } : {})
+                }}
                 title="Clear Terminal Output"
               >
                 <Trash2 size={13} style={{ marginRight: '4px' }} />
@@ -894,18 +947,27 @@ export default function StudentView({ socket, currentUser, username, assignment,
               </button>
             </div>
           </div>
-          <div ref={terminalBodyRef} style={styles.terminalBody}>
+          <div ref={terminalBodyRef} style={{
+            ...styles.terminalBody,
+            ...(isDark ? { backgroundColor: '#0b0f19', color: '#f8fafc' } : {})
+          }}>
             {renderFormattedOutput(output)}
             {isRunning && programStarted && (
-              <div style={styles.terminalInputRow}>
-                <span style={{ marginRight: '8px', color: '#059669', fontWeight: 'bold' }}>{'>'}</span>
+              <div style={{
+                ...styles.terminalInputRow,
+                ...(isDark ? { backgroundColor: '#0f172a', borderColor: '#334155' } : {})
+              }}>
+                <span style={{ marginRight: '8px', color: '#10b981', fontWeight: 'bold' }}>{'>'}</span>
                 <input
                   type="text"
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={handleTerminalInput}
                   autoFocus
-                  style={styles.terminalInput}
+                  style={{
+                    ...styles.terminalInput,
+                    ...(isDark ? { color: '#f8fafc' } : {})
+                  }}
                   placeholder="Type input here and press Enter..."
                 />
               </div>
@@ -914,6 +976,184 @@ export default function StudentView({ socket, currentUser, username, assignment,
           </div>
         </div>
       </div>
+
+      {/* SETTINGS MODAL */}
+      {showSettingsModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+          }}
+          onClick={() => setShowSettingsModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: isDark ? '#1e293b' : '#ffffff',
+              color: isDark ? '#f8fafc' : '#1e293b',
+              borderRadius: '20px',
+              padding: '28px',
+              width: '90%',
+              maxWidth: '460px',
+              boxShadow: '0 20px 45px rgba(0,0,0,0.35)',
+              border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '20px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Settings size={22} color={isDark ? '#38bdf8' : '#0284c7'} />
+                <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '700' }}>Workspace Settings</h3>
+              </div>
+              <button
+                onClick={() => setShowSettingsModal(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: isDark ? '#94a3b8' : '#64748b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '4px',
+                  borderRadius: '6px',
+                }}
+                title="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Dark Mode Toggle */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '16px',
+                borderRadius: '14px',
+                backgroundColor: isDark ? '#0f172a' : '#f8fafc',
+                border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                {isDark ? <Moon size={22} color="#818cf8" /> : <Sun size={22} color="#f59e0b" />}
+                <div>
+                  <div style={{ fontWeight: '600', fontSize: '0.95rem' }}>
+                    {isDark ? 'Dark Mode' : 'Light Mode'}
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
+                    {isDark ? 'Dark theme active' : 'Light theme active'}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isDark}
+                onClick={toggleDarkMode}
+                style={{
+                  position: 'relative',
+                  width: '50px',
+                  height: '28px',
+                  borderRadius: '9999px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  backgroundColor: isDark ? '#10b981' : '#cbd5e1',
+                  transition: 'background-color 0.25s ease',
+                  padding: 0,
+                  flexShrink: 0,
+                }}
+                title="Toggle Dark Mode"
+              >
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: '3px',
+                    left: isDark ? '25px' : '3px',
+                    width: '22px',
+                    height: '22px',
+                    borderRadius: '50%',
+                    backgroundColor: '#ffffff',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                    transition: 'left 0.25s ease',
+                  }}
+                />
+              </button>
+            </div>
+
+            {/* Font Size Selector */}
+            <div
+              style={{
+                padding: '16px',
+                borderRadius: '14px',
+                backgroundColor: isDark ? '#0f172a' : '#f8fafc',
+                border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontWeight: '600', fontSize: '0.9rem' }}>Editor Font Size</span>
+                <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#10b981' }}>{editorFontSize}px</span>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {[13, 14, 16, 18, 20].map((sz) => (
+                  <button
+                    key={sz}
+                    onClick={() => {
+                      setEditorFontSize(sz);
+                      try { localStorage.setItem('verity_editor_font_size', String(sz)); } catch {}
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '8px 0',
+                      borderRadius: '8px',
+                      border: `1px solid ${editorFontSize === sz ? '#10b981' : (isDark ? '#334155' : '#cbd5e1')}`,
+                      backgroundColor: editorFontSize === sz ? (isDark ? '#064e3b' : '#ecfdf5') : (isDark ? '#1e293b' : '#ffffff'),
+                      color: editorFontSize === sz ? '#10b981' : (isDark ? '#cbd5e1' : '#475569'),
+                      fontWeight: editorFontSize === sz ? '700' : '500',
+                      fontSize: '0.85rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    {sz}px
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Done Button */}
+            <button
+              onClick={() => setShowSettingsModal(false)}
+              style={{
+                width: '100%',
+                padding: '12px',
+                backgroundColor: '#10b981',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '12px',
+                fontWeight: '700',
+                fontSize: '0.95rem',
+                cursor: 'pointer',
+                transition: 'opacity 0.15s ease',
+              }}
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

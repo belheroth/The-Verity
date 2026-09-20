@@ -53,6 +53,7 @@ class KioskLockHook
     const uint VK_F1 = 0x70;
     const uint VK_F4 = 0x73;
     const uint VK_DELETE = 0x2E;
+    const uint VK_V = 0x56;
 
     [StructLayout(LayoutKind.Sequential)]
     struct KBDLLHOOKSTRUCT
@@ -95,6 +96,13 @@ class KioskLockHook
     {
         // Block the bare Windows keys outright (Start menu + every Win combo).
         if (vkCode == (int)VK_LWIN || vkCode == (int)VK_RWIN)
+            return true;
+
+        // Block Win+V (Windows Clipboard History popup)
+        if (vkCode == (int)VK_V && (IsDown(VK_LWIN) || IsDown(VK_RWIN)))
+            return true;
+
+        if ((vkCode == (int)VK_LWIN || vkCode == (int)VK_RWIN) && IsDown(VK_V))
             return true;
 
         // The Win key is swallowed above, so these combos can never fire — but
