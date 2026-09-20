@@ -16,9 +16,37 @@ import AdminDashboard from './pages/AdminDashboard';
 import ProtectedRoute from './components/ProtectedRoute';
 import NotFound from './pages/NotFound';
 import syncService from './services/syncService';
+import { subscribeConnectionStatus, getConnectionStatus, getCloudUrl } from './utils/api';
 
-// Connect to Backend
-const socket = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001');
+// Connect to Backend (Cloud-first with local offline fallback)
+const CLOUD_SOCKET = (import.meta.env.VITE_SOCKET_URL || '').replace(/\/$/, '');
+const LOCAL_SOCKET = 'http://localhost:3001';
+
+const socket = io(CLOUD_SOCKET || LOCAL_SOCKET, {
+  reconnectionAttempts: 10,
+  reconnectionDelay: 2000,
+  timeout: 5000,
+});
+
+if (CLOUD_SOCKET && CLOUD_SOCKET !== LOCAL_SOCKET) {
+  socket.on('connect_error', () => {
+    if (socket.io.uri !== LOCAL_SOCKET) {
+      console.warn('[Socket.IO] Cloud socket unreachable. Switching to local offline socket...');
+      socket.io.uri = LOCAL_SOCKET;
+      socket.connect();
+    }
+  });
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => {
+      if (socket.io.uri !== CLOUD_SOCKET) {
+        console.log('[Socket.IO] Internet restored. Switching back to cloud socket...');
+        socket.io.uri = CLOUD_SOCKET;
+        socket.connect();
+      }
+    });
+  }
+}
 
 export default function App() {
 
@@ -96,10 +124,17 @@ export default function App() {
     }
   }, [workspaceReturnScreen]);
 
+  const [connStatus, setConnStatus] = useState(() => getConnectionStatus());
+
+  useEffect(() => {
+    const unsub = subscribeConnectionStatus(setConnStatus);
+    return () => unsub();
+  }, []);
+
   // Setup offline sync queue handler
   useEffect(() => {
-    syncService.initAutoSync(() => localStorage.getItem('token'));
-    const token = localStorage.getItem('token');
+    syncService.initAutoSync(() => localStorage.getItem('verity_token') || localStorage.getItem('token'));
+    const token = localStorage.getItem('verity_token') || localStorage.getItem('token');
     if (token) {
       syncService.syncOfflineQueue(token);
     }
@@ -413,6 +448,40 @@ export default function App() {
           }}
           onGoToRegister={() => setCurrentScreen('register')}
         />
+      )}
+
+      {/* --- OFFLINE LOCAL FALLBACK BANNER --- */}
+      {connStatus?.activeMode === 'local' && Boolean(getCloudUrl()) && (
+        <div style={{
+          position: 'fixed',
+          bottom: '16px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 999999,
+          backgroundColor: '#0f172a',
+          color: '#f8fafc',
+          padding: '8px 18px',
+          borderRadius: '9999px',
+          fontSize: '0.8rem',
+          fontWeight: '600',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+          border: '1px solid rgba(255,255,255,0.12)',
+          pointerEvents: 'none',
+          backdropFilter: 'blur(8px)',
+        }}>
+          <span style={{
+            width: '9px',
+            height: '9px',
+            borderRadius: '50%',
+            backgroundColor: '#f59e0b',
+            boxShadow: '0 0 8px #f59e0b',
+            display: 'inline-block'
+          }}></span>
+          <span>Offline Mode &bull; Working locally &bull; Changes will sync when reconnected</span>
+        </div>
       )}
     </div>
   );

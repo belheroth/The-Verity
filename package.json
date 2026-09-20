@@ -23,9 +23,13 @@
   "build": {
     "appId": "com.verity.app",
     "files": [
-      "electron/main.cjs",
-      "electron/preload.cjs",
-      "dist/**/*"
+      "electron/**/*",
+      "dist/**/*",
+      "!dist/win-unpacked/**/*",
+      "!dist/*.exe",
+      "!dist/*.blockmap",
+      "!dist/*.yml",
+      "!dist/*.yaml"
     ],
     "extraResources": [
       {
@@ -37,6 +41,11 @@
         "from": "dist-server",
         "to": "dist-server",
         "filter": ["server-bundle.cjs"]
+      },
+      {
+        "from": "server",
+        "to": ".",
+        "filter": ["database.json"]
       }
     ],
     "win": {

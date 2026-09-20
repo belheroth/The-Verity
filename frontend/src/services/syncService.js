@@ -1,4 +1,5 @@
 import localStore from './localStore';
+import { apiFetch } from '../utils/api';
 
 /**
  * Offline Sync Service
@@ -32,7 +33,7 @@ export const syncService = {
                     headers['Authorization'] = `Bearer ${authToken}`;
                 }
 
-                const res = await fetch(item.url, {
+                const res = await apiFetch(item.url, {
                     method: item.method || 'POST',
                     headers,
                     body: typeof item.body === 'object' ? JSON.stringify(item.body) : item.body
