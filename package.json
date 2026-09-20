@@ -1,7 +1,10 @@
 {
   "name": "the-verity",
+  "productName": "The Verity",
+  "version": "1.0.0",
+  "description": "The Verity - Secure Examination & LMS Platform",
+  "author": "The Verity Team",
   "private": true,
-  "version": "0.0.0",
   "main": "electron/main.cjs",
   "workspaces": [
     "frontend"
@@ -22,6 +25,7 @@
   },
   "build": {
     "appId": "com.verity.app",
+    "productName": "The Verity",
     "files": [
       "electron/**/*",
       "dist/**/*",
@@ -35,21 +39,36 @@
       {
         "from": "native",
         "to": "native",
-        "filter": ["KioskLockHook.exe"]
+        "filter": [
+          "KioskLockHook.exe"
+        ]
       },
       {
         "from": "dist-server",
         "to": "dist-server",
-        "filter": ["server-bundle.cjs"]
+        "filter": [
+          "server-bundle.cjs"
+        ]
       },
       {
         "from": "server",
         "to": ".",
-        "filter": ["database.json"]
+        "filter": [
+          "database.json"
+        ]
       }
     ],
     "win": {
       "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "The Verity",
+      "runAfterFinish": true
     }
   }
 }
