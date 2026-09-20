@@ -149,10 +149,12 @@ const LOCKED_SHORTCUTS = [
 
 function createSplashWindow() {
   splashWindow = new BrowserWindow({
-    width: 480,
-    height: 350,
+    width: 500,
+    height: 200,
     frame: false,
     transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
     alwaysOnTop: true,
     resizable: false,
     center: true,

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>The Verity</title>
+  <title>Verity</title>
   <style>
     * {
       box-sizing: border-box;
@@ -13,293 +13,201 @@
       -webkit-app-region: drag;
     }
 
-    body {
-      background: transparent;
-      display: flex;
-      justify-content: center;
-      align-items: center;
+    html, body {
+      background: transparent !important;
       width: 100vw;
       height: 100vh;
       overflow: hidden;
-      font-family: Arial, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-
-    .splash-card {
-      position: relative;
-      width: 440px;
-      height: 310px;
-      background: radial-gradient(circle at 50% 25%, #131d2e 0%, #090e17 80%, #05080e 100%);
-      border-radius: 28px;
-      box-shadow: 
-        0 25px 60px -15px rgba(0, 0, 0, 0.85),
-        0 0 45px rgba(16, 185, 129, 0.22),
-        inset 0 1px 1px rgba(255, 255, 255, 0.12),
-        inset 0 -1px 1px rgba(0, 0, 0, 0.5);
-      border: 1px solid rgba(16, 185, 129, 0.35);
       display: flex;
-      flex-direction: column;
-      align-items: center;
       justify-content: center;
-      padding: 30px 25px 25px;
-      animation: entrance 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-      overflow: hidden;
+      align-items: center;
+      font-family: Arial, Helvetica, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
 
-    /* Ambient background glow */
-    .ambient-glow {
-      position: absolute;
-      top: -20%;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 280px;
-      height: 220px;
-      background: radial-gradient(circle, rgba(16, 185, 129, 0.25) 0%, rgba(6, 182, 212, 0.1) 40%, transparent 70%);
-      filter: blur(25px);
-      pointer-events: none;
-      animation: ambientPulse 3s ease-in-out infinite alternate;
-    }
-
-    /* Logo Emblem Container */
-    .logo-wrapper {
+    .splash-container {
       position: relative;
-      width: 90px;
-      height: 90px;
-      margin-bottom: 18px;
       display: flex;
       align-items: center;
       justify-content: center;
-      animation: logoFloat 2.8s ease-in-out infinite alternate;
+      animation: entrance 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
     }
 
-    /* Glowing Shield SVG */
-    .logo-shield {
-      width: 100%;
-      height: 100%;
-      filter: drop-shadow(0 0 16px rgba(16, 185, 129, 0.65)) drop-shadow(0 0 35px rgba(16, 185, 129, 0.3));
-    }
-
-    /* Shimmering Flash Sweep */
-    .flash-sweep {
-      position: absolute;
-      top: -50%;
-      left: -60%;
-      width: 40%;
-      height: 200%;
-      background: linear-gradient(
-        90deg,
-        transparent 0%,
-        rgba(255, 255, 255, 0.05) 20%,
-        rgba(255, 255, 255, 0.7) 50%,
-        rgba(255, 255, 255, 0.05) 80%,
-        transparent 100%
-      );
-      transform: rotate(25deg);
-      pointer-events: none;
-      animation: sweepPass 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-    }
-
-    /* Titles */
-    .title-group {
-      text-align: center;
-      margin-bottom: 22px;
+    .wordmark-wrap {
       position: relative;
-      z-index: 2;
-    }
-
-    .brand-title {
-      font-size: 26px;
-      font-weight: 900;
-      letter-spacing: 5px;
-      color: #ffffff;
-      text-transform: uppercase;
-      margin-bottom: 5px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 3px;
-    }
-
-    .brand-v {
-      color: #10b981;
-      text-shadow: 0 0 16px rgba(16, 185, 129, 0.8), 0 0 30px rgba(16, 185, 129, 0.4);
       display: inline-block;
+      padding: 20px 30px;
+    }
+
+    /* Core floating wordmark */
+    .wordmark {
+      font-size: 88px;
+      font-weight: 900;
+      font-style: italic;
+      letter-spacing: -2px;
+      line-height: 1;
+      white-space: nowrap;
+      filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.8)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.95));
+      display: flex;
+      align-items: center;
+    }
+
+    .letter-v {
+      color: #10b981;
+      display: inline-block;
+      text-shadow: 
+        0 0 15px rgba(16, 185, 129, 0.9),
+        0 0 35px rgba(16, 185, 129, 0.65),
+        0 0 65px rgba(16, 185, 129, 0.4);
       animation: vPulse 1.8s ease-in-out infinite alternate;
     }
 
-    .brand-sub {
-      font-size: 9.5px;
-      font-weight: 700;
-      letter-spacing: 2.5px;
-      color: #94a3b8;
-      text-transform: uppercase;
+    .letter-erity {
+      color: #ffffff;
+      display: inline-block;
+      text-shadow: 
+        0 0 18px rgba(255, 255, 255, 0.45),
+        0 0 35px rgba(16, 185, 129, 0.35);
     }
 
-    /* Loading Bar */
-    .loader-container {
-      width: 260px;
-      position: relative;
+    /* High-intensity light flash sheen across the letters */
+    .wordmark-flash {
+      position: absolute;
+      top: 20px;
+      left: 30px;
+      right: 30px;
+      bottom: 20px;
+      font-size: 88px;
+      font-weight: 900;
+      font-style: italic;
+      letter-spacing: -2px;
+      line-height: 1;
+      white-space: nowrap;
+      pointer-events: none;
       display: flex;
-      flex-direction: column;
       align-items: center;
-      gap: 9px;
-      z-index: 2;
+      background: linear-gradient(
+        110deg,
+        transparent 0%,
+        transparent 28%,
+        rgba(255, 255, 255, 0.98) 50%,
+        rgba(52, 211, 153, 0.9) 55%,
+        transparent 72%,
+        transparent 100%
+      );
+      background-size: 260% 100%;
+      background-position: 160% 0;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+      animation: sheenFlash 1.6s cubic-bezier(0.25, 1, 0.5, 1) 0.3s forwards;
     }
 
-    .track {
-      width: 100%;
-      height: 4px;
-      background: rgba(255, 255, 255, 0.08);
-      border-radius: 999px;
-      overflow: hidden;
-      position: relative;
-      border: 1px solid rgba(255, 255, 255, 0.05);
+    /* Radiant optical flare burst */
+    .flash-flare {
+      position: absolute;
+      top: 50%;
+      left: 30px;
+      width: 140px;
+      height: 140px;
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.95) 0%, rgba(52, 211, 153, 0.8) 25%, rgba(16, 185, 129, 0.3) 50%, transparent 70%);
+      border-radius: 50%;
+      transform: translate(-50%, -50%) scale(0);
+      pointer-events: none;
+      mix-blend-mode: screen;
+      filter: blur(3px);
+      animation: flareBurst 1.6s cubic-bezier(0.2, 0.8, 0.2, 1) 0.3s forwards;
     }
 
-    .bar {
-      height: 100%;
-      width: 0%;
-      background: linear-gradient(90deg, #059669, #10b981, #34d399, #38bdf8);
-      border-radius: 999px;
-      box-shadow: 0 0 10px #10b981;
-      animation: fillBar 2.2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-    }
-
-    .status-text {
-      font-size: 11px;
-      font-weight: 500;
-      color: #64748b;
-      letter-spacing: 0.5px;
-      height: 16px;
-      transition: opacity 0.2s ease;
-    }
-
-    /* Keyframe Animations */
     @keyframes entrance {
       0% {
         opacity: 0;
-        transform: scale(0.9) translateY(12px);
+        transform: scale(0.88);
       }
       100% {
         opacity: 1;
-        transform: scale(1) translateY(0);
+        transform: scale(1);
       }
     }
 
-    @keyframes ambientPulse {
-      0% { opacity: 0.6; transform: translateX(-50%) scale(0.95); }
-      100% { opacity: 1; transform: translateX(-50%) scale(1.1); }
-    }
-
-    @keyframes logoFloat {
-      0% { transform: translateY(0px); }
-      100% { transform: translateY(-4px); }
-    }
-
     @keyframes vPulse {
-      0% { text-shadow: 0 0 12px rgba(16, 185, 129, 0.6); }
-      100% { text-shadow: 0 0 24px rgba(16, 185, 129, 1), 0 0 40px rgba(52, 211, 153, 0.6); }
+      0% {
+        text-shadow: 
+          0 0 15px rgba(16, 185, 129, 0.8),
+          0 0 35px rgba(16, 185, 129, 0.5),
+          0 0 60px rgba(16, 185, 129, 0.3);
+      }
+      100% {
+        text-shadow: 
+          0 0 25px rgba(16, 185, 129, 1),
+          0 0 50px rgba(52, 211, 153, 0.8),
+          0 0 85px rgba(16, 185, 129, 0.55);
+      }
     }
 
-    @keyframes sweepPass {
-      0% { left: -70%; }
-      35%, 100% { left: 150%; }
+    @keyframes sheenFlash {
+      0% {
+        background-position: 160% 0;
+        opacity: 0;
+      }
+      15% {
+        opacity: 1;
+      }
+      70% {
+        background-position: -60% 0;
+        opacity: 1;
+      }
+      100% {
+        background-position: -60% 0;
+        opacity: 0;
+      }
     }
 
-    @keyframes fillBar {
-      0% { width: 4%; }
-      25% { width: 35%; }
-      60% { width: 75%; }
-      100% { width: 100%; }
+    @keyframes flareBurst {
+      0% {
+        transform: translate(-50%, -50%) scale(0);
+        opacity: 0;
+        left: 45px;
+      }
+      20% {
+        transform: translate(-50%, -50%) scale(1.5);
+        opacity: 1;
+        left: 70px;
+      }
+      55% {
+        transform: translate(-50%, -50%) scale(1.1);
+        opacity: 0.85;
+        left: 200px;
+      }
+      80% {
+        transform: translate(-50%, -50%) scale(0.5);
+        opacity: 0.2;
+        left: 290px;
+      }
+      100% {
+        transform: translate(-50%, -50%) scale(0);
+        opacity: 0;
+        left: 320px;
+      }
     }
   </style>
 </head>
 <body>
-  <div class="splash-card">
-    <div class="ambient-glow"></div>
-    <div class="flash-sweep"></div>
-
-    <!-- Emblem Logo -->
-    <div class="logo-wrapper">
-      <svg class="logo-shield" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="shieldGrad" x1="10" y1="5" x2="90" y2="95" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stop-color="#34d399" />
-            <stop offset="45%" stop-color="#10b981" />
-            <stop offset="100%" stop-color="#047857" />
-          </linearGradient>
-          <linearGradient id="strokeGrad" x1="0" y1="0" x2="100" y2="100" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stop-color="#6ee7b7" stop-opacity="0.9" />
-            <stop offset="100%" stop-color="#10b981" stop-opacity="0.2" />
-          </linearGradient>
-          <linearGradient id="vGrad" x1="30" y1="25" x2="70" y2="75" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stop-color="#ffffff" />
-            <stop offset="40%" stop-color="#f0fdf4" />
-            <stop offset="100%" stop-color="#a7f3d0" />
-          </linearGradient>
-          <filter id="vGlow" x="0" y="0" width="100" height="100" filterUnits="userSpaceOnUse">
-            <feGaussianBlur stdDeviation="3" result="blur" />
-            <feComposite in="SourceGraphic" in2="blur" operator="over" />
-          </filter>
-        </defs>
-
-        <!-- Outer Hex Shield -->
-        <path d="M50 8 L85 24 L85 58 C85 76 50 93 50 93 C50 93 15 76 15 58 L15 24 Z" 
-              fill="#06121f" 
-              fill-opacity="0.9"
-              stroke="url(#strokeGrad)" 
-              stroke-width="2.5" />
-
-        <!-- Inner Beveled Crest -->
-        <path d="M50 14 L78 28 L78 56 C78 71 50 85 50 85 C50 85 22 71 22 56 L22 28 Z" 
-              fill="url(#shieldGrad)" 
-              fill-opacity="0.18" />
-
-        <!-- High-Tech Core "V" -->
-        <path d="M32 30 L45 30 L50 62 L55 30 L68 30 L57 73 L43 73 Z" 
-              fill="url(#vGrad)" 
-              filter="url(#vGlow)" />
-        
-        <!-- Cyber accent node -->
-        <circle cx="50" cy="20" r="2.5" fill="#34d399" />
-      </svg>
-    </div>
-
-    <!-- Title and Subtitle -->
-    <div class="title-group">
-      <div class="brand-title">
-        <span class="brand-v">V</span>ERITY
+  <div class="splash-container">
+    <div class="wordmark-wrap">
+      <!-- Base stylized text -->
+      <div class="wordmark">
+        <span class="letter-v">V</span><span class="letter-erity">erity</span>
       </div>
-      <div class="brand-sub">Secure Examination & LMS Platform</div>
-    </div>
 
-    <!-- Loading Bar and Status -->
-    <div class="loader-container">
-      <div class="track">
-        <div class="bar"></div>
+      <!-- High-intensity flash sweep overlay -->
+      <div class="wordmark-flash" aria-hidden="true">
+        <span class="letter-v">V</span><span class="letter-erity">erity</span>
       </div>
-      <div class="status-text" id="status">Initializing secure environment...</div>
+
+      <!-- Animated optical flare beam -->
+      <div class="flash-flare" aria-hidden="true"></div>
     </div>
   </div>
-
-  <script>
-    const statusEl = document.getElementById('status');
-    const steps = [
-      { at: 500, text: 'Verifying proctoring subsystem...' },
-      { at: 1100, text: 'Connecting to cloud database...' },
-      { at: 1800, text: 'Launching The Verity...' }
-    ];
-
-    steps.forEach(({ at, text }) => {
-      setTimeout(() => {
-        if (statusEl) {
-          statusEl.style.opacity = '0';
-          setTimeout(() => {
-            statusEl.innerText = text;
-            statusEl.style.opacity = '1';
-          }, 150);
-        }
-      }, at);
-    });
-  </script>
 </body>
 </html>
