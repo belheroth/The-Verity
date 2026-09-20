@@ -971,18 +971,31 @@ io.on('connection', (socket) => {
         socket.emit('terminal_output', "Compiling and running...\n\n");
         socket.emit('compiler_diagnostics', []); // Clear existing markers
 
+        const projectFile = path.join(projectDir, 'verity_base.csproj');
         const treatWarningsAsErrors = await getTreatWarningsAsErrors();
         const compilerArgs = [
             'run',
-            '--no-restore',
+            '--disable-build-servers',
             '-v', 'q',
             treatWarningsAsErrors ? '-p:WarningLevel=4' : '-p:WarningLevel=0',
             ...(treatWarningsAsErrors ? ['-p:TreatWarningsAsErrors=true'] : []),
             '--project',
-            projectDir
+            projectFile
         ];
 
-        activeProcess = spawn('dotnet', compilerArgs);
+        const env = {
+            ...process.env,
+            DOTNET_CLI_TELEMETRY_OPTOUT: '1',
+            DOTNET_NOLOGO: '1',
+            DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1',
+            DOTNET_CLI_UI_LANGUAGE: 'en-US',
+            MSBUILDDISABLENODEREUSE: '1'
+        };
+
+        activeProcess = spawn('dotnet', compilerArgs, {
+            cwd: projectDir,
+            env
+        });
 
         let rawCompilerOutput = '';
         let started = false;
@@ -1002,6 +1015,13 @@ io.on('connection', (socket) => {
             }
         }, 20000);
 
+        activeProcess.on('error', (err) => {
+            clearTimeout(executionTimeout);
+            socket.emit('terminal_output', `\n[Compiler launch error: ${err.message}]\n`);
+            socket.emit('process_exit');
+            activeProcess = null;
+        });
+
         activeProcess.stdout.on('data', (data) => {
             const str = data.toString();
             rawCompilerOutput += str;
@@ -1018,7 +1038,7 @@ io.on('connection', (socket) => {
 
         activeProcess.on('close', (code) => {
             clearTimeout(executionTimeout);
-            socket.emit('terminal_output', `\n[Process exited with code ${code}]\n`);
+            socket.emit('terminal_output', `\n[Process exited with code ${code ?? 0}]\n`);
 
             // Emit parsed compiler diagnostics (errors/warnings) to the client
             const diagnostics = parseCompilerDiagnostics(rawCompilerOutput);

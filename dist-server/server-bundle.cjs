@@ -77744,18 +77744,30 @@ io.on("connection", (socket) => {
     fs2.writeFileSync(path.join(projectDir, "Program.cs"), code, "utf8");
     socket2.emit("terminal_output", "Compiling and running...\n\n");
     socket2.emit("compiler_diagnostics", []);
+    const projectFile = path.join(projectDir, "verity_base.csproj");
     const treatWarningsAsErrors = await getTreatWarningsAsErrors();
     const compilerArgs = [
       "run",
-      "--no-restore",
+      "--disable-build-servers",
       "-v",
       "q",
       treatWarningsAsErrors ? "-p:WarningLevel=4" : "-p:WarningLevel=0",
       ...treatWarningsAsErrors ? ["-p:TreatWarningsAsErrors=true"] : [],
       "--project",
-      projectDir
+      projectFile
     ];
-    activeProcess = spawn("dotnet", compilerArgs);
+    const env2 = {
+      ...process.env,
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1",
+      DOTNET_NOLOGO: "1",
+      DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1",
+      DOTNET_CLI_UI_LANGUAGE: "en-US",
+      MSBUILDDISABLENODEREUSE: "1"
+    };
+    activeProcess = spawn("dotnet", compilerArgs, {
+      cwd: projectDir,
+      env: env2
+    });
     let rawCompilerOutput = "";
     let started = false;
     const markStarted = () => {
@@ -77774,6 +77786,14 @@ io.on("connection", (socket) => {
         activeProcess = null;
       }
     }, 2e4);
+    activeProcess.on("error", (err) => {
+      clearTimeout(executionTimeout);
+      socket2.emit("terminal_output", `
+[Compiler launch error: ${err.message}]
+`);
+      socket2.emit("process_exit");
+      activeProcess = null;
+    });
     activeProcess.stdout.on("data", (data) => {
       const str = data.toString();
       rawCompilerOutput += str;
@@ -77789,7 +77809,7 @@ io.on("connection", (socket) => {
     activeProcess.on("close", (code2) => {
       clearTimeout(executionTimeout);
       socket2.emit("terminal_output", `
-[Process exited with code ${code2}]
+[Process exited with code ${code2 ?? 0}]
 `);
       const diagnostics = parseCompilerDiagnostics(rawCompilerOutput);
       socket2.emit("compiler_diagnostics", diagnostics);
