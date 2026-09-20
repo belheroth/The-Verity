@@ -5,6 +5,7 @@ const { fork, spawn } = require('child_process');
 const { initLocalDb, localDbAPI } = require('./local-db.cjs');
 
 let mainWindow;
+let splashWindow = null;
 let serverProcess = null;
 let hudProcess = null; // native keyboard-hook helper
 let lockdownActive = false;
@@ -146,10 +147,34 @@ const LOCKED_SHORTCUTS = [
   'F11',
 ];
 
+function createSplashWindow() {
+  splashWindow = new BrowserWindow({
+    width: 480,
+    height: 350,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    center: true,
+    show: true,
+    skipTaskbar: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  splashWindow.loadFile(path.join(__dirname, 'splash.html'));
+  splashWindow.on('closed', () => {
+    splashWindow = null;
+  });
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    show: false, // Initially hidden while splash screen is active
     kiosk: false, // start unlocked — only students get locked down (after login)
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -165,6 +190,31 @@ function createWindow() {
     // Development: load the live Vite dev server.
     mainWindow.loadURL('http://localhost:5173');
   }
+
+  // Smoothly transition from splash window to main window
+  const launchMainWindow = () => {
+    if (!mainWindow) return;
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      splashWindow.close();
+      splashWindow = null;
+    }
+    mainWindow.show();
+    mainWindow.focus();
+  };
+
+  const splashStartTime = Date.now();
+  mainWindow.once('ready-to-show', () => {
+    const elapsed = Date.now() - splashStartTime;
+    const remainingDelay = Math.max(0, 2200 - elapsed);
+    setTimeout(launchMainWindow, remainingDelay);
+  });
+
+  // Safety fallback in case ready-to-show takes too long
+  setTimeout(() => {
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      launchMainWindow();
+    }
+  }, 4500);
 
   // If a locked-down student somehow loses then regains focus, re-assert kiosk.
   mainWindow.on('focus', () => {
@@ -233,6 +283,8 @@ function disableLockdown() {
 }
 
 app.whenReady().then(() => {
+  createSplashWindow();
+
   try {
     initLocalDb(app.getPath('userData'));
   } catch (e) {
@@ -240,13 +292,12 @@ app.whenReady().then(() => {
   }
 
   if (app.isPackaged) {
-    // Production: start the backend server + native keyboard hook, then open
-    // the window after a short delay to give the server time to bind its port.
+    // Production: start backend server + native hook, window will reveal after splash
     startServer();
     startKeyboardHook();
-    setTimeout(createWindow, 1500);
+    createWindow();
   } else {
-    // Development: the server is already running via `npm run dev`.
+    // Development: server already running via dev
     createWindow();
   }
 });
