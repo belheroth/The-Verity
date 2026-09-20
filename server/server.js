@@ -968,18 +968,21 @@ io.on('connection', (socket) => {
 
     async function compileStudentCode(projectDir, code, socket) {
         fs.writeFileSync(path.join(projectDir, 'Program.cs'), code, 'utf8');
-        socket.emit('terminal_output', "Compiling and running...\n\n");
+        socket.emit('terminal_output', "Compiling...\n");
         socket.emit('compiler_diagnostics', []); // Clear existing markers
 
         const projectFile = path.join(projectDir, 'verity_base.csproj');
+        const targetFramework = getDotnetTargetFramework();
+        const dllPath = path.join(projectDir, 'bin', 'Debug', targetFramework, 'verity_base.dll');
         const treatWarningsAsErrors = await getTreatWarningsAsErrors();
-        const compilerArgs = [
-            'run',
-            '--disable-build-servers',
+
+        const buildArgs = [
+            'build',
             '-v', 'q',
+            '-clp:NoSummary',
+            '--disable-build-servers',
             treatWarningsAsErrors ? '-p:WarningLevel=4' : '-p:WarningLevel=0',
             ...(treatWarningsAsErrors ? ['-p:TreatWarningsAsErrors=true'] : []),
-            '--project',
             projectFile
         ];
 
@@ -992,60 +995,81 @@ io.on('connection', (socket) => {
             MSBUILDDISABLENODEREUSE: '1'
         };
 
-        activeProcess = spawn('dotnet', compilerArgs, {
-            cwd: projectDir,
-            env
-        });
+        // Stage 1: Fast compilation via dotnet build
+        const buildProcess = spawn('dotnet', buildArgs, { cwd: projectDir, env });
+        activeProcess = buildProcess;
 
         let rawCompilerOutput = '';
-        let started = false;
-        const markStarted = () => {
-            if (started) return;
-            started = true;
-            socket.emit('program_started');
-        };
+        buildProcess.stdout.on('data', (d) => { rawCompilerOutput += d.toString(); });
+        buildProcess.stderr.on('data', (d) => { rawCompilerOutput += d.toString(); });
 
-        // Enforce a maximum execution timeout of 20 seconds to prevent resource exhaustion / infinite loops
-        const executionTimeout = setTimeout(() => {
-            if (activeProcess) {
-                try { activeProcess.kill(); } catch (_) {}
-                socket.emit('terminal_output', "\n[Process terminated: Execution limit of 20s exceeded]\n");
+        const buildTimeout = setTimeout(() => {
+            if (activeProcess === buildProcess) {
+                try { buildProcess.kill(); } catch (_) {}
+                socket.emit('terminal_output', "\n[Compilation timed out]\n");
                 socket.emit('process_exit');
                 activeProcess = null;
             }
-        }, 20000);
+        }, 15000);
 
-        activeProcess.on('error', (err) => {
-            clearTimeout(executionTimeout);
+        buildProcess.on('error', (err) => {
+            clearTimeout(buildTimeout);
             socket.emit('terminal_output', `\n[Compiler launch error: ${err.message}]\n`);
             socket.emit('process_exit');
             activeProcess = null;
         });
 
-        activeProcess.stdout.on('data', (data) => {
-            const str = data.toString();
-            rawCompilerOutput += str;
-            markStarted();
-            socket.emit('terminal_output', str);
-        });
+        buildProcess.on('close', (buildCode) => {
+            clearTimeout(buildTimeout);
+            if (activeProcess !== buildProcess) return;
 
-        activeProcess.stderr.on('data', (data) => {
-            const str = data.toString();
-            rawCompilerOutput += str;
-            markStarted();
-            socket.emit('terminal_output', str);
-        });
-
-        activeProcess.on('close', (code) => {
-            clearTimeout(executionTimeout);
-            socket.emit('terminal_output', `\n[Process exited with code ${code ?? 0}]\n`);
-
-            // Emit parsed compiler diagnostics (errors/warnings) to the client
             const diagnostics = parseCompilerDiagnostics(rawCompilerOutput);
             socket.emit('compiler_diagnostics', diagnostics);
 
-            socket.emit('process_exit');
-            activeProcess = null;
+            if (buildCode !== 0 || !fs.existsSync(dllPath)) {
+                socket.emit('terminal_output', rawCompilerOutput + "\n[Build failed. Fix the build errors and run again.]\n");
+                socket.emit('process_exit');
+                activeProcess = null;
+                return;
+            }
+
+            // Stage 2: Direct .dll execution (sub-100ms startup, zero MSBuild wrapper overhead)
+            socket.emit('terminal_output', "Running...\n\n");
+            socket.emit('program_started');
+
+            const runProcess = spawn('dotnet', [dllPath], { cwd: projectDir, env });
+            activeProcess = runProcess;
+
+            const executionTimeout = setTimeout(() => {
+                if (activeProcess === runProcess) {
+                    try { runProcess.kill(); } catch (_) {}
+                    socket.emit('terminal_output', "\n[Process terminated: Execution limit of 20s exceeded]\n");
+                    socket.emit('process_exit');
+                    activeProcess = null;
+                }
+            }, 20000);
+
+            runProcess.on('error', (err) => {
+                clearTimeout(executionTimeout);
+                socket.emit('terminal_output', `\n[Execution error: ${err.message}]\n`);
+                socket.emit('process_exit');
+                activeProcess = null;
+            });
+
+            runProcess.stdout.on('data', (data) => {
+                socket.emit('terminal_output', data.toString());
+            });
+
+            runProcess.stderr.on('data', (data) => {
+                socket.emit('terminal_output', data.toString());
+            });
+
+            runProcess.on('close', (runCode) => {
+                clearTimeout(executionTimeout);
+                socket.emit('terminal_output', `\n[Process exited with code ${runCode ?? 0}]\n`);
+                socket.emit('process_exit');
+                activeProcess = null;
+            });
         });
     }
 

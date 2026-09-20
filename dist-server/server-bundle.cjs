@@ -77742,18 +77742,20 @@ io.on("connection", (socket) => {
   });
   async function compileStudentCode(projectDir, code, socket2) {
     fs2.writeFileSync(path.join(projectDir, "Program.cs"), code, "utf8");
-    socket2.emit("terminal_output", "Compiling and running...\n\n");
+    socket2.emit("terminal_output", "Compiling...\n");
     socket2.emit("compiler_diagnostics", []);
     const projectFile = path.join(projectDir, "verity_base.csproj");
+    const targetFramework = getDotnetTargetFramework();
+    const dllPath = path.join(projectDir, "bin", "Debug", targetFramework, "verity_base.dll");
     const treatWarningsAsErrors = await getTreatWarningsAsErrors();
-    const compilerArgs = [
-      "run",
-      "--disable-build-servers",
+    const buildArgs = [
+      "build",
       "-v",
       "q",
+      "-clp:NoSummary",
+      "--disable-build-servers",
       treatWarningsAsErrors ? "-p:WarningLevel=4" : "-p:WarningLevel=0",
       ...treatWarningsAsErrors ? ["-p:TreatWarningsAsErrors=true"] : [],
-      "--project",
       projectFile
     ];
     const env2 = {
@@ -77764,57 +77766,82 @@ io.on("connection", (socket) => {
       DOTNET_CLI_UI_LANGUAGE: "en-US",
       MSBUILDDISABLENODEREUSE: "1"
     };
-    activeProcess = spawn("dotnet", compilerArgs, {
-      cwd: projectDir,
-      env: env2
-    });
+    const buildProcess = spawn("dotnet", buildArgs, { cwd: projectDir, env: env2 });
+    activeProcess = buildProcess;
     let rawCompilerOutput = "";
-    let started = false;
-    const markStarted = () => {
-      if (started) return;
-      started = true;
-      socket2.emit("program_started");
-    };
-    const executionTimeout = setTimeout(() => {
-      if (activeProcess) {
+    buildProcess.stdout.on("data", (d) => {
+      rawCompilerOutput += d.toString();
+    });
+    buildProcess.stderr.on("data", (d) => {
+      rawCompilerOutput += d.toString();
+    });
+    const buildTimeout = setTimeout(() => {
+      if (activeProcess === buildProcess) {
         try {
-          activeProcess.kill();
+          buildProcess.kill();
         } catch (_) {
         }
-        socket2.emit("terminal_output", "\n[Process terminated: Execution limit of 20s exceeded]\n");
+        socket2.emit("terminal_output", "\n[Compilation timed out]\n");
         socket2.emit("process_exit");
         activeProcess = null;
       }
-    }, 2e4);
-    activeProcess.on("error", (err) => {
-      clearTimeout(executionTimeout);
+    }, 15e3);
+    buildProcess.on("error", (err) => {
+      clearTimeout(buildTimeout);
       socket2.emit("terminal_output", `
 [Compiler launch error: ${err.message}]
 `);
       socket2.emit("process_exit");
       activeProcess = null;
     });
-    activeProcess.stdout.on("data", (data) => {
-      const str = data.toString();
-      rawCompilerOutput += str;
-      markStarted();
-      socket2.emit("terminal_output", str);
-    });
-    activeProcess.stderr.on("data", (data) => {
-      const str = data.toString();
-      rawCompilerOutput += str;
-      markStarted();
-      socket2.emit("terminal_output", str);
-    });
-    activeProcess.on("close", (code2) => {
-      clearTimeout(executionTimeout);
-      socket2.emit("terminal_output", `
-[Process exited with code ${code2 ?? 0}]
-`);
+    buildProcess.on("close", (buildCode) => {
+      clearTimeout(buildTimeout);
+      if (activeProcess !== buildProcess) return;
       const diagnostics = parseCompilerDiagnostics(rawCompilerOutput);
       socket2.emit("compiler_diagnostics", diagnostics);
-      socket2.emit("process_exit");
-      activeProcess = null;
+      if (buildCode !== 0 || !fs2.existsSync(dllPath)) {
+        socket2.emit("terminal_output", rawCompilerOutput + "\n[Build failed. Fix the build errors and run again.]\n");
+        socket2.emit("process_exit");
+        activeProcess = null;
+        return;
+      }
+      socket2.emit("terminal_output", "Running...\n\n");
+      socket2.emit("program_started");
+      const runProcess = spawn("dotnet", [dllPath], { cwd: projectDir, env: env2 });
+      activeProcess = runProcess;
+      const executionTimeout = setTimeout(() => {
+        if (activeProcess === runProcess) {
+          try {
+            runProcess.kill();
+          } catch (_) {
+          }
+          socket2.emit("terminal_output", "\n[Process terminated: Execution limit of 20s exceeded]\n");
+          socket2.emit("process_exit");
+          activeProcess = null;
+        }
+      }, 2e4);
+      runProcess.on("error", (err) => {
+        clearTimeout(executionTimeout);
+        socket2.emit("terminal_output", `
+[Execution error: ${err.message}]
+`);
+        socket2.emit("process_exit");
+        activeProcess = null;
+      });
+      runProcess.stdout.on("data", (data) => {
+        socket2.emit("terminal_output", data.toString());
+      });
+      runProcess.stderr.on("data", (data) => {
+        socket2.emit("terminal_output", data.toString());
+      });
+      runProcess.on("close", (runCode) => {
+        clearTimeout(executionTimeout);
+        socket2.emit("terminal_output", `
+[Process exited with code ${runCode ?? 0}]
+`);
+        socket2.emit("process_exit");
+        activeProcess = null;
+      });
     });
   }
   socket.on("terminal_input", (input) => {

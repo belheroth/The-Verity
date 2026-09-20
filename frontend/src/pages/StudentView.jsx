@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { io } from 'socket.io-client';
 import Editor from '@monaco-editor/react';
 import { ArrowLeft, Save, Play, Square, Send, Settings, TerminalSquare, Check, AlertTriangle, Trash2 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
@@ -110,6 +111,49 @@ export default function StudentView({ socket, currentUser, username, assignment,
   const monacoRef = useRef(null);
   const diagnosticsRef = useRef([]);
   const [proctorLogs, setProctorLogs] = useState([]);
+
+  // High-Speed Local Compiler Socket (instant execution in Electron / local machine)
+  const [useLocalCompiler, setUseLocalCompiler] = useState(false);
+  const localSocketRef = useRef(null);
+
+  useEffect(() => {
+    let isSubscribed = true;
+    const token = localStorage.getItem('verity_token') || localStorage.getItem('token');
+
+    try {
+      const local = io('http://localhost:3001', {
+        timeout: 2500,
+        reconnectionAttempts: 5,
+        reconnectionDelay: 2000,
+        auth: { token }
+      });
+
+      local.on('connect', () => {
+        if (isSubscribed) setUseLocalCompiler(true);
+        local.emit('authenticate', { token, user: currentUser });
+      });
+
+      local.on('connect_error', () => {
+        if (isSubscribed) setUseLocalCompiler(false);
+      });
+
+      localSocketRef.current = local;
+    } catch (_) {}
+
+    return () => {
+      isSubscribed = false;
+      if (localSocketRef.current) {
+        try { localSocketRef.current.disconnect(); } catch (_) {}
+      }
+    };
+  }, [currentUser]);
+
+  const getCompilerSocket = () => {
+    if (useLocalCompiler && localSocketRef.current && localSocketRef.current.connected) {
+      return localSocketRef.current;
+    }
+    return socket;
+  };
 
   // Terminal resizable height & drag state
   const [terminalHeight, setTerminalHeight] = useState(() => {
@@ -369,40 +413,58 @@ export default function StudentView({ socket, currentUser, username, assignment,
 
   // 3. TERMINAL HANDLING & COMPILER DIAGNOSTICS (Mirroring to Teacher immediately)
   useEffect(() => {
-    socket.on('terminal_output', (dataChunk) => {
+    const handleOutput = (dataChunk) => {
       setOutput((prev) => {
         const newOutput = prev + dataChunk;
-        // Send to teacher instantly
-        socket.emit('student_terminal_update', {
-          studentId: safeUsername,
-          output: newOutput,
-          classroomId: classroom?.id,
-          assignmentId: assignment?.id
-        });
+        // Broadcast to teacher via cloud socket
+        if (socket && socket.connected) {
+          socket.emit('student_terminal_update', {
+            studentId: safeUsername,
+            output: newOutput,
+            classroomId: classroom?.id,
+            assignmentId: assignment?.id
+          });
+        }
         return newOutput;
       });
       if (terminalEndRef.current) terminalEndRef.current.scrollIntoView({ behavior: "smooth" });
-    });
+    };
 
-    // Program finished compiling and is now running — reveal the input box.
-    socket.on('program_started', () => setProgramStarted(true));
-
-    socket.on('process_exit', () => {
+    const handleStarted = () => setProgramStarted(true);
+    const handleExit = () => {
       setIsRunning(false);
       setProgramStarted(false);
-    });
-
-    socket.on('compiler_diagnostics', (diagnostics) => {
+    };
+    const handleDiagnostics = (diagnostics) => {
       updateEditorMarkers(diagnostics);
-    });
+    };
+
+    socket.on('terminal_output', handleOutput);
+    socket.on('program_started', handleStarted);
+    socket.on('process_exit', handleExit);
+    socket.on('compiler_diagnostics', handleDiagnostics);
+
+    const local = localSocketRef.current;
+    if (local) {
+      local.on('terminal_output', handleOutput);
+      local.on('program_started', handleStarted);
+      local.on('process_exit', handleExit);
+      local.on('compiler_diagnostics', handleDiagnostics);
+    }
 
     return () => {
-      socket.off('terminal_output');
-      socket.off('program_started');
-      socket.off('process_exit');
-      socket.off('compiler_diagnostics');
+      socket.off('terminal_output', handleOutput);
+      socket.off('program_started', handleStarted);
+      socket.off('process_exit', handleExit);
+      socket.off('compiler_diagnostics', handleDiagnostics);
+      if (local) {
+        local.off('terminal_output', handleOutput);
+        local.off('program_started', handleStarted);
+        local.off('process_exit', handleExit);
+        local.off('compiler_diagnostics', handleDiagnostics);
+      }
     };
-  }, [socket, safeUsername, classroom, assignment]);
+  }, [socket, useLocalCompiler, safeUsername, classroom, assignment]);
 
   // Verify submission status with backend and keep in sync
   useEffect(() => {
@@ -483,15 +545,20 @@ export default function StudentView({ socket, currentUser, username, assignment,
     setProgramStarted(false); // hide input until compilation finishes
     setOutput("");
 
-    // Tell teacher we cleared the terminal to run
-    socket.emit('student_terminal_update', {
-      studentId: safeUsername,
-      output: "Initializing compiler environment...\n",
-      classroomId: classroom?.id,
-      assignmentId: assignment?.id
-    });
+    const targetSocket = getCompilerSocket();
+
+    // Tell teacher we started running
+    if (socket && socket.connected) {
+      socket.emit('student_terminal_update', {
+        studentId: safeUsername,
+        output: "Compiling...\n",
+        classroomId: classroom?.id,
+        assignmentId: assignment?.id
+      });
+    }
+
     const token = localStorage.getItem('verity_token') || localStorage.getItem('token');
-    socket.emit('compile_code', {
+    targetSocket.emit('compile_code', {
       code: code,
       token: token,
       user: currentUser
@@ -499,13 +566,16 @@ export default function StudentView({ socket, currentUser, username, assignment,
   };
 
   const handleStopCode = () => {
-    socket.emit('stop_code');
-    socket.emit('student_terminal_update', {
-      studentId: safeUsername,
-      output: "[Process stopped by user]\n",
-      classroomId: classroom?.id,
-      assignmentId: assignment?.id
-    });
+    const targetSocket = getCompilerSocket();
+    targetSocket.emit('stop_code');
+    if (socket && socket.connected) {
+      socket.emit('student_terminal_update', {
+        studentId: safeUsername,
+        output: "[Process stopped by user]\n",
+        classroomId: classroom?.id,
+        assignmentId: assignment?.id
+      });
+    }
     setIsRunning(false);
     setProgramStarted(false);
   };
@@ -588,15 +658,18 @@ export default function StudentView({ socket, currentUser, username, assignment,
 
   const handleTerminalInput = (e) => {
     if (e.key === 'Enter') {
-      socket.emit('terminal_input', inputValue);
+      const targetSocket = getCompilerSocket();
+      targetSocket.emit('terminal_input', inputValue);
       const newOutput = output + inputValue + '\n';
       setOutput(newOutput);
-      socket.emit('student_terminal_update', {
-        studentId: safeUsername,
-        output: newOutput,
-        classroomId: classroom?.id,
-        assignmentId: assignment?.id
-      });
+      if (socket && socket.connected) {
+        socket.emit('student_terminal_update', {
+          studentId: safeUsername,
+          output: newOutput,
+          classroomId: classroom?.id,
+          assignmentId: assignment?.id
+        });
+      }
       setInputValue("");
     }
   };
@@ -803,6 +876,11 @@ export default function StudentView({ socket, currentUser, username, assignment,
                 <span style={isRunning ? styles.statusDotRunning : styles.statusDotIdle} />
                 <span>{isRunning ? (programStarted ? 'Running' : 'Compiling') : 'Idle'}</span>
               </div>
+              {useLocalCompiler && (
+                <span style={{ fontSize: '0.7rem', color: '#059669', backgroundColor: '#ecfdf5', padding: '1px 6px', borderRadius: '10px', border: '1px solid #a7f3d0', fontWeight: '500' }} title="Running on high-speed local engine">
+                  ⚡ Local Engine (~1s)
+                </span>
+              )}
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
