@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
-import { ArrowLeft, Save, Play, Square, Send, Settings, TerminalSquare, Check } from 'lucide-react';
+import { ArrowLeft, Save, Play, Square, Send, Settings, TerminalSquare, Check, AlertTriangle, Trash2 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import localStore from '../services/localStore';
 
@@ -43,6 +43,34 @@ export default function StudentView({ socket, currentUser, username, assignment,
   const [programStarted, setProgramStarted] = useState(false);
   // Seed the instruction from the assignment the student opened ("details").
   const [instruction, setInstruction] = useState(assignment?.details || "");
+  const [strictCompiler, setStrictCompiler] = useState(false);
+
+  // Synchronize compiler strictness from Admin Settings
+  useEffect(() => {
+    let isMounted = true;
+    apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/system-settings`)
+      .then(res => res.ok ? res.json() : {})
+      .then(d => {
+        if (!isMounted) return;
+        const treatWarnings = !!d.settings?.examDefaults?.treatWarningsAsErrors;
+        setStrictCompiler(treatWarnings);
+      })
+      .catch(() => {});
+
+    if (socket) {
+      const handleSettingsUpdate = (data) => {
+        if (data?.settings?.examDefaults?.treatWarningsAsErrors !== undefined) {
+          setStrictCompiler(!!data.settings.examDefaults.treatWarningsAsErrors);
+        }
+      };
+      socket.on('system_settings_updated', handleSettingsUpdate);
+      return () => {
+        isMounted = false;
+        socket.off('system_settings_updated', handleSettingsUpdate);
+      };
+    }
+    return () => { isMounted = false; };
+  }, [socket]);
 
   useEffect(() => {
     if (assignment?.details !== undefined) {
@@ -69,7 +97,53 @@ export default function StudentView({ socket, currentUser, username, assignment,
   }, [assignmentId, studentId]);
   const terminalEndRef = useRef(null);
   const terminalBodyRef = useRef(null);
+  const editorRef = useRef(null);
+  const monacoRef = useRef(null);
+  const diagnosticsRef = useRef([]);
   const [proctorLogs, setProctorLogs] = useState([]);
+
+  // Terminal resizable height & drag state
+  const [terminalHeight, setTerminalHeight] = useState(() => {
+    try {
+      const saved = localStorage.getItem('verity_terminal_height');
+      if (saved) return Math.max(100, Math.min(parseInt(saved, 10), window.innerHeight * 0.75));
+    } catch {}
+    return 240;
+  });
+  const isDraggingRef = useRef(false);
+  const startYRef = useRef(0);
+  const startHeightRef = useRef(240);
+
+  const handleDividerMouseDown = (e) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+    startYRef.current = e.clientY;
+    startHeightRef.current = terminalHeight;
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+
+    const handleMouseMove = (moveEvent) => {
+      if (!isDraggingRef.current) return;
+      const deltaY = startYRef.current - moveEvent.clientY;
+      const newHeight = Math.max(100, Math.min(startHeightRef.current + deltaY, window.innerHeight * 0.75));
+      setTerminalHeight(newHeight);
+    };
+
+    const handleMouseUp = () => {
+      isDraggingRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      setTerminalHeight((finalHeight) => {
+        try { localStorage.setItem('verity_terminal_height', String(finalHeight)); } catch {}
+        return finalHeight;
+      });
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
 
   const codeRef = useRef(code);
   codeRef.current = code;
@@ -204,7 +278,56 @@ export default function StudentView({ socket, currentUser, username, assignment,
     };
   }, []);
 
+  const updateEditorMarkers = (diagnostics = []) => {
+    diagnosticsRef.current = diagnostics;
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!editor || !monaco) return;
+    const model = editor.getModel();
+    if (!model) return;
+
+    if (!Array.isArray(diagnostics) || diagnostics.length === 0) {
+      monaco.editor.setModelMarkers(model, 'csharp-compiler', []);
+      return;
+    }
+
+    const markers = diagnostics.map(d => {
+      const startLine = Math.max(1, Math.min(d.startLineNumber || 1, model.getLineCount()));
+      const lineContent = model.getLineContent(startLine) || '';
+      const startCol = Math.max(1, Math.min(d.startColumn || 1, lineContent.length + 1));
+
+      let endCol = d.endColumn;
+      if (!endCol || endCol <= startCol) {
+        const remaining = lineContent.substring(startCol - 1);
+        const wordMatch = remaining.match(/^[a-zA-Z0-9_]+/);
+        if (wordMatch && wordMatch[0].length > 0) {
+          endCol = startCol + wordMatch[0].length;
+        } else {
+          endCol = Math.max(startCol + 1, lineContent.length + 1);
+        }
+      }
+
+      const endLine = Math.max(startLine, Math.min(d.endLineNumber || startLine, model.getLineCount()));
+
+      return {
+        severity: d.severity === 'warning'
+          ? monaco.MarkerSeverity.Warning
+          : monaco.MarkerSeverity.Error,
+        message: d.message,
+        startLineNumber: startLine,
+        startColumn: startCol,
+        endLineNumber: endLine,
+        endColumn: endCol
+      };
+    });
+
+    monaco.editor.setModelMarkers(model, 'csharp-compiler', markers);
+  };
+
   const handleEditorDidMount = (editor, monaco) => {
+    editorRef.current = editor;
+    monacoRef.current = monaco;
+
     if (monaco) {
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
         handleSaveCode();
@@ -235,7 +358,7 @@ export default function StudentView({ socket, currentUser, username, assignment,
     });
   };
 
-  // 3. TERMINAL HANDLING (Mirroring to Teacher immediately)
+  // 3. TERMINAL HANDLING & COMPILER DIAGNOSTICS (Mirroring to Teacher immediately)
   useEffect(() => {
     socket.on('terminal_output', (dataChunk) => {
       setOutput((prev) => {
@@ -259,10 +382,16 @@ export default function StudentView({ socket, currentUser, username, assignment,
       setIsRunning(false);
       setProgramStarted(false);
     });
+
+    socket.on('compiler_diagnostics', (diagnostics) => {
+      updateEditorMarkers(diagnostics);
+    });
+
     return () => {
       socket.off('terminal_output');
       socket.off('program_started');
       socket.off('process_exit');
+      socket.off('compiler_diagnostics');
     };
   }, [socket, safeUsername, classroom, assignment]);
 
@@ -340,6 +469,7 @@ export default function StudentView({ socket, currentUser, username, assignment,
   }, [socket, safeUsername, studentId, classroomId, assignmentId]);
 
   const handleRunCode = () => {
+    updateEditorMarkers([]);
     setIsRunning(true);
     setProgramStarted(false); // hide input until compilation finishes
     setOutput("");
@@ -368,7 +498,12 @@ export default function StudentView({ socket, currentUser, username, assignment,
 
   const handleSubmit = () => {
     if (submitted) return;
-    if (!window.confirm("Submit your work? You won't be able to make changes after submitting.")) return;
+    if (strictCompiler && diagnosticsRef.current?.length > 0) {
+      const msg = "Notice: Strict compiler mode is active and your code currently has compiler errors/warnings. Are you sure you want to submit anyway?";
+      if (!window.confirm(msg)) return;
+    } else {
+      if (!window.confirm("Submit your work? You won't be able to make changes after submitting.")) return;
+    }
     setSubmitted(true);
     const aId = assignment?.id ?? 'default';
     const subRecord = {
@@ -452,6 +587,53 @@ export default function StudentView({ socket, currentUser, username, assignment,
     }
   };
 
+  const handleClearTerminal = () => {
+    setOutput("");
+    if (socket) {
+      socket.emit('student_terminal_update', {
+        studentId: safeUsername,
+        output: "",
+        classroomId: classroom?.id,
+        assignmentId: assignment?.id
+      });
+    }
+  };
+
+  const renderFormattedOutput = (rawText) => {
+    if (!rawText) return null;
+    const lines = rawText.split('\n');
+    return lines.map((line, idx) => {
+      let color = '#1f2937';
+      let fontWeight = 'normal';
+      let fontStyle = 'normal';
+
+      if (/error CS\d+/i.test(line) || /The build failed/i.test(line) || /\[Process terminated/i.test(line)) {
+        color = '#dc2626'; // red-600
+        fontWeight = '600';
+      } else if (/warning CS\d+/i.test(line)) {
+        color = '#d97706'; // amber-600
+        fontWeight = '600';
+      } else if (/Initializing compiler environment/i.test(line) || /Compiling and running/i.test(line)) {
+        color = '#0284c7'; // sky-600
+      } else if (/\[Process exited with code 0\]/i.test(line)) {
+        color = '#059669'; // emerald-600
+        fontWeight = '600';
+      } else if (/\[Process exited with code/i.test(line)) {
+        color = '#dc2626'; // red-600
+        fontWeight = '600';
+      } else if (/\[Process stopped by user\]/i.test(line)) {
+        color = '#6b7280'; // gray-500
+        fontStyle = 'italic';
+      }
+
+      return (
+        <div key={idx} style={{ color, fontWeight, fontStyle, minHeight: '1.25em', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+          {line || ' '}
+        </div>
+      );
+    });
+  };
+
   return (
     <div style={styles.container}>
       <div style={styles.leftSidebar}>
@@ -523,6 +705,15 @@ export default function StudentView({ socket, currentUser, username, assignment,
             </button>
             <button onClick={handleRunCode} style={styles.runButton}><Play size={16} fill="currentColor" /> Run</button>
             <button onClick={handleStopCode} disabled={!isRunning} style={{ ...styles.stopButton, opacity: isRunning ? 1 : 0.5, cursor: isRunning ? 'pointer' : 'not-allowed' }}><Square size={14} fill="currentColor" /> Stop</button>
+            {strictCompiler && (
+              <div
+                style={styles.strictBadge}
+                title="Strict Compiler Mode: Compiler warnings are treated as errors and will block execution."
+              >
+                <AlertTriangle size={13} style={{ marginRight: '5px', flexShrink: 0 }} />
+                <span>Strict: Warnings = Errors</span>
+              </div>
+            )}
           </div>
 
           <div style={styles.toolGroupRight}>
@@ -558,6 +749,9 @@ export default function StudentView({ socket, currentUser, username, assignment,
             theme="vs-dark"
             value={code}
             onChange={(newCode) => {
+              if (diagnosticsRef.current?.length > 0) {
+                updateEditorMarkers([]);
+              }
               setCode(newCode);
               codeRef.current = newCode;
               try { 
@@ -578,17 +772,50 @@ export default function StudentView({ socket, currentUser, username, assignment,
           />
         </div>
 
-        <div style={styles.terminalWrapper}>
+        <div
+          style={styles.resizeHandle}
+          onMouseDown={handleDividerMouseDown}
+          title="Drag up or down to resize terminal height"
+        >
+          <div style={styles.resizeHandleGrip} />
+        </div>
+
+        <div style={{ ...styles.terminalWrapper, height: `${terminalHeight}px` }}>
           <div style={styles.terminalHeader}>
-            <TerminalSquare size={16} style={{ marginRight: '8px' }} />
-            <span style={{ fontWeight: 'bold' }}>Terminal Output</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <TerminalSquare size={15} color="#4b5563" />
+              <span style={{ fontWeight: '600', fontSize: '0.82rem', color: '#1f2937', letterSpacing: '0.04em' }}>TERMINAL</span>
+              <div style={isRunning ? styles.statusBadgeRunning : styles.statusBadgeIdle}>
+                <span style={isRunning ? styles.statusDotRunning : styles.statusDotIdle} />
+                <span>{isRunning ? (programStarted ? 'Running' : 'Compiling') : 'Idle'}</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                onClick={handleClearTerminal}
+                style={styles.terminalActionBtn}
+                title="Clear Terminal Output"
+              >
+                <Trash2 size={13} style={{ marginRight: '4px' }} />
+                <span>Clear</span>
+              </button>
+            </div>
           </div>
           <div ref={terminalBodyRef} style={styles.terminalBody}>
-            <span style={{ whiteSpace: 'pre-wrap' }}>{output}</span>
+            {renderFormattedOutput(output)}
             {isRunning && programStarted && (
-              <div style={{ display: 'flex', marginTop: '5px' }}>
-                <span style={{ marginRight: '8px', color: '#10b981' }}>{'>'}</span>
-                <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={handleTerminalInput} autoFocus style={styles.terminalInput} />
+              <div style={styles.terminalInputRow}>
+                <span style={{ marginRight: '8px', color: '#059669', fontWeight: 'bold' }}>{'>'}</span>
+                <input
+                  type="text"
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={handleTerminalInput}
+                  autoFocus
+                  style={styles.terminalInput}
+                  placeholder="Type input here and press Enter..."
+                />
               </div>
             )}
             <div ref={terminalEndRef} />
@@ -620,14 +847,129 @@ const styles = {
   iconButtonSaved: { backgroundColor: '#ecfdf5', borderColor: '#a7f3d0', color: '#059669' },
   runButton: { padding: '8px 20px', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' },
   stopButton: { padding: '8px 20px', backgroundColor: '#dc2626', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' },
+  strictBadge: { display: 'inline-flex', alignItems: 'center', padding: '6px 11px', backgroundColor: '#fffbeb', border: '1px solid #fde68a', borderRadius: '5px', color: '#b45309', fontSize: '0.78rem', fontWeight: 'bold', userSelect: 'none' },
   toolGroupRight: { display: 'flex', gap: '15px', alignItems: 'center' },
   submitButton: { padding: '8px 20px', backgroundColor: '#06b6d4', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center' },
   unsubmitBtn: { padding: '8px 20px', backgroundColor: 'white', color: '#475569', border: '1px solid #d1d5db', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem', display: 'flex', alignItems: 'center', transition: 'all 0.15s ease' },
   recordingDot: { width: '12px', height: '12px', backgroundColor: '#dc2626', borderRadius: '50%', boxShadow: '0 0 8px rgba(220, 38, 38, 0.8)' },
   gearIcon: { backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: '#6b7280', display: 'flex', alignItems: 'center' },
   editorWrapper: { flex: 1, minHeight: 0, backgroundColor: '#1e1e1e', position: 'relative' },
-  terminalWrapper: { height: '35%', minHeight: '160px', display: 'flex', flexDirection: 'column', backgroundColor: 'white', borderTop: '2px solid #d1d5db', flexShrink: 0 },
-  terminalHeader: { padding: '8px 15px', backgroundColor: '#f3f4f6', borderBottom: '1px solid #e5e7eb', fontSize: '0.9rem', color: '#4b5563', display: 'flex', alignItems: 'center', flexShrink: 0 },
-  terminalBody: { flex: 1, padding: '15px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '1rem', color: 'black', textAlign: 'left' },
-  terminalInput: { backgroundColor: 'transparent', border: 'none', color: 'black', outline: 'none', width: '100%', fontFamily: 'monospace', fontSize: '1rem' }
+  resizeHandle: {
+    height: '6px',
+    backgroundColor: '#e5e7eb',
+    cursor: 'row-resize',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    transition: 'background-color 0.15s ease',
+    borderTop: '1px solid #d1d5db',
+    borderBottom: '1px solid #e5e7eb',
+    userSelect: 'none',
+  },
+  resizeHandleGrip: {
+    width: '36px',
+    height: '2px',
+    backgroundColor: '#9ca3af',
+    borderRadius: '2px',
+  },
+  terminalWrapper: {
+    display: 'flex',
+    flexDirection: 'column',
+    backgroundColor: '#ffffff',
+    borderTop: '1px solid #d1d5db',
+    flexShrink: 0,
+    minHeight: '100px',
+    maxHeight: '75vh',
+    overflow: 'hidden',
+  },
+  terminalHeader: {
+    height: '36px',
+    minHeight: '36px',
+    padding: '0 14px',
+    backgroundColor: '#f3f4f6',
+    borderBottom: '1px solid #e5e7eb',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexShrink: 0,
+  },
+  terminalActionBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '3px 8px',
+    backgroundColor: '#ffffff',
+    border: '1px solid #d1d5db',
+    borderRadius: '4px',
+    color: '#4b5563',
+    fontSize: '0.75rem',
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+  },
+  statusBadgeRunning: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '5px',
+    padding: '2px 8px',
+    backgroundColor: '#ecfdf5',
+    border: '1px solid #a7f3d0',
+    borderRadius: '12px',
+    color: '#059669',
+    fontSize: '0.72rem',
+    fontWeight: '600',
+  },
+  statusBadgeIdle: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '5px',
+    padding: '2px 8px',
+    backgroundColor: '#f3f4f6',
+    border: '1px solid #e5e7eb',
+    borderRadius: '12px',
+    color: '#6b7280',
+    fontSize: '0.72rem',
+    fontWeight: '500',
+  },
+  statusDotRunning: {
+    width: '6px',
+    height: '6px',
+    borderRadius: '50%',
+    backgroundColor: '#10b981',
+    boxShadow: '0 0 4px #10b981',
+  },
+  statusDotIdle: {
+    width: '6px',
+    height: '6px',
+    borderRadius: '50%',
+    backgroundColor: '#9ca3af',
+  },
+  terminalBody: {
+    flex: 1,
+    padding: '12px 16px',
+    overflowY: 'auto',
+    fontFamily: "Consolas, 'Cascadia Code', 'Courier New', monospace",
+    fontSize: '0.92rem',
+    lineHeight: 1.5,
+    color: '#111827',
+    backgroundColor: '#ffffff',
+    textAlign: 'left',
+  },
+  terminalInputRow: {
+    display: 'flex',
+    alignItems: 'center',
+    marginTop: '6px',
+    backgroundColor: '#f9fafb',
+    padding: '4px 10px',
+    borderRadius: '4px',
+    border: '1px solid #e5e7eb',
+  },
+  terminalInput: {
+    backgroundColor: 'transparent',
+    border: 'none',
+    color: '#111827',
+    outline: 'none',
+    width: '100%',
+    fontFamily: "Consolas, 'Cascadia Code', 'Courier New', monospace",
+    fontSize: '0.92rem',
+  }
 };

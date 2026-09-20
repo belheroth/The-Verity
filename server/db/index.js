@@ -299,10 +299,21 @@ const db = {
             let pgSql = convertPlaceholders(sql);
             const isInsert = /^\s*INSERT\s+INTO/i.test(pgSql);
             const hasReturning = /RETURNING/i.test(pgSql);
-            if (isInsert && !hasReturning) {
+            const isIdLessTable = /INSERT\s+INTO\s+(?:system_settings|security_flags)\b/i.test(pgSql);
+            if (isInsert && !hasReturning && !isIdLessTable) {
                 pgSql += ' RETURNING id';
             }
-            const res = await pgPool.query(pgSql, params);
+            let res;
+            try {
+                res = await pgPool.query(pgSql, params);
+            } catch (err) {
+                if (err && err.code === '42703' && pgSql.includes('RETURNING id')) {
+                    // Fallback: column "id" does not exist in this table
+                    res = await pgPool.query(convertPlaceholders(sql), params);
+                } else {
+                    throw err;
+                }
+            }
             const rawId = res.rows && res.rows[0] && res.rows[0].id ? res.rows[0].id : null;
             const lastId = rawId !== null && !isNaN(Number(rawId)) ? Number(rawId) : rawId;
             return {

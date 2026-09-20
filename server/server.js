@@ -639,6 +639,128 @@ app.get('/stats', authenticateToken, requireRole('Admin'), async (req, res) => {
 });
 
 // --- REAL-TIME C# COMPILER & PROCTORING (The Brain) ---
+const COMPILER_BASE_DIR = path.join(os.tmpdir(), 'verity_compiler_base_template');
+let baseTemplatePromise = null;
+const sessionWorkspaces = new Map();
+
+function ensureBaseTemplate() {
+    if (baseTemplatePromise) return baseTemplatePromise;
+
+    baseTemplatePromise = (async () => {
+        try {
+            const projectFile = path.join(COMPILER_BASE_DIR, 'verity_base.csproj');
+            const assetsFile = path.join(COMPILER_BASE_DIR, 'obj', 'project.assets.json');
+
+            if (fs.existsSync(projectFile) && fs.existsSync(assetsFile)) {
+                return COMPILER_BASE_DIR;
+            }
+
+            if (!fs.existsSync(COMPILER_BASE_DIR)) {
+                fs.mkdirSync(COMPILER_BASE_DIR, { recursive: true });
+            }
+
+            const csprojContent = `<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+</Project>
+`;
+            fs.writeFileSync(projectFile, csprojContent, 'utf8');
+            fs.writeFileSync(path.join(COMPILER_BASE_DIR, 'Program.cs'), 'using System; class Program { static void Main() {} }\n', 'utf8');
+
+            console.log('⚡ Verity Compiler: Pre-warming base .NET template...');
+            await new Promise((resolve) => {
+                exec(`dotnet build -v q -p:WarningLevel=0 "${projectFile}"`, { cwd: COMPILER_BASE_DIR }, (err) => {
+                    if (err) {
+                        console.warn('⚠️ Base template build warning (falling back to restore):', err.message);
+                        exec(`dotnet restore "${projectFile}"`, { cwd: COMPILER_BASE_DIR }, () => resolve(COMPILER_BASE_DIR));
+                    } else {
+                        console.log('⚡ Verity Compiler: Base .NET template pre-warmed with warm obj/bin cache.');
+                        resolve(COMPILER_BASE_DIR);
+                    }
+                });
+            });
+
+            return COMPILER_BASE_DIR;
+        } catch (err) {
+            console.error('Failed to pre-warm base compiler template:', err);
+            baseTemplatePromise = null;
+            throw err;
+        }
+    })();
+
+    return baseTemplatePromise;
+}
+
+// Warm up base template asynchronously on server start
+ensureBaseTemplate().catch(err => console.warn('Non-blocking compiler warmup notice:', err.message));
+
+// Clean up ancient verity temporary folders (>12 hours old) periodically
+setInterval(() => {
+    try {
+        const tmpDir = os.tmpdir();
+        const files = fs.readdirSync(tmpDir);
+        const now = Date.now();
+        const MAX_AGE_MS = 12 * 60 * 60 * 1000;
+
+        for (const file of files) {
+            if (file.startsWith('verity_ws_') || file.startsWith('verity_temp_')) {
+                const fullPath = path.join(tmpDir, file);
+                try {
+                    const stats = fs.statSync(fullPath);
+                    if (now - stats.mtimeMs > MAX_AGE_MS) {
+                        fs.rmSync(fullPath, { recursive: true, force: true });
+                    }
+                } catch (_) {}
+            }
+        }
+    } catch (_) {}
+}, 60 * 60 * 1000);
+
+function parseCompilerDiagnostics(output) {
+    if (!output) return [];
+    const diagnostics = [];
+    const regex = /(?:^|\r?\n)(?:.*?[/\\])?Program\.cs\((\d+)(?:,(\d+))?(?:,(\d+),(\d+))?\):\s*(error|warning)\s+([A-Za-z0-9]+):\s*([^\r\n]+)/gi;
+    let match;
+
+    while ((match = regex.exec(output)) !== null) {
+        const startLine = parseInt(match[1], 10);
+        const startCol = match[2] ? parseInt(match[2], 10) : 1;
+        const endLine = match[3] ? parseInt(match[3], 10) : startLine;
+        const endCol = match[4] ? parseInt(match[4], 10) : null;
+        const severity = match[5].toLowerCase();
+        const code = match[6];
+        let rawMsg = match[7].trim();
+        rawMsg = rawMsg.replace(/\s*\[.*?\.csproj\]$/, '').trim();
+
+        diagnostics.push({
+            severity, // 'error' or 'warning'
+            code,
+            message: `${code}: ${rawMsg}`,
+            startLineNumber: startLine,
+            startColumn: startCol,
+            endLineNumber: endLine,
+            endColumn: endCol
+        });
+    }
+
+    return diagnostics;
+}
+
+async function getTreatWarningsAsErrors() {
+    try {
+        const row = await db.get("SELECT value FROM system_settings WHERE key = 'examDefaults'");
+        if (row && row.value) {
+            const parsed = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
+            return !!parsed?.treatWarningsAsErrors;
+        }
+    } catch (_) {}
+    return false;
+}
+
 let currentInstruction = "";
 const activeStudents = {};
 
@@ -647,7 +769,17 @@ io.on('connection', (socket) => {
 
     let activeProcess = null;
 
-    // Allow socket to authenticate after login
+    // Support authentication via initial handshake or explicit event
+    const handshakeToken = socket.handshake.auth?.token;
+    if (handshakeToken) {
+        jwt.verify(handshakeToken, JWT_SECRET, (err, user) => {
+            if (!err && user) {
+                socket.user = user;
+                socket.emit('authenticated', { user: { id: user.id, email: user.email, role: user.role } });
+            }
+        });
+    }
+
     socket.on('authenticate', (token) => {
         if (!token) return;
         jwt.verify(token, JWT_SECRET, (err, user) => {
@@ -708,46 +840,76 @@ io.on('connection', (socket) => {
         }
     });
 
-    const sessionProjects = new Map();
-
-    socket.on('compile_code', (data) => {
+    socket.on('compile_code', async (data) => {
         if (!socket.user) {
             return socket.emit('terminal_output', "Error: Authentication required to execute code. Please log in.\n");
         }
 
         const { code } = data;
-        const sessionId = socket.id.replace(/[^a-zA-Z0-9]/g, '');
-        let projectDir = sessionProjects.get(sessionId);
-        const isFirstCompile = !projectDir;
+        const studentKey = socket.user?.id
+            ? `u_${socket.user.id}`
+            : (socket.user?.email ? `e_${socket.user.email.replace(/[^a-zA-Z0-9]/g, '_')}` : `s_${socket.id.replace(/[^a-zA-Z0-9]/g, '')}`);
 
+        let projectDir = sessionWorkspaces.get(studentKey)?.projectDir;
         if (!projectDir) {
-            projectDir = path.join(os.tmpdir(), `verity_temp_${sessionId}`);
-            sessionProjects.set(sessionId, projectDir);
+            projectDir = path.join(os.tmpdir(), `verity_ws_${studentKey}`);
+            sessionWorkspaces.set(studentKey, { projectDir, lastUsed: Date.now() });
+        } else {
+            sessionWorkspaces.get(studentKey).lastUsed = Date.now();
         }
 
-        if (activeProcess) activeProcess.kill();
+        const projectFile = path.join(projectDir, 'verity_base.csproj');
+        const isFirstCompile = !fs.existsSync(projectFile);
+
+        if (activeProcess) {
+            try { activeProcess.kill(); } catch (_) {}
+            activeProcess = null;
+        }
 
         if (isFirstCompile) {
             socket.emit('terminal_output', "Initializing compiler environment...\n");
 
-            exec(`dotnet new console -n temp_${sessionId} -o "${projectDir}"`, (newErr) => {
-                if (newErr) {
-                    sessionProjects.delete(sessionId);
-                    return socket.emit('terminal_output', "Error: Could not initialize .NET.\n");
+            try {
+                await ensureBaseTemplate();
+                if (!fs.existsSync(projectDir)) {
+                    fs.mkdirSync(projectDir, { recursive: true });
                 }
-                compileStudentCode(projectDir, code, socket);
-            });
+                fs.cpSync(COMPILER_BASE_DIR, projectDir, { recursive: true });
+                await compileStudentCode(projectDir, code, socket);
+            } catch (err) {
+                console.warn('Fast template clone failed, falling back to dotnet new:', err.message);
+                exec(`dotnet new console -o "${projectDir}"`, async (newErr) => {
+                    if (newErr) {
+                        sessionWorkspaces.delete(studentKey);
+                        return socket.emit('terminal_output', "Error: Could not initialize .NET compiler.\n");
+                    }
+                    await compileStudentCode(projectDir, code, socket);
+                });
+            }
         } else {
-            compileStudentCode(projectDir, code, socket);
+            await compileStudentCode(projectDir, code, socket);
         }
     });
 
-    function compileStudentCode(projectDir, code, socket) {
-        fs.writeFileSync(path.join(projectDir, 'Program.cs'), code);
+    async function compileStudentCode(projectDir, code, socket) {
+        fs.writeFileSync(path.join(projectDir, 'Program.cs'), code, 'utf8');
         socket.emit('terminal_output', "Compiling and running...\n\n");
+        socket.emit('compiler_diagnostics', []); // Clear existing markers
 
-        activeProcess = spawn('dotnet', ['run', '-v', 'q', '-p:WarningLevel=0', '--project', projectDir]);
+        const treatWarningsAsErrors = await getTreatWarningsAsErrors();
+        const compilerArgs = [
+            'run',
+            '--no-restore',
+            '-v', 'q',
+            treatWarningsAsErrors ? '-p:WarningLevel=4' : '-p:WarningLevel=0',
+            ...(treatWarningsAsErrors ? ['-p:TreatWarningsAsErrors=true'] : []),
+            '--project',
+            projectDir
+        ];
 
+        activeProcess = spawn('dotnet', compilerArgs);
+
+        let rawCompilerOutput = '';
         let started = false;
         const markStarted = () => {
             if (started) return;
@@ -766,18 +928,27 @@ io.on('connection', (socket) => {
         }, 20000);
 
         activeProcess.stdout.on('data', (data) => {
+            const str = data.toString();
+            rawCompilerOutput += str;
             markStarted();
-            socket.emit('terminal_output', data.toString());
+            socket.emit('terminal_output', str);
         });
 
         activeProcess.stderr.on('data', (data) => {
+            const str = data.toString();
+            rawCompilerOutput += str;
             markStarted();
-            socket.emit('terminal_output', data.toString());
+            socket.emit('terminal_output', str);
         });
 
         activeProcess.on('close', (code) => {
             clearTimeout(executionTimeout);
             socket.emit('terminal_output', `\n[Process exited with code ${code}]\n`);
+
+            // Emit parsed compiler diagnostics (errors/warnings) to the client
+            const diagnostics = parseCompilerDiagnostics(rawCompilerOutput);
+            socket.emit('compiler_diagnostics', diagnostics);
+
             socket.emit('process_exit');
             activeProcess = null;
         });
@@ -839,7 +1010,13 @@ io.on('connection', (socket) => {
         const assignmentId = data.assignmentId != null ? String(data.assignmentId) : 'unassigned';
         const studentKey = `${classroomId}:${assignmentId}:${authenticatedId}`;
         
-        const payload = { ...data, studentName: authenticatedName, studentId: authenticatedId };
+        const strictWarnings = await getTreatWarningsAsErrors();
+        const payload = { 
+            ...data, 
+            studentName: authenticatedName, 
+            studentId: authenticatedId,
+            strictWarningsEnforced: strictWarnings
+        };
         activeStudents[studentKey] = { ...activeStudents[studentKey], ...payload, status: 'Submitted' };
 
         const roomName = `classroom:${classroomId}:assignment:${assignmentId}`;
@@ -897,15 +1074,14 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        if (activeProcess) activeProcess.kill();
+        if (activeProcess) {
+            try { activeProcess.kill(); } catch (_) {}
+            activeProcess = null;
+        }
         if (socket.data.studentKey) {
             delete activeStudents[socket.data.studentKey];
             socket.broadcast.emit('teacher_student_left', { studentId: socket.data.studentId });
         }
-        const sessionId = socket.id.replace(/[^a-zA-Z0-9]/g, '');
-        sessionProjects.delete(sessionId);
-        const projectDir = path.join(os.tmpdir(), `verity_temp_${sessionId}`);
-        fs.rm(projectDir, { recursive: true, force: true }, () => { });
     });
 });
 
@@ -964,6 +1140,7 @@ app.post('/system-settings', authenticateToken, requireRole('Admin'), async (req
             const strVal = typeof val === 'object' ? JSON.stringify(val) : String(val);
             await db.run('INSERT INTO system_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, strVal);
         }
+        io.emit('system_settings_updated', { settings });
         res.status(200).json({ message: 'Settings saved successfully' });
     } catch (e) {
         res.status(500).json({ message: e.message });
