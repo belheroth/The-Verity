@@ -45,7 +45,7 @@ export default function StudentView({ socket, currentUser, username, assignment,
   const [instruction, setInstruction] = useState(assignment?.details || "");
   const [strictCompiler, setStrictCompiler] = useState(false);
 
-  // Synchronize compiler strictness from Admin Settings
+  // Synchronize compiler strictness from Admin Settings and ensure socket authentication
   useEffect(() => {
     let isMounted = true;
     apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/system-settings`)
@@ -58,6 +58,14 @@ export default function StudentView({ socket, currentUser, username, assignment,
       .catch(() => {});
 
     if (socket) {
+      const sendAuth = () => {
+        const token = localStorage.getItem('verity_token') || localStorage.getItem('token');
+        socket.emit('authenticate', { token, user: currentUser });
+      };
+
+      sendAuth();
+      socket.on('connect', sendAuth);
+
       const handleSettingsUpdate = (data) => {
         if (data?.settings?.examDefaults?.treatWarningsAsErrors !== undefined) {
           setStrictCompiler(!!data.settings.examDefaults.treatWarningsAsErrors);
@@ -66,11 +74,12 @@ export default function StudentView({ socket, currentUser, username, assignment,
       socket.on('system_settings_updated', handleSettingsUpdate);
       return () => {
         isMounted = false;
+        socket.off('connect', sendAuth);
         socket.off('system_settings_updated', handleSettingsUpdate);
       };
     }
     return () => { isMounted = false; };
-  }, [socket]);
+  }, [socket, currentUser]);
 
   useEffect(() => {
     if (assignment?.details !== undefined) {
@@ -481,7 +490,12 @@ export default function StudentView({ socket, currentUser, username, assignment,
       classroomId: classroom?.id,
       assignmentId: assignment?.id
     });
-    socket.emit('compile_code', { code: code });
+    const token = localStorage.getItem('verity_token') || localStorage.getItem('token');
+    socket.emit('compile_code', {
+      code: code,
+      token: token,
+      user: currentUser
+    });
   };
 
   const handleStopCode = () => {

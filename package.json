@@ -12,8 +12,9 @@
   "scripts": {
     "dev": "concurrently \"cd frontend && vite\" \"node --watch server/server.js\"",
     "build": "npm --prefix frontend run build",
+    "build:server": "esbuild server/server.js --bundle --platform=node --outfile=dist-server/server-bundle.cjs --external:better-sqlite3 --external:pg",
     "electron": "electron .",
-    "package": "npm run build && electron-builder"
+    "package": "npm run build && npm run build:server && electron-builder"
   },
   "devDependencies": {
     "concurrently": "^10.0.3",

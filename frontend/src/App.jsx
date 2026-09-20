@@ -153,12 +153,24 @@ export default function App() {
     if (currentUser) {
       localStorage.setItem('currentUser', JSON.stringify(currentUser));
       const token = localStorage.getItem('verity_token') || localStorage.getItem('token');
-      if (token) {
-        socket.emit('authenticate', token);
-      }
+      socket.auth = { token };
+      socket.emit('authenticate', { token, user: currentUser });
     } else {
       localStorage.removeItem('currentUser');
+      socket.auth = {};
     }
+  }, [currentUser]);
+
+  useEffect(() => {
+    const handleConnect = () => {
+      const token = localStorage.getItem('verity_token') || localStorage.getItem('token');
+      if (token || currentUser) {
+        socket.emit('authenticate', { token, user: currentUser });
+      }
+    };
+    socket.on('connect', handleConnect);
+    if (socket.connected) handleConnect();
+    return () => socket.off('connect', handleConnect);
   }, [currentUser]);
 
   useEffect(() => {
