@@ -29,7 +29,7 @@ export default defineConfig(({ mode }) => {
       emptyOutDir: false,
       minify: 'esbuild',
       cssMinify: true,
-      assetsInlineLimit: 4096,
+      chunkSizeWarningLimit: 1000,
       rollupOptions: {
         output: {
           manualChunks: undefined
