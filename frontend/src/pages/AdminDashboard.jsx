@@ -35,7 +35,7 @@ const sh = {
   addBlueBtn: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '9px 20px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '9999px', fontWeight: '600', fontSize: '0.85rem', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, boxShadow: '0 4px 12px rgba(0, 123, 255, 0.3)' },
 };
 
-export default function AdminDashboard({ onLogout }) {
+export default function AdminDashboard({ currentUser, onLogout }) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [users, setUsers] = useState([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -154,6 +154,7 @@ export default function AdminDashboard({ onLogout }) {
       newUser={newUser}
       setNewUser={setNewUser}
       handleAddUser={handleAddUser}
+      currentUser={currentUser}
       onLogout={onLogout}
       showSelectUsersPopup={showSelectUsersPopup}
       setShowSelectUsersPopup={setShowSelectUsersPopup}
@@ -179,7 +180,7 @@ export default function AdminDashboard({ onLogout }) {
       )}
       {activeTab === 'classes' && <GlobalClasses />}
       {activeTab === 'security' && <SecurityLogs />}
-      {activeTab === 'settings' && <AdminSettings />}
+      {activeTab === 'settings' && <AdminSettings currentUser={currentUser} />}
     </AdminLayout>
   );
 }

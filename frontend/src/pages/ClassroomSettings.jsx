@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
-import { X, Copy, Maximize, Settings as SettingsIcon } from 'lucide-react';
+import { X, Copy, Maximize, Settings as SettingsIcon, RefreshCw } from 'lucide-react';
+import { generateClassCode } from '../utils/classroomUtils';
 
-export default function ClassroomSettings({ classroom, onClose, role = 'teacher' }) {
+export default function ClassroomSettings({ classroom, onClose, onUpdate, role = 'teacher' }) {
   const [formData, setFormData] = useState({
     name: classroom.name || '',
     description: classroom.description || '',
     section: classroom.section || '',
-    level: classroom.level || '',
     subject: classroom.subject || '',
-    room: classroom.room || ''
+    code: classroom.code || ''
   });
 
   const [general, setGeneral] = useState({
@@ -25,9 +25,29 @@ export default function ClassroomSettings({ classroom, onClose, role = 'teacher'
     showOverallToStudents: false
   });
 
+  const [copiedCode, setCopiedCode] = useState(false);
+
+  const handleRegenerateCode = () => {
+    const newCode = generateClassCode();
+    setFormData(prev => ({ ...prev, code: newCode }));
+  };
+
+  const handleCopyCode = () => {
+    const currentCode = formData.code || classroom.code || '';
+    if (currentCode) {
+      navigator.clipboard.writeText(currentCode);
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    }
+  };
+
   const handleSave = () => {
-    // In a real app, this would pass the data back up and save to backend.
-    // For now, we will just close.
+    if (onUpdate) {
+      onUpdate({
+        ...classroom,
+        ...formData
+      });
+    }
     onClose();
   };
 
@@ -90,35 +110,11 @@ export default function ClassroomSettings({ classroom, onClose, role = 'teacher'
 
             <div style={styles.inputGroup}>
               <div style={styles.inputWrapper}>
-                <label style={styles.floatingLabel}>Level(s)</label>
-                <input 
-                  style={styles.input} 
-                  value={formData.level} 
-                  onChange={e => setFormData({...formData, level: e.target.value})} 
-                  readOnly={role === 'student'}
-                />
-              </div>
-            </div>
-
-            <div style={styles.inputGroup}>
-              <div style={styles.inputWrapper}>
                 <label style={styles.floatingLabel}>Subject</label>
                 <input 
                   style={styles.input} 
                   value={formData.subject} 
                   onChange={e => setFormData({...formData, subject: e.target.value})} 
-                  readOnly={role === 'student'}
-                />
-              </div>
-            </div>
-
-            <div style={styles.inputGroup}>
-              <div style={styles.inputWrapper}>
-                <label style={styles.floatingLabel}>Room</label>
-                <input 
-                  style={styles.input} 
-                  value={formData.room} 
-                  onChange={e => setFormData({...formData, room: e.target.value})} 
                   readOnly={role === 'student'}
                 />
               </div>
@@ -142,7 +138,13 @@ export default function ClassroomSettings({ classroom, onClose, role = 'teacher'
                 <select 
                   style={styles.selectText}
                   value={general.inviteCodes}
-                  onChange={e => setGeneral({...general, inviteCodes: e.target.value})}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setGeneral({ ...general, inviteCodes: val });
+                    if (val === 'Reset') {
+                      handleRegenerateCode();
+                    }
+                  }}
                 >
                   <option>Turned on</option>
                   <option>Turned off</option>
@@ -153,14 +155,42 @@ export default function ClassroomSettings({ classroom, onClose, role = 'teacher'
               <div style={styles.rowItem}>
                 <div style={styles.rowLabel}>Invite link</div>
                 <div style={styles.rowActionGroup}>
-                  <span style={styles.rowValue}>https://classroom.google.com/c/OD...</span>
-                  <Copy size={18} style={styles.actionIcon} />
+                  <span style={styles.rowValue}>https://verity.app/join/{formData.code || classroom.code || ''}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(`https://verity.app/join/${formData.code || classroom.code || ''}`);
+                    }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: 0 }}
+                  >
+                    <Copy size={18} style={styles.actionIcon} />
+                  </button>
                 </div>
               </div>
 
               <div style={styles.rowItem}>
                 <div style={styles.rowLabel}>Class code</div>
-                <div style={styles.rowValue}>{classroom.code || 'vji3bku4'}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ ...styles.rowValue, fontFamily: 'monospace', fontWeight: '800', color: '#10b981', letterSpacing: '0.05em' }}>
+                    {formData.code || classroom.code || '...'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCopyCode}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', color: copiedCode ? '#10b981' : '#64748b' }}
+                    title={copiedCode ? 'Copied!' : 'Copy class code'}
+                  >
+                    <Copy size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRegenerateCode}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', color: '#64748b' }}
+                    title="Regenerate class code"
+                  >
+                    <RefreshCw size={16} />
+                  </button>
+                </div>
               </div>
 
               <div style={styles.rowItem}>

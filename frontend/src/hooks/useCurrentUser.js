@@ -37,10 +37,9 @@ if (typeof window !== 'undefined') {
   });
 
   window.addEventListener('verity:user-updated', (e) => {
-    if (e.detail) {
-      globalUser = e.detail;
-      notifyUserListeners(globalUser);
-    }
+    const fresh = e.detail !== undefined ? e.detail : getStoredUser();
+    globalUser = fresh;
+    notifyUserListeners(globalUser);
   });
 }
 
@@ -100,14 +99,19 @@ export async function updateCurrentUser(updates) {
  * Reactive hook for accessing and modifying the signed-in user's profile.
  */
 export function useCurrentUser() {
-  const [user, setUser] = useState(globalUser);
+  const [user, setUser] = useState(() => getStoredUser() || globalUser);
 
   useEffect(() => {
+    const fresh = getStoredUser();
+    if (JSON.stringify(fresh) !== JSON.stringify(user)) {
+      globalUser = fresh;
+      setUser(fresh);
+    }
+
     const handleChange = (newUser) => {
       setUser(newUser);
     };
     listeners.add(handleChange);
-    setUser(globalUser);
     return () => {
       listeners.delete(handleChange);
     };

@@ -18,6 +18,7 @@ import NotFound from './pages/NotFound';
 import syncService from './services/syncService';
 import { subscribeConnectionStatus, getConnectionStatus, getCloudUrl, apiFetch } from './utils/api';
 import { saveClassroomTheme } from './utils/classroomUtils';
+import { notifyUserListeners } from './hooks/useCurrentUser';
 
 // Connect to Backend (Cloud-first with local offline fallback)
 const CLOUD_SOCKET = (import.meta.env.VITE_SOCKET_URL || '').replace(/\/$/, '');
@@ -195,11 +196,19 @@ export default function App() {
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem('currentUser', JSON.stringify(currentUser));
+      notifyUserListeners(currentUser);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('verity:user-updated', { detail: currentUser }));
+      }
       const token = localStorage.getItem('verity_token') || localStorage.getItem('token');
       socket.auth = { token };
       socket.emit('authenticate', { token, user: currentUser });
     } else {
       localStorage.removeItem('currentUser');
+      notifyUserListeners(null);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('verity:user-updated', { detail: null }));
+      }
       socket.auth = {};
     }
   }, [currentUser]);
@@ -303,6 +312,10 @@ export default function App() {
   const handleLogout = () => {
     releaseLockdown();
     setCurrentUser(null);
+    notifyUserListeners(null);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('verity:user-updated', { detail: null }));
+    }
     setActiveClassroom(null);
     setCurrentScreen('login');
     localStorage.removeItem('currentScreen');
@@ -337,6 +350,10 @@ export default function App() {
                 localStorage.removeItem('verity_student_classrooms_default');
                 localStorage.removeItem('verity_teacher_classrooms_default');
                 setCurrentUser(user);
+                notifyUserListeners(user);
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('verity:user-updated', { detail: user }));
+                }
                 if (token) localStorage.setItem('verity_token', token);
                 if (user.role === 'Admin') {
                   setCurrentScreen('admin_dashboard');
@@ -440,7 +457,7 @@ export default function App() {
       {/* --- ADMIN ROUTES (Protected) --- */}
       {currentScreen === 'admin_dashboard' && (
         <ProtectedRoute currentUser={currentUser} setCurrentScreen={setCurrentScreen}>
-          <AdminDashboard onLogout={handleLogout} />
+          <AdminDashboard currentUser={currentUser} onLogout={handleLogout} />
         </ProtectedRoute>
       )}
 

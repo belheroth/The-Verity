@@ -39,6 +39,39 @@ export const mergeClassroomsPreservingOrder = (currentList, serverList) => {
 };
 
 /**
+ * Generates a clean, 7-character lowercase alphanumeric class code (e.g. "g4xj7q2")
+ * guaranteed to not collide with any code in the provided list/set of classrooms or codes.
+ */
+export const generateClassCode = (existingListOrCodes = []) => {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  const taken = new Set();
+
+  if (Array.isArray(existingListOrCodes)) {
+    existingListOrCodes.forEach(item => {
+      if (!item) return;
+      if (typeof item === 'string') taken.add(item.trim().toLowerCase());
+      else if (item.code) taken.add(String(item.code).trim().toLowerCase());
+    });
+  } else if (existingListOrCodes instanceof Set) {
+    existingListOrCodes.forEach(item => {
+      if (item) taken.add(String(item).trim().toLowerCase());
+    });
+  }
+
+  let code = '';
+  let attempts = 0;
+  do {
+    code = '';
+    for (let i = 0; i < 7; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    attempts++;
+  } while (taken.has(code.toLowerCase()) && attempts < 1000);
+
+  return code;
+};
+
+/**
  * Banner Themes Configuration (Shared across Teacher, Student & Cards)
  */
 export const THEME_PRESETS = [

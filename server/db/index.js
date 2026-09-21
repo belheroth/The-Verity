@@ -38,6 +38,26 @@ function normalizeRow(row) {
     return row;
 }
 
+function generateClassCodeSync(takenSet = new Set()) {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let code = '';
+    let attempts = 0;
+    while (attempts < 1000) {
+        code = '';
+        for (let i = 0; i < 7; i++) {
+            code += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        if (!takenSet.has(code)) {
+            takenSet.add(code);
+            return code;
+        }
+        attempts++;
+    }
+    const fallback = ('v' + Date.now().toString(36) + Math.random().toString(36).substring(2, 5)).slice(0, 7);
+    takenSet.add(fallback);
+    return fallback;
+}
+
 function initSqlite() {
     if (sqliteDb) return;
     try {
@@ -162,6 +182,29 @@ function initSqlite() {
     try { sqliteDb.exec(`ALTER TABLE classrooms ADD COLUMN instructor_email TEXT;`); } catch (e) {}
     try { sqliteDb.exec(`ALTER TABLE classrooms ADD COLUMN theme TEXT;`); } catch (e) {}
     try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN avatar TEXT;`); } catch (e) {}
+
+    // Ensure all classrooms have a unique class code and create unique index
+    try {
+        const rows = sqliteDb.prepare('SELECT id, code FROM classrooms').all();
+        const taken = new Set();
+        const duplicatesOrEmpty = [];
+        for (const r of rows) {
+            const c = (r.code || '').trim().toLowerCase();
+            if (!c || taken.has(c)) {
+                duplicatesOrEmpty.push(r);
+            } else {
+                taken.add(c);
+            }
+        }
+        const updateStmt = sqliteDb.prepare('UPDATE classrooms SET code = ? WHERE id = ?');
+        for (const r of duplicatesOrEmpty) {
+            const newCode = generateClassCodeSync(taken);
+            updateStmt.run(newCode, r.id);
+        }
+        sqliteDb.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_classrooms_unique_code ON classrooms(code);`);
+    } catch (migErr) {
+        console.warn('[Database] Classroom code migration notice (SQLite):', migErr.message);
+    }
 
     provider = 'sqlite';
     console.log(`[Database] Connected to SQLite (Local Storage): ${DB_FILE}`);
@@ -432,7 +475,9 @@ const db = {
     async close() {
         if (pgPool) await pgPool.end();
         if (sqliteDb) sqliteDb.close();
-    }
+    },
+
+    generateClassCodeSync
 };
 
 module.exports = db;

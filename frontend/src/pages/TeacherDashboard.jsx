@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { Home, Calendar, ClipboardList, Settings, MoreVertical, Plus, LogOut, User, X, Menu, Archive } from 'lucide-react';
+import { Home, Calendar, ClipboardList, Settings, MoreVertical, Plus, LogOut, User, X, Menu, Archive, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import SettingsPanel from './SettingsPanel';
 import ProfileMenu from './ProfileMenu';
@@ -17,8 +17,8 @@ const getStorageKey = (user) => {
   return identifier ? `verity_teacher_classrooms_${identifier}` : 'verity_teacher_classrooms_anon';
 };
 
-import { isPhantomClassroom, mergeClassroomsPreservingOrder } from '../utils/classroomUtils';
-export { isPhantomClassroom, mergeClassroomsPreservingOrder };
+import { isPhantomClassroom, mergeClassroomsPreservingOrder, generateClassCode } from '../utils/classroomUtils';
+export { isPhantomClassroom, mergeClassroomsPreservingOrder, generateClassCode };
 
 export default function TeacherDashboard({ currentUser, onLogout, onEnterClassroom }) {
   const { isDark } = useDarkMode();
@@ -199,7 +199,16 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          return parsed.filter(c => !isPhantomClassroom(c));
+          const valid = parsed.filter(c => !isPhantomClassroom(c));
+          const taken = new Set();
+          return valid.map(c => {
+            let code = (c.code || '').toString().trim().toLowerCase();
+            if (!code || taken.has(code)) {
+              code = generateClassCode(taken);
+            }
+            taken.add(code);
+            return { ...c, code };
+          });
         }
       }
       return [];
@@ -341,10 +350,20 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [archiveConfirmId, setArchiveConfirmId] = useState(null);
-  const [newClass, setNewClass] = useState({ name: '', section: '', subject: '' });
+  const [newClass, setNewClass] = useState({ name: '', section: '', subject: '', code: '' });
   const [nameFocused, setNameFocused] = useState(false);
   const [sectionFocused, setSectionFocused] = useState(false);
   const [subjectFocused, setSubjectFocused] = useState(false);
+
+  const handleOpenCreateModal = () => {
+    setNewClass({
+      name: '',
+      section: '',
+      subject: '',
+      code: ''
+    });
+    setIsModalOpen(true);
+  };
 
   const toggleMenu = (e, id) => {
     e.stopPropagation();
@@ -373,9 +392,11 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
 
   const handleCreateClass = (e) => {
     e.preventDefault();
+    const finalCode = newClass.code || generateClassCode(classrooms);
     // Add the new class to the grid
     const newClassroom = {
       id: Date.now(),
+      code: finalCode,
       section: newClass.section || "N/A",
       name: newClass.name,
       subject: newClass.subject,
@@ -385,7 +406,7 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
 
     setClassrooms([newClassroom, ...classrooms]);
     setIsModalOpen(false); // Close the modal
-    setNewClass({ name: '', section: '', subject: '' }); // Reset form
+    setNewClass({ name: '', section: '', subject: '', code: '' }); // Reset form
   };
 
 
@@ -428,7 +449,7 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <ProfileMenu onLogout={onLogout} />
+          <ProfileMenu currentUser={currentUser} onLogout={onLogout} />
         </div>
       </header>
 
@@ -601,6 +622,10 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
                 <ClassroomSettings
                   classroom={settingsClassroom}
                   onClose={() => { setSettingsClassroom(null); handleSetView('classrooms'); }}
+                  onUpdate={(updated) => {
+                    setClassrooms(prev => prev.map(c => c.id === updated.id ? { ...c, ...updated } : c));
+                    setSettingsClassroom(updated);
+                  }}
                 />
               )}
 
@@ -611,7 +636,7 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
                     <motion.button
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
-                      onClick={() => setIsModalOpen(true)}
+                      onClick={handleOpenCreateModal}
                       style={styles.createButton}
                     >
                       Create
@@ -753,6 +778,8 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
                 onFocus={() => setSubjectFocused(true)}
                 onBlur={() => setSubjectFocused(false)}
               />
+
+
 
               <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px' }}>
                 <button type="submit" style={styles.submitModalBtn}>Create</button>

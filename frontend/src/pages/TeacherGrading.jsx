@@ -483,7 +483,7 @@ export default function TeacherGrading({ classroom, assignment, onBack, onLogout
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <ProfileMenu onLogout={onLogout} />
+          <ProfileMenu currentUser={currentUser} onLogout={onLogout} />
         </div>
       </header>
 

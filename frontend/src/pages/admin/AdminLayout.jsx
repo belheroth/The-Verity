@@ -100,6 +100,7 @@ export default function AdminLayout({
   newUser,
   setNewUser,
   handleAddUser,
+  currentUser,
   onLogout,
   showSelectUsersPopup,
   setShowSelectUsersPopup
@@ -280,7 +281,7 @@ export default function AdminLayout({
                 width: '42px',
                 height: '42px',
                 borderRadius: '50%',
-                backgroundColor: '#e2e8f0',
+                backgroundColor: isDark ? '#3a3a3a' : '#e2e8f0',
                 border: 'none',
                 cursor: 'pointer',
                 display: 'flex',
@@ -290,7 +291,7 @@ export default function AdminLayout({
               }}
               title="Notifications"
             >
-              <Bell size={18} color="#475569" />
+              <Bell size={18} color={isDark ? '#94a3b8' : '#475569'} />
               {currentNotifications.length > 0 && (
                 <span style={{
                   position: 'absolute',
@@ -300,7 +301,7 @@ export default function AdminLayout({
                   height: '8px',
                   backgroundColor: '#ef4444',
                   borderRadius: '50%',
-                  border: '1.5px solid white'
+                  border: `1.5px solid ${isDark ? '#3C3C3C' : 'white'}`
                 }} />
               )}
             </button>
@@ -310,15 +311,15 @@ export default function AdminLayout({
                 top: '52px',
                 right: 0,
                 width: '320px',
-                backgroundColor: 'white',
+                backgroundColor: isDark ? '#1e1e1e' : 'white',
                 borderRadius: '16px',
-                boxShadow: '0 10px 25px rgba(0,0,0,0.12)',
+                boxShadow: isDark ? '0 10px 25px rgba(0,0,0,0.4)' : '0 10px 25px rgba(0,0,0,0.12)',
                 zIndex: 200,
                 padding: '16px',
-                border: '1px solid #e2e8f0'
+                border: isDark ? '1px solid #3a3a3a' : '1px solid #e2e8f0'
               }} className="animate-scale-in">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <h3 style={{ margin: 0, fontSize: '0.95rem', color: '#1e293b' }}>Notifications</h3>
+                  <h3 style={{ margin: 0, fontSize: '0.95rem', color: isDark ? '#f1f5f9' : '#1e293b' }}>Notifications</h3>
                   {currentNotifications.length > 0 && (
                     <span onClick={() => {
                       finalSetNotifications([]);
@@ -329,11 +330,11 @@ export default function AdminLayout({
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {currentNotifications.length === 0 ? (
-                    <div style={{ padding: '12px', textAlign: 'center', fontSize: '0.8rem', color: '#64748b' }}>No new notifications.</div>
+                    <div style={{ padding: '12px', textAlign: 'center', fontSize: '0.8rem', color: isDark ? '#64748b' : '#64748b' }}>No new notifications.</div>
                   ) : (
                     currentNotifications.map(n => (
-                      <div key={n.id} style={{ padding: '12px', backgroundColor: '#f8fafc', borderRadius: '10px', fontSize: '0.8rem', color: '#334155' }}>
-                        <strong style={{ color: '#1e293b' }}>{n.title}</strong><br /><span style={{ color: '#64748b' }}>{n.text}</span>
+                      <div key={n.id} style={{ padding: '12px', backgroundColor: isDark ? '#2a2a2a' : '#f8fafc', borderRadius: '10px', fontSize: '0.8rem', color: isDark ? '#cbd5e1' : '#334155', border: isDark ? '1px solid #3a3a3a' : 'none' }}>
+                        <strong style={{ color: isDark ? '#f1f5f9' : '#1e293b' }}>{n.title}</strong><br /><span style={{ color: isDark ? '#94a3b8' : '#64748b' }}>{n.text}</span>
                       </div>
                     ))
                   )}
@@ -342,7 +343,7 @@ export default function AdminLayout({
             )}
           </div>
 
-          <ProfileMenu onLogout={onLogout} />
+          <ProfileMenu currentUser={currentUser} onLogout={onLogout} />
         </div>
       </header>
 
@@ -363,17 +364,17 @@ export default function AdminLayout({
         >
           <motion.div
             style={{
-              backgroundColor: 'white',
+              backgroundColor: isDark ? '#1e1e1e' : 'white',
               borderRadius: '16px',
               padding: '24px',
-              boxShadow: '0 10px 25px rgba(0,0,0,0.15)',
-              border: '1px solid #e2e8f0'
+              boxShadow: isDark ? '0 10px 25px rgba(0,0,0,0.4)' : '0 10px 25px rgba(0,0,0,0.15)',
+              border: isDark ? '1px solid #3a3a3a' : '1px solid #e2e8f0'
             }}
           >
-            <h2 style={{ margin: '0 0 16px', color: '#1e293b', fontSize: '1.25rem' }}>
+            <h2 style={{ margin: '0 0 16px', color: isDark ? '#f1f5f9' : '#1e293b', fontSize: '1.25rem' }}>
               Action Required
             </h2>
-            <div style={{ color: '#334155', fontSize: '1rem', marginBottom: '24px' }}>
+            <div style={{ color: isDark ? '#cbd5e1' : '#334155', fontSize: '1rem', marginBottom: '24px' }}>
               Please select at least one user to perform this action.
             </div>
             <motion.button

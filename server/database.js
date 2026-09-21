@@ -107,4 +107,46 @@ db.exec(`
 try { db.exec(`ALTER TABLE classrooms ADD COLUMN instructor_email TEXT;`); } catch (e) {}
 try { db.exec(`ALTER TABLE classrooms ADD COLUMN theme TEXT;`); } catch (e) {}
 
+function generateClassCodeSync(takenSet = new Set()) {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let code = '';
+    let attempts = 0;
+    while (attempts < 1000) {
+        code = '';
+        for (let i = 0; i < 7; i++) {
+            code += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        if (!takenSet.has(code)) {
+            takenSet.add(code);
+            return code;
+        }
+        attempts++;
+    }
+    const fallback = ('v' + Date.now().toString(36) + Math.random().toString(36).substring(2, 5)).slice(0, 7);
+    takenSet.add(fallback);
+    return fallback;
+}
+
+try {
+    const rows = db.prepare('SELECT id, code FROM classrooms').all();
+    const taken = new Set();
+    const duplicatesOrEmpty = [];
+    for (const r of rows) {
+        const c = (r.code || '').trim().toLowerCase();
+        if (!c || taken.has(c)) {
+            duplicatesOrEmpty.push(r);
+        } else {
+            taken.add(c);
+        }
+    }
+    const updateStmt = db.prepare('UPDATE classrooms SET code = ? WHERE id = ?');
+    for (const r of duplicatesOrEmpty) {
+        const newCode = generateClassCodeSync(taken);
+        updateStmt.run(newCode, r.id);
+    }
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_classrooms_unique_code ON classrooms(code);`);
+} catch (e) {
+    console.warn('[database.js] Classroom code migration notice:', e.message);
+}
+
 module.exports = db;

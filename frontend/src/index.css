@@ -387,6 +387,15 @@ body, button, input, select, textarea {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
+.dark .table-row-pill {
+  background-color: #333333;
+}
+
+.dark .table-row-pill:hover {
+  background-color: #3a3a3a;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
 .card-anim {
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }

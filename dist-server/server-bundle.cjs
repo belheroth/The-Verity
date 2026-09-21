@@ -76516,6 +76516,25 @@ var require_db4 = __commonJS({
       if (row.assignment_id !== void 0 && !isNaN(Number(row.assignment_id))) row.assignment_id = Number(row.assignment_id);
       return row;
     }
+    function generateClassCodeSync(takenSet = /* @__PURE__ */ new Set()) {
+      const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+      let code = "";
+      let attempts = 0;
+      while (attempts < 1e3) {
+        code = "";
+        for (let i2 = 0; i2 < 7; i2++) {
+          code += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        if (!takenSet.has(code)) {
+          takenSet.add(code);
+          return code;
+        }
+        attempts++;
+      }
+      const fallback = ("v" + Date.now().toString(36) + Math.random().toString(36).substring(2, 5)).slice(0, 7);
+      takenSet.add(fallback);
+      return fallback;
+    }
     function initSqlite() {
       if (sqliteDb) return;
       try {
@@ -76556,7 +76575,8 @@ var require_db4 = __commonJS({
             name TEXT,
             subject TEXT,
             instructor TEXT,
-            instructor_email TEXT
+            instructor_email TEXT,
+            theme TEXT
         );
 
         CREATE TABLE IF NOT EXISTS enrollments (
@@ -76645,8 +76665,33 @@ var require_db4 = __commonJS({
         } catch (e2) {
         }
         try {
+          sqliteDb.exec(`ALTER TABLE classrooms ADD COLUMN theme TEXT;`);
+        } catch (e2) {
+        }
+        try {
           sqliteDb.exec(`ALTER TABLE users ADD COLUMN avatar TEXT;`);
         } catch (e2) {
+        }
+        try {
+          const rows = sqliteDb.prepare("SELECT id, code FROM classrooms").all();
+          const taken = /* @__PURE__ */ new Set();
+          const duplicatesOrEmpty = [];
+          for (const r2 of rows) {
+            const c = (r2.code || "").trim().toLowerCase();
+            if (!c || taken.has(c)) {
+              duplicatesOrEmpty.push(r2);
+            } else {
+              taken.add(c);
+            }
+          }
+          const updateStmt = sqliteDb.prepare("UPDATE classrooms SET code = ? WHERE id = ?");
+          for (const r2 of duplicatesOrEmpty) {
+            const newCode = generateClassCodeSync(taken);
+            updateStmt.run(newCode, r2.id);
+          }
+          sqliteDb.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_classrooms_unique_code ON classrooms(code);`);
+        } catch (migErr) {
+          console.warn("[Database] Classroom code migration notice (SQLite):", migErr.message);
         }
         provider = "sqlite";
         console.log(`[Database] Connected to SQLite (Local Storage): ${DB_FILE}`);
@@ -76700,6 +76745,7 @@ var require_db4 = __commonJS({
           try {
             await client.query("ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS instructor_email VARCHAR(255);");
             await client.query("ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS instructor VARCHAR(255);");
+            await client.query("ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS theme TEXT;");
             await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;");
           } catch (colErr) {
             console.warn("[Database] Note on column migration:", colErr.message);
@@ -76883,7 +76929,8 @@ var require_db4 = __commonJS({
       async close() {
         if (pgPool) await pgPool.end();
         if (sqliteDb) sqliteDb.close();
-      }
+      },
+      generateClassCodeSync
     };
     module2.exports = db2;
   }
@@ -76910,7 +76957,8 @@ if (process.env.NODE_ENV === "production" && JWT_SECRET === "verity_super_secret
   console.warn("\u26A0\uFE0F  [SECURITY WARNING] JWT_SECRET is using the insecure default key in production! Set JWT_SECRET in your environment.");
 }
 app.use(cors());
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "150mb" }));
+app.use(express.urlencoded({ limit: "150mb", extended: true }));
 var authenticateToken = (req, res, next) => {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
@@ -76943,15 +76991,60 @@ var ALLOWED_UPLOAD_EXTS = /* @__PURE__ */ new Set([
   ".mp4",
   ".webm",
   ".ogg",
+  ".mov",
+  ".quicktime",
+  ".m4v",
   ".pdf",
   ".zip",
   ".txt"
 ]);
 app.use("/uploads", (req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Accept-Ranges", "bytes");
   next();
-}, express.static(UPLOADS_DIR));
-app.post("/upload", authenticateToken, requireRole("Teacher", "Admin", "Student"), (req, res) => {
+}, express.static(UPLOADS_DIR, {
+  setHeaders: (res, filePath) => {
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext === ".mov") {
+      res.setHeader("Content-Type", "video/quicktime");
+    } else if (ext === ".mp4") {
+      res.setHeader("Content-Type", "video/mp4");
+    } else if (ext === ".webm") {
+      res.setHeader("Content-Type", "video/webm");
+    }
+  }
+}));
+app.post("/upload-raw", (req, res) => {
+  const rawFilename = req.query.filename || req.headers["x-filename"] || "file.mp4";
+  const ext = path.extname(rawFilename).toLowerCase();
+  if (!ALLOWED_UPLOAD_EXTS.has(ext)) {
+    return res.status(400).json({
+      message: `File type "${ext || "unknown"}" is not allowed. Supported formats: images (.png, .jpg, .gif, .webp), videos (.mp4, .webm, .mov), pdf, zip, txt.`
+    });
+  }
+  const safeName = (rawFilename || "file").replace(/[^a-zA-Z0-9._-]/g, "_");
+  const unique = `${Date.now()}_${safeName}`;
+  const targetPath = path.join(UPLOADS_DIR, unique);
+  const writeStream = fs2.createWriteStream(targetPath);
+  req.pipe(writeStream);
+  writeStream.on("finish", () => {
+    const host = req.get("host");
+    const protocol = req.headers["x-forwarded-proto"] || req.protocol;
+    res.status(201).json({ url: `${protocol}://${host}/uploads/${unique}` });
+  });
+  writeStream.on("error", (err) => {
+    console.error("Upload stream error:", err);
+    res.status(500).json({ message: "Failed to write upload stream" });
+  });
+});
+app.post("/upload", (req, res, next) => {
+  const authHeader = req.headers["authorization"];
+  if (authHeader) {
+    authenticateToken(req, res, () => next());
+  } else {
+    next();
+  }
+}, (req, res) => {
   const { filename, dataUrl } = req.body || {};
   if (!dataUrl || typeof dataUrl !== "string") {
     return res.status(400).json({ message: "dataUrl is required" });
@@ -76963,7 +77056,7 @@ app.post("/upload", authenticateToken, requireRole("Teacher", "Admin", "Student"
   const ext = path.extname(filename || "").toLowerCase();
   if (!ALLOWED_UPLOAD_EXTS.has(ext)) {
     return res.status(400).json({
-      message: `File type "${ext || "unknown"}" is not allowed. Supported formats: images (.png, .jpg, .gif, .webp), videos (.mp4, .webm), pdf, zip, txt.`
+      message: `File type "${ext || "unknown"}" is not allowed. Supported formats: images (.png, .jpg, .gif, .webp), videos (.mp4, .webm, .mov), pdf, zip, txt.`
     });
   }
   const buffer = Buffer.from(match[2], "base64");
@@ -77059,7 +77152,7 @@ app.post("/register", async (req, res) => {
       status
     );
     const user = { id: info.lastInsertRowid, name, email, password, role: userRole, status };
-    const userToken = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET);
+    const userToken = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET);
     res.status(201).json({ message: "User registered successfully", user, token: userToken });
   } catch (e2) {
     res.status(500).json({ message: e2.message });
@@ -77077,7 +77170,7 @@ app.post("/login", async (req, res) => {
     }
     user.lastLogin = (/* @__PURE__ */ new Date()).toISOString();
     await db.run("UPDATE users SET lastLogin = ? WHERE id = ?", user.lastLogin, user.id);
-    const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET);
+    const token = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET);
     res.status(200).json({ message: "Login successful", user, token });
   } catch (e2) {
     res.status(500).json({ message: e2.message });
@@ -77118,7 +77211,7 @@ app.post("/auth/google", async (req, res) => {
         return res.status(403).json({ message: "Your account is pending admin approval", user });
       }
     }
-    res.status(200).json({ message: "Google login successful", user, token: jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET) });
+    res.status(200).json({ message: "Google login successful", user, token: jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET) });
   } catch (error) {
     console.error("Google Auth Error:", error);
     res.status(401).json({ message: "Invalid Google token" });
@@ -77158,6 +77251,16 @@ app.put("/users/:email/status", authenticateToken, requireRole("Admin"), async (
     res.status(500).json({ message: e2.message });
   }
 });
+app.get("/users/profile", authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const user = await db.get("SELECT id, name, email, role, avatar, status FROM users WHERE id = ?", userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.status(200).json({ user });
+  } catch (e2) {
+    res.status(500).json({ message: e2.message });
+  }
+});
 app.put("/users/profile", authenticateToken, async (req, res) => {
   try {
     const { name, email, avatar } = req.body || {};
@@ -77192,13 +77295,23 @@ app.put("/users/profile", authenticateToken, async (req, res) => {
       avatar: updatedAvatar,
       status: current.status
     };
+    io.emit("user_avatar_updated", {
+      userId,
+      name: updatedName,
+      email: updatedEmail,
+      avatar: updatedAvatar,
+      role: current.role
+    });
+    if (current.role === "Teacher") {
+      io.emit("classrooms_updated");
+    }
     res.status(200).json({ message: "Profile updated successfully", user });
   } catch (e2) {
     res.status(500).json({ message: e2.message });
   }
 });
 var getClassworkFromDb = async (classroomId) => {
-  const rows = await db.all("SELECT * FROM classwork WHERE classroom_id = ?", classroomId);
+  const rows = classroomId && classroomId !== "all" ? await db.all("SELECT * FROM classwork WHERE classroom_id = ? ORDER BY id DESC", classroomId) : await db.all("SELECT * FROM classwork ORDER BY id DESC");
   return rows.map((row) => {
     let meta = {};
     if (row.description) {
@@ -77270,6 +77383,15 @@ var saveClassworkToDb = async (classroomId, classwork) => {
         `, id, Number(classroomId) || classroomId, cw.title || "", JSON.stringify(descObj), cw.dueDate || "", cw.type || "");
   }
 };
+app.get("/classwork", authenticateToken, async (req, res) => {
+  try {
+    const classwork = await getClassworkFromDb();
+    res.status(200).json({ classwork });
+  } catch (e2) {
+    console.error("Error fetching all classwork:", e2);
+    res.status(500).json({ classwork: [] });
+  }
+});
 app.get("/classwork/:classroomId", authenticateToken, async (req, res) => {
   try {
     const classwork = await getClassworkFromDb(req.params.classroomId);
@@ -77295,9 +77417,30 @@ app.put("/classwork/:classroomId", authenticateToken, requireRole("Teacher", "Ad
 });
 app.get("/classrooms", authenticateToken, async (req, res) => {
   try {
-    const classrooms = await db.all("SELECT * FROM classrooms ORDER BY id ASC");
-    const defaultTeacher = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(role) = 'teacher' ORDER BY id ASC LIMIT 1").catch(() => null);
-    const validClassrooms = classrooms.filter((c) => {
+    let rawClassrooms = [];
+    if (req.user?.role === "Student") {
+      const studentEmail = (req.user.email || "").trim().toLowerCase();
+      const studentId = req.user.id || 0;
+      rawClassrooms = await db.all(`
+                SELECT DISTINCT c.* FROM classrooms c
+                INNER JOIN enrollments e ON e.classroom_id = c.id
+                WHERE (e.student_email IS NOT NULL AND LOWER(e.student_email) = ?)
+                   OR (e.student_id IS NOT NULL AND e.student_id = ?)
+                ORDER BY c.id ASC
+            `, studentEmail, studentId);
+    } else if (req.user?.role === "Teacher") {
+      const teacherEmail = (req.user.email || "").trim().toLowerCase();
+      const teacherName = (req.user.name || "").trim().toLowerCase();
+      rawClassrooms = await db.all(`
+                SELECT * FROM classrooms
+                WHERE (instructor_email IS NOT NULL AND LOWER(instructor_email) = ?)
+                   OR (instructor IS NOT NULL AND LOWER(instructor) = ?)
+                ORDER BY id ASC
+            `, teacherEmail, teacherName);
+    } else {
+      rawClassrooms = await db.all("SELECT * FROM classrooms ORDER BY id ASC");
+    }
+    const validClassrooms = rawClassrooms.filter((c) => {
       if (!c || !c.name) return false;
       const isPhantom = /^Classroom \d+$/i.test(c.name.trim()) && (!c.section || !c.section.trim()) && (!c.subject || !c.subject.trim());
       return !isPhantom;
@@ -77312,19 +77455,21 @@ app.get("/classrooms", authenticateToken, async (req, res) => {
       if (!realTeacher && instName && instName !== "Instructor") {
         realTeacher = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(name) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", instName).catch(() => null);
       }
-      if (!realTeacher && defaultTeacher) {
-        realTeacher = defaultTeacher;
-      }
       if (realTeacher) {
         instName = realTeacher.name;
         instEmail = realTeacher.email;
-        if (!c.instructor_email || c.instructor !== realTeacher.name) {
-          await db.run("UPDATE classrooms SET instructor = ?, instructor_email = ? WHERE id = ?", realTeacher.name, realTeacher.email, c.id).catch(() => {
-          });
+      }
+      let parsedTheme = null;
+      if (c.theme) {
+        try {
+          parsedTheme = typeof c.theme === "string" ? JSON.parse(c.theme) : c.theme;
+        } catch {
+          parsedTheme = null;
         }
       }
       return {
         ...c,
+        theme: parsedTheme,
         instructor: instName || "Instructor",
         instructorEmail: instEmail,
         instructorAvatar: realTeacher?.avatar || null
@@ -77339,34 +77484,93 @@ app.put("/classrooms", authenticateToken, requireRole("Teacher", "Admin"), async
   const { classrooms } = req.body;
   if (!Array.isArray(classrooms)) return res.status(400).json({ message: "classrooms must be an array" });
   try {
+    const assignedInBatch = /* @__PURE__ */ new Set();
+    const savedClassrooms = [];
     for (const c of classrooms) {
       if (c.name && /^Classroom \d+$/i.test(c.name.trim()) && (!c.section || !c.section.trim()) && (!c.subject || !c.subject.trim())) {
         continue;
       }
       const instName = c.instructor || req.user.name || "Instructor";
       const instEmail = c.instructorEmail || c.instructor_email || (req.user.role === "Teacher" ? req.user.email : "");
+      const themeStr = c.theme ? typeof c.theme === "object" ? JSON.stringify(c.theme) : c.theme : null;
+      const classroomId = c.id || Date.now();
+      let classCode = (c.code || "").toString().trim().toLowerCase();
+      if (!classCode) {
+        const existingDbClassroom = await db.get("SELECT id, code FROM classrooms WHERE id = ?", classroomId);
+        if (existingDbClassroom?.code) {
+          classCode = existingDbClassroom.code.trim().toLowerCase();
+        }
+      }
+      let codeConflict = false;
+      if (classCode) {
+        if (assignedInBatch.has(classCode)) {
+          codeConflict = true;
+        } else {
+          const row = await db.get("SELECT id FROM classrooms WHERE LOWER(code) = ? AND id != ?", classCode, classroomId);
+          if (row) codeConflict = true;
+        }
+      }
+      if (!classCode || codeConflict) {
+        let attempts = 0;
+        do {
+          classCode = db.generateClassCodeSync ? db.generateClassCodeSync(assignedInBatch) : ("v" + Date.now().toString(36) + Math.random().toString(36).substring(2, 5)).slice(0, 7);
+          const conflict = await db.get("SELECT id FROM classrooms WHERE LOWER(code) = ? AND id != ?", classCode, classroomId);
+          if (!conflict) break;
+          attempts++;
+        } while (attempts < 50);
+      }
+      assignedInBatch.add(classCode);
       await db.run(
         `
-                INSERT INTO classrooms (id, code, section, name, subject, instructor, instructor_email) 
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO classrooms (id, code, section, name, subject, instructor, instructor_email, theme) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     code = excluded.code,
                     section = excluded.section,
                     name = excluded.name,
                     subject = excluded.subject,
                     instructor = excluded.instructor,
-                    instructor_email = excluded.instructor_email
+                    instructor_email = excluded.instructor_email,
+                    theme = COALESCE(excluded.theme, classrooms.theme)
             `,
-        c.id || Date.now(),
-        c.code || "",
+        classroomId,
+        classCode,
         c.section || "",
         c.name || "",
         c.subject || "",
         instName,
-        instEmail
+        instEmail,
+        themeStr
       );
+      savedClassrooms.push({
+        ...c,
+        id: classroomId,
+        code: classCode,
+        instructor: instName,
+        instructorEmail: instEmail
+      });
     }
-    res.status(200).json({ message: "Classrooms saved" });
+    res.status(200).json({ message: "Classrooms saved", classrooms: savedClassrooms });
+  } catch (e2) {
+    res.status(500).json({ message: e2.message });
+  }
+});
+app.patch("/classrooms/:id/theme", authenticateToken, requireRole("Teacher", "Admin"), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { theme } = req.body;
+    if (!theme) return res.status(400).json({ message: "Theme is required" });
+    const themeStr = typeof theme === "object" ? JSON.stringify(theme) : theme;
+    await db.run("UPDATE classrooms SET theme = ? WHERE id = ?", themeStr, id);
+    const classroom = await db.get("SELECT * FROM classrooms WHERE id = ?", id);
+    const detailPayload = {
+      classroomId: id,
+      code: classroom?.code || classroom?.section,
+      name: classroom?.name,
+      theme: typeof theme === "string" ? JSON.parse(theme) : theme
+    };
+    io.emit("classroom_theme_changed", detailPayload);
+    res.status(200).json({ message: "Theme updated successfully", theme: detailPayload.theme });
   } catch (e2) {
     res.status(500).json({ message: e2.message });
   }
@@ -77642,16 +77846,22 @@ app.post("/classrooms/join", authenticateToken, async (req, res) => {
     const { code } = req.body;
     if (!code) return res.status(400).json({ message: "Class code required" });
     const trimmed = code.trim().toLowerCase();
-    const classroom = await db.get(`
+    let classroom = await db.get(`
             SELECT * FROM classrooms 
-            WHERE LOWER(code) = ? OR LOWER(section) = ? OR LOWER(name) = ? OR CAST(id as TEXT) = ?
-        `, trimmed, trimmed, trimmed, trimmed);
+            WHERE LOWER(code) = ?
+        `, trimmed);
+    if (!classroom) {
+      classroom = await db.get(`
+                SELECT * FROM classrooms 
+                WHERE LOWER(section) = ? OR LOWER(name) = ? OR CAST(id as TEXT) = ?
+            `, trimmed, trimmed, trimmed);
+    }
     if (!classroom) {
       return res.status(404).json({ message: "No class found with that code" });
     }
-    const studentName = req.user.name;
-    const studentEmail = req.user.email;
-    const studentId = req.user.id;
+    const studentName = req.body?.studentName || req.user?.name || (req.user?.email ? req.user.email.split("@")[0] : "Student");
+    const studentEmail = (req.body?.studentEmail || req.user?.email || "").trim().toLowerCase();
+    const studentId = req.user?.id || null;
     const now = (/* @__PURE__ */ new Date()).toISOString();
     await db.run(`
             INSERT INTO enrollments (classroom_id, student_id, student_name, student_email, enrolled_at)
@@ -77660,10 +77870,33 @@ app.post("/classrooms/join", authenticateToken, async (req, res) => {
                 student_name = excluded.student_name,
                 enrolled_at = excluded.enrolled_at
         `, classroom.id, studentId, studentName, studentEmail, now);
+    let parsedTheme = null;
+    if (classroom.theme) {
+      try {
+        parsedTheme = typeof classroom.theme === "string" ? JSON.parse(classroom.theme) : classroom.theme;
+      } catch {
+      }
+    }
+    let instName = classroom.instructor && classroom.instructor.trim() || "";
+    let instEmail = classroom.instructor_email && classroom.instructor_email.trim() || "";
+    let realTeacher = null;
+    if (instEmail) {
+      realTeacher = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(email) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", instEmail).catch(() => null);
+    }
+    if (!realTeacher && instName && instName !== "Instructor") {
+      realTeacher = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(name) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", instName).catch(() => null);
+    }
+    if (realTeacher) {
+      instName = realTeacher.name;
+      instEmail = realTeacher.email;
+    }
     res.status(200).json({
       classroom: {
         ...classroom,
-        instructorEmail: classroom.instructor_email || ""
+        theme: parsedTheme,
+        instructor: instName || "Instructor",
+        instructorEmail: instEmail,
+        instructorAvatar: realTeacher?.avatar || null
       },
       message: "Enrolled successfully"
     });
@@ -77936,6 +78169,19 @@ io.on("connection", (socket) => {
       console.error("Error in socket classwork_updated:", e2);
       io.emit("classwork_changed", { classroomId, classwork });
     }
+  });
+  socket.on("classroom_theme_updated", async (data) => {
+    if (!data) return;
+    const { classroomId, theme } = data;
+    if (classroomId && theme) {
+      try {
+        const themeStr = typeof theme === "object" ? JSON.stringify(theme) : theme;
+        await db.run("UPDATE classrooms SET theme = ? WHERE id = ?", themeStr, classroomId);
+      } catch (e2) {
+        console.error("Error persisting classroom theme via socket:", e2);
+      }
+    }
+    io.emit("classroom_theme_changed", data);
   });
   socket.on("compile_code", async (data) => {
     if (!socket.user) {

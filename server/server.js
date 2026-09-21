@@ -609,6 +609,9 @@ app.put('/classrooms', authenticateToken, requireRole('Teacher', 'Admin'), async
     if (!Array.isArray(classrooms)) return res.status(400).json({ message: 'classrooms must be an array' });
 
     try {
+        const assignedInBatch = new Set();
+        const savedClassrooms = [];
+
         for (const c of classrooms) {
             // Ignore phantom classrooms
             if (c.name && /^Classroom \d+$/i.test(c.name.trim()) && (!c.section || !c.section.trim()) && (!c.subject || !c.subject.trim())) {
@@ -617,6 +620,43 @@ app.put('/classrooms', authenticateToken, requireRole('Teacher', 'Admin'), async
             const instName = c.instructor || req.user.name || 'Instructor';
             const instEmail = c.instructorEmail || c.instructor_email || (req.user.role === 'Teacher' ? req.user.email : '');
             const themeStr = c.theme ? (typeof c.theme === 'object' ? JSON.stringify(c.theme) : c.theme) : null;
+            const classroomId = c.id || Date.now();
+
+            // Auto-generate or validate unique class code
+            let classCode = (c.code || '').toString().trim().toLowerCase();
+
+            // If no code provided in payload, check if this classroom already has one in DB
+            if (!classCode) {
+                const existingDbClassroom = await db.get('SELECT id, code FROM classrooms WHERE id = ?', classroomId);
+                if (existingDbClassroom?.code) {
+                    classCode = existingDbClassroom.code.trim().toLowerCase();
+                }
+            }
+
+            // Check if code is already taken by another classroom or already assigned in this batch
+            let codeConflict = false;
+            if (classCode) {
+                if (assignedInBatch.has(classCode)) {
+                    codeConflict = true;
+                } else {
+                    const row = await db.get('SELECT id FROM classrooms WHERE LOWER(code) = ? AND id != ?', classCode, classroomId);
+                    if (row) codeConflict = true;
+                }
+            }
+
+            // If empty or conflicted, generate a guaranteed unique code
+            if (!classCode || codeConflict) {
+                let attempts = 0;
+                do {
+                    classCode = db.generateClassCodeSync ? db.generateClassCodeSync(assignedInBatch) : ('v' + Date.now().toString(36) + Math.random().toString(36).substring(2, 5)).slice(0, 7);
+                    const conflict = await db.get('SELECT id FROM classrooms WHERE LOWER(code) = ? AND id != ?', classCode, classroomId);
+                    if (!conflict) break;
+                    attempts++;
+                } while (attempts < 50);
+            }
+
+            assignedInBatch.add(classCode);
+
             await db.run(`
                 INSERT INTO classrooms (id, code, section, name, subject, instructor, instructor_email, theme) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -629,10 +669,18 @@ app.put('/classrooms', authenticateToken, requireRole('Teacher', 'Admin'), async
                     instructor_email = excluded.instructor_email,
                     theme = COALESCE(excluded.theme, classrooms.theme)
             `,
-                c.id || Date.now(), c.code || '', c.section || '', c.name || '', c.subject || '', instName, instEmail, themeStr
+                classroomId, classCode, c.section || '', c.name || '', c.subject || '', instName, instEmail, themeStr
             );
+
+            savedClassrooms.push({
+                ...c,
+                id: classroomId,
+                code: classCode,
+                instructor: instName,
+                instructorEmail: instEmail
+            });
         }
-        res.status(200).json({ message: 'Classrooms saved' });
+        res.status(200).json({ message: 'Classrooms saved', classrooms: savedClassrooms });
     } catch (e) {
         res.status(500).json({ message: e.message });
     }
@@ -966,10 +1014,17 @@ app.post('/classrooms/join', authenticateToken, async (req, res) => {
         if (!code) return res.status(400).json({ message: 'Class code required' });
 
         const trimmed = code.trim().toLowerCase();
-        const classroom = await db.get(`
+        let classroom = await db.get(`
             SELECT * FROM classrooms 
-            WHERE LOWER(code) = ? OR LOWER(section) = ? OR LOWER(name) = ? OR CAST(id as TEXT) = ?
-        `, trimmed, trimmed, trimmed, trimmed);
+            WHERE LOWER(code) = ?
+        `, trimmed);
+
+        if (!classroom) {
+            classroom = await db.get(`
+                SELECT * FROM classrooms 
+                WHERE LOWER(section) = ? OR LOWER(name) = ? OR CAST(id as TEXT) = ?
+            `, trimmed, trimmed, trimmed);
+        }
 
         if (!classroom) {
             return res.status(404).json({ message: 'No class found with that code' });

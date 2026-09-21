@@ -10,115 +10,128 @@ import {
 import { logSecurityEvent } from '../../utils/securityLogger';
 import { apiFetch } from '../../utils/api';
 import { useDarkMode } from '../../hooks/useDarkMode';
+import { useCurrentUser } from '../../hooks/useCurrentUser';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const STORAGE_KEY = 'verity_admin_settings_v2';
 
-// ═══ DESIGN TOKENS ═══
-const T = {
+// ═══ DESIGN TOKENS (dynamic) ═══
+const getTokens = (isDark) => ({
   blue: '#007bff',
   green: '#22c55e',
   red: '#ef4444',
   amber: '#f59e0b',
-  border: '#e2e8f0',
-  muted: '#64748b',
-  text: '#1e293b',
-  subtext: '#475569',
-  bg: '#f8fafc',
-  card: '#ffffff',
+  border: isDark ? '#3a3a3a' : '#e2e8f0',
+  muted: isDark ? '#94a3b8' : '#64748b',
+  text: isDark ? '#f1f5f9' : '#1e293b',
+  subtext: isDark ? '#94a3b8' : '#475569',
+  bg: isDark ? '#2a2a2a' : '#f8fafc',
+  card: isDark ? '#2c2c2c' : '#ffffff',
+});
+
+const getStyles = (isDark) => {
+  const T = getTokens(isDark);
+  return {
+    T,
+    pageWrap: {
+      flex: 1, display: 'flex', flexDirection: 'column', gap: '20px',
+      overflowY: 'auto', minWidth: 0, paddingBottom: '100px',
+      MsOverflowStyle: 'none', scrollbarWidth: 'none',
+    },
+    tabBar: {
+      display: 'flex', gap: '6px', padding: '6px',
+      backgroundColor: T.card, border: `1px solid ${T.border}`,
+      borderRadius: '9999px', width: 'fit-content', flexWrap: 'wrap',
+      boxShadow: isDark ? '0 2px 8px rgba(0,0,0,0.3)' : '0 2px 8px rgba(0,0,0,0.04)',
+    },
+    tabBtn: (active) => ({
+      display: 'flex', alignItems: 'center', gap: '7px',
+      padding: '9px 18px', borderRadius: '9999px', border: 'none',
+      backgroundColor: active ? T.blue : 'transparent',
+      color: active ? '#ffffff' : T.subtext,
+      fontWeight: '700', fontSize: '0.82rem', cursor: 'pointer',
+      transition: 'all 0.2s ease',
+      boxShadow: active ? '0 4px 12px rgba(0,123,255,0.3)' : 'none',
+    }),
+    card: {
+      backgroundColor: T.card, borderRadius: '24px', padding: '28px',
+      boxShadow: isDark ? '0 4px 20px rgba(0,0,0,0.3)' : '0 4px 20px rgba(0,0,0,0.04)',
+      border: `1px solid ${T.border}`,
+      display: 'flex', flexDirection: 'column', gap: '24px',
+    },
+    sectionTitle: {
+      margin: 0, fontSize: '1.05rem', fontWeight: '800', color: T.text,
+      display: 'flex', alignItems: 'center', gap: '8px',
+    },
+    sectionSub: { margin: '4px 0 16px', fontSize: '0.82rem', color: T.muted },
+    label: { display: 'block', fontSize: '0.82rem', fontWeight: '700', color: T.subtext, marginBottom: '6px' },
+    input: {
+      width: '100%', padding: '11px 18px', borderRadius: '9999px',
+      border: `1px solid ${T.border}`, backgroundColor: T.bg,
+      color: isDark ? '#e2e8f0' : '#334155', fontSize: '0.88rem', outline: 'none', boxSizing: 'border-box',
+    },
+    select: {
+      width: '100%', padding: '11px 18px', borderRadius: '9999px',
+      border: `1px solid ${T.border}`, backgroundColor: T.bg,
+      color: isDark ? '#e2e8f0' : '#334155', fontSize: '0.88rem', outline: 'none',
+      boxSizing: 'border-box', cursor: 'pointer',
+    },
+    textarea: {
+      width: '100%', padding: '12px 18px', borderRadius: '16px',
+      border: `1px solid ${T.border}`, backgroundColor: T.bg,
+      color: isDark ? '#e2e8f0' : '#334155', fontSize: '0.88rem', outline: 'none',
+      boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical',
+    },
+    divider: { height: '1px', backgroundColor: T.border },
+    floatingBar: {
+      position: 'fixed', bottom: '24px', right: '32px',
+      backgroundColor: T.card, border: `1px solid ${T.border}`,
+      borderRadius: '9999px', padding: '12px 24px',
+      boxShadow: isDark ? '0 10px 30px rgba(0,0,0,0.4)' : '0 10px 30px rgba(0,0,0,0.12)',
+      display: 'flex', alignItems: 'center', gap: '16px', zIndex: 100,
+    },
+    saveBtn: (saved) => ({
+      display: 'inline-flex', alignItems: 'center', gap: '8px',
+      padding: '10px 24px',
+      backgroundColor: saved ? T.green : T.blue,
+      color: '#ffffff', border: 'none', borderRadius: '9999px',
+      fontWeight: '700', fontSize: '0.88rem', cursor: 'pointer',
+      boxShadow: saved ? '0 4px 14px rgba(34,197,94,0.35)' : '0 4px 14px rgba(0,123,255,0.35)',
+      transition: 'all 0.25s ease',
+    }),
+    secBtn: {
+      display: 'inline-flex', alignItems: 'center', gap: '8px',
+      padding: '10px 20px', backgroundColor: T.bg, color: isDark ? '#e2e8f0' : '#334155',
+      border: `1px solid ${T.border}`, borderRadius: '9999px',
+      fontWeight: '700', fontSize: '0.85rem', cursor: 'pointer',
+      transition: 'all 0.2s ease',
+    },
+  };
 };
 
-const styles = {
-  pageWrap: {
-    flex: 1, display: 'flex', flexDirection: 'column', gap: '20px',
-    overflowY: 'auto', minWidth: 0, paddingBottom: '100px',
-    MsOverflowStyle: 'none', scrollbarWidth: 'none',
-  },
-  tabBar: {
-    display: 'flex', gap: '6px', padding: '6px',
-    backgroundColor: '#ffffff', border: `1px solid ${T.border}`,
-    borderRadius: '9999px', width: 'fit-content', flexWrap: 'wrap',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-  },
-  tabBtn: (active) => ({
-    display: 'flex', alignItems: 'center', gap: '7px',
-    padding: '9px 18px', borderRadius: '9999px', border: 'none',
-    backgroundColor: active ? T.blue : 'transparent',
-    color: active ? '#ffffff' : T.subtext,
-    fontWeight: '700', fontSize: '0.82rem', cursor: 'pointer',
-    transition: 'all 0.2s ease',
-    boxShadow: active ? '0 4px 12px rgba(0,123,255,0.3)' : 'none',
-  }),
-  card: {
-    backgroundColor: T.card, borderRadius: '24px', padding: '28px',
-    boxShadow: '0 4px 20px rgba(0,0,0,0.04)', border: `1px solid ${T.border}`,
-    display: 'flex', flexDirection: 'column', gap: '24px',
-  },
-  sectionTitle: {
-    margin: 0, fontSize: '1.05rem', fontWeight: '800', color: T.text,
-    display: 'flex', alignItems: 'center', gap: '8px',
-  },
-  sectionSub: { margin: '4px 0 16px', fontSize: '0.82rem', color: T.muted },
-  label: { display: 'block', fontSize: '0.82rem', fontWeight: '700', color: T.subtext, marginBottom: '6px' },
-  input: {
-    width: '100%', padding: '11px 18px', borderRadius: '9999px',
-    border: `1px solid ${T.border}`, backgroundColor: T.bg,
-    color: '#334155', fontSize: '0.88rem', outline: 'none', boxSizing: 'border-box',
-  },
-  select: {
-    width: '100%', padding: '11px 18px', borderRadius: '9999px',
-    border: `1px solid ${T.border}`, backgroundColor: T.bg,
-    color: '#334155', fontSize: '0.88rem', outline: 'none',
-    boxSizing: 'border-box', cursor: 'pointer',
-  },
-  textarea: {
-    width: '100%', padding: '12px 18px', borderRadius: '16px',
-    border: `1px solid ${T.border}`, backgroundColor: T.bg,
-    color: '#334155', fontSize: '0.88rem', outline: 'none',
-    boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical',
-  },
-  divider: { height: '1px', backgroundColor: '#f1f5f9' },
-  floatingBar: {
-    position: 'fixed', bottom: '24px', right: '32px',
-    backgroundColor: '#ffffff', border: `1px solid ${T.border}`,
-    borderRadius: '9999px', padding: '12px 24px',
-    boxShadow: '0 10px 30px rgba(0,0,0,0.12)',
-    display: 'flex', alignItems: 'center', gap: '16px', zIndex: 100,
-  },
-  saveBtn: (saved) => ({
-    display: 'inline-flex', alignItems: 'center', gap: '8px',
-    padding: '10px 24px',
-    backgroundColor: saved ? T.green : T.blue,
-    color: '#ffffff', border: 'none', borderRadius: '9999px',
-    fontWeight: '700', fontSize: '0.88rem', cursor: 'pointer',
-    boxShadow: saved ? '0 4px 14px rgba(34,197,94,0.35)' : '0 4px 14px rgba(0,123,255,0.35)',
-    transition: 'all 0.25s ease',
-  }),
-  secBtn: {
-    display: 'inline-flex', alignItems: 'center', gap: '8px',
-    padding: '10px 20px', backgroundColor: T.bg, color: '#334155',
-    border: `1px solid ${T.border}`, borderRadius: '9999px',
-    fontWeight: '700', fontSize: '0.85rem', cursor: 'pointer',
-    transition: 'all 0.2s ease',
-  },
-};
+// Mutable module-level references updated by the main component on each render
+let styles = getStyles(false);
+let T = styles.T;
 
 // ═══ TOGGLE COMPONENT ═══
-const Toggle = ({ on, onToggle, label, subtext, accent = T.green }) => (
+const Toggle = ({ on, onToggle, label, subtext, accent }) => {
+  const tok = T;
+  const accentColor = accent || tok.green;
+  return (
   <div style={{
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    padding: '14px 18px', backgroundColor: T.bg, borderRadius: '16px',
-    border: `1px solid ${T.border}`,
+    padding: '14px 18px', backgroundColor: tok.bg, borderRadius: '16px',
+    border: `1px solid ${tok.border}`,
   }}>
     <div>
-      <span style={{ fontSize: '0.88rem', fontWeight: '700', color: T.text, display: 'block' }}>{label}</span>
-      {subtext && <span style={{ fontSize: '0.78rem', color: T.muted, marginTop: '2px', display: 'block' }}>{subtext}</span>}
+      <span style={{ fontSize: '0.88rem', fontWeight: '700', color: tok.text, display: 'block' }}>{label}</span>
+      {subtext && <span style={{ fontSize: '0.78rem', color: tok.muted, marginTop: '2px', display: 'block' }}>{subtext}</span>}
     </div>
     <motion.div
       whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.9 }} onClick={onToggle}
       style={{
         width: '50px', height: '26px', borderRadius: '9999px',
-        backgroundColor: on ? accent : '#cbd5e1',
+        backgroundColor: on ? accentColor : '#cbd5e1',
         position: 'relative', transition: 'background 0.25s ease',
         display: 'flex', alignItems: 'center', padding: '3px',
         cursor: 'pointer', flexShrink: 0,
@@ -131,18 +144,21 @@ const Toggle = ({ on, onToggle, label, subtext, accent = T.green }) => (
       />
     </motion.div>
   </div>
-);
+  );
+};
 
 // ═══ SLIDER COMPONENT ═══
-const Slider = ({ value, onChange, min, max, step = 1, label, unit = '', subtext }) => (
-  <div style={{ padding: '14px 18px', backgroundColor: T.bg, borderRadius: '16px', border: `1px solid ${T.border}` }}>
+const Slider = ({ value, onChange, min, max, step = 1, label, unit = '', subtext }) => {
+  const tok = T;
+  return (
+  <div style={{ padding: '14px 18px', backgroundColor: tok.bg, borderRadius: '16px', border: `1px solid ${tok.border}` }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
       <div>
-        <span style={{ fontSize: '0.88rem', fontWeight: '700', color: T.text }}>{label}</span>
-        {subtext && <span style={{ fontSize: '0.78rem', color: T.muted, display: 'block', marginTop: '2px' }}>{subtext}</span>}
+        <span style={{ fontSize: '0.88rem', fontWeight: '700', color: tok.text }}>{label}</span>
+        {subtext && <span style={{ fontSize: '0.78rem', color: tok.muted, display: 'block', marginTop: '2px' }}>{subtext}</span>}
       </div>
       <span style={{
-        fontSize: '1rem', fontWeight: '800', color: T.blue,
+        fontSize: '1rem', fontWeight: '800', color: tok.blue,
         backgroundColor: '#eff6ff', padding: '4px 14px', borderRadius: '9999px',
       }}>
         {value}{unit}
@@ -151,14 +167,15 @@ const Slider = ({ value, onChange, min, max, step = 1, label, unit = '', subtext
     <input
       type="range" min={min} max={max} step={step} value={value}
       onChange={e => onChange(Number(e.target.value))}
-      style={{ width: '100%', accentColor: T.blue, cursor: 'pointer' }}
+      style={{ width: '100%', accentColor: tok.blue, cursor: 'pointer' }}
     />
-    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: T.muted, marginTop: '4px' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: tok.muted, marginTop: '4px' }}>
       <span>{min}{unit}</span>
       <span>{max}{unit}</span>
     </div>
   </div>
-);
+  );
+};
 
 // ═══ DEFAULT SETTINGS ═══
 const DEFAULT_SETTINGS = {
@@ -644,7 +661,7 @@ function RolesPermissionsTab({ data, onChange }) {
 // ════════════════════════════════════════════════════════════════════
 // TAB 6 — SYSTEM & DATA MANAGEMENT
 // ════════════════════════════════════════════════════════════════════
-function SystemDataTab({ data, onChange }) {
+function SystemDataTab({ data, onChange, currentUserName = 'Admin' }) {
   const [backupStatus, setBackupStatus] = useState(null);
   const [exporting, setExporting] = useState(false);
   const update = (key, val) => onChange({ ...data, [key]: val });
@@ -655,7 +672,7 @@ function SystemDataTab({ data, onChange }) {
       const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       onChange({ ...data, lastBackupTime: `Today at ${nowStr}` });
       setBackupStatus('System backup completed successfully!');
-      logSecurityEvent({ user: 'System Admin', type: 'Database Backup', severity: 'Normal', desc: 'Manual system backup triggered from Admin Settings' });
+      logSecurityEvent({ user: currentUserName, type: 'Database Backup', severity: 'Normal', desc: 'Manual system backup triggered from Admin Settings' });
       setTimeout(() => setBackupStatus(null), 3000);
     }, 1200);
   };
@@ -681,7 +698,7 @@ function SystemDataTab({ data, onChange }) {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      logSecurityEvent({ user: 'System Admin', type: 'Audit Export', severity: 'Normal', desc: 'Exported global audit log as CSV' });
+      logSecurityEvent({ user: currentUserName, type: 'Audit Export', severity: 'Normal', desc: 'Exported global audit log as CSV' });
     } catch (e) {
       console.error('Export failed:', e);
     }
@@ -772,11 +789,18 @@ function SystemDataTab({ data, onChange }) {
 // ════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ════════════════════════════════════════════════════════════════════
-export default function SystemSettingsTab() {
+export default function SystemSettingsTab({ currentUser: propCurrentUser }) {
   const [activeTab, setActiveTab] = useState('general');
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [saved, setSaved] = useState(false);
   const { isDark, toggle: toggleDark } = useDarkMode();
+  const { currentUser: hookUser } = useCurrentUser();
+  const currentUser = propCurrentUser || hookUser;
+  const currentUserName = currentUser?.name || currentUser?.email || 'Admin';
+
+  // Rebuild dynamic styles whenever theme changes
+  styles = getStyles(isDark);
+  T = styles.T;
 
   useEffect(() => { loadSettings(); }, []);
 
@@ -806,7 +830,7 @@ export default function SystemSettingsTab() {
         body: JSON.stringify({ settings }),
       });
     } catch { }
-    logSecurityEvent({ user: 'System Admin', type: 'Settings Updated', severity: 'Normal', desc: `Updated system settings tab: ${activeTab.toUpperCase()}` });
+    logSecurityEvent({ user: currentUserName, type: 'Settings Updated', severity: 'Normal', desc: `Updated system settings tab: ${activeTab.toUpperCase()}` });
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
@@ -861,7 +885,7 @@ export default function SystemSettingsTab() {
           <RolesPermissionsTab key="roles" data={settings.roles} onChange={v => update('roles', v)} />
         )}
         {activeTab === 'data' && (
-          <SystemDataTab key="data" data={settings.data} onChange={v => update('data', v)} />
+          <SystemDataTab key="data" data={settings.data} onChange={v => update('data', v)} currentUserName={currentUserName} />
         )}
       </AnimatePresence>
 
