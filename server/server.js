@@ -480,8 +480,18 @@ app.get('/classrooms', authenticateToken, async (req, res) => {
                 }
             }
 
+            let parsedTheme = null;
+            if (c.theme) {
+                try {
+                    parsedTheme = typeof c.theme === 'string' ? JSON.parse(c.theme) : c.theme;
+                } catch {
+                    parsedTheme = null;
+                }
+            }
+
             return {
                 ...c,
+                theme: parsedTheme,
                 instructor: instName || 'Instructor',
                 instructorEmail: instEmail,
                 instructorAvatar: realTeacher?.avatar || null
@@ -505,21 +515,47 @@ app.put('/classrooms', authenticateToken, requireRole('Teacher', 'Admin'), async
             }
             const instName = c.instructor || req.user.name || 'Instructor';
             const instEmail = c.instructorEmail || c.instructor_email || (req.user.role === 'Teacher' ? req.user.email : '');
+            const themeStr = c.theme ? (typeof c.theme === 'object' ? JSON.stringify(c.theme) : c.theme) : null;
             await db.run(`
-                INSERT INTO classrooms (id, code, section, name, subject, instructor, instructor_email) 
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO classrooms (id, code, section, name, subject, instructor, instructor_email, theme) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     code = excluded.code,
                     section = excluded.section,
                     name = excluded.name,
                     subject = excluded.subject,
                     instructor = excluded.instructor,
-                    instructor_email = excluded.instructor_email
+                    instructor_email = excluded.instructor_email,
+                    theme = COALESCE(excluded.theme, classrooms.theme)
             `,
-                c.id || Date.now(), c.code || '', c.section || '', c.name || '', c.subject || '', instName, instEmail
+                c.id || Date.now(), c.code || '', c.section || '', c.name || '', c.subject || '', instName, instEmail, themeStr
             );
         }
         res.status(200).json({ message: 'Classrooms saved' });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+app.patch('/classrooms/:id/theme', authenticateToken, requireRole('Teacher', 'Admin'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { theme } = req.body;
+        if (!theme) return res.status(400).json({ message: 'Theme is required' });
+
+        const themeStr = typeof theme === 'object' ? JSON.stringify(theme) : theme;
+        await db.run('UPDATE classrooms SET theme = ? WHERE id = ?', themeStr, id);
+
+        const classroom = await db.get('SELECT * FROM classrooms WHERE id = ?', id);
+        const detailPayload = {
+            classroomId: id,
+            code: classroom?.code || classroom?.section,
+            name: classroom?.name,
+            theme: typeof theme === 'string' ? JSON.parse(theme) : theme
+        };
+
+        io.emit('classroom_theme_changed', detailPayload);
+        res.status(200).json({ message: 'Theme updated successfully', theme: detailPayload.theme });
     } catch (e) {
         res.status(500).json({ message: e.message });
     }
@@ -851,9 +887,17 @@ app.post('/classrooms/join', authenticateToken, async (req, res) => {
                 enrolled_at = excluded.enrolled_at
         `, classroom.id, studentId, studentName, studentEmail, now);
 
+        let parsedTheme = null;
+        if (classroom.theme) {
+            try {
+                parsedTheme = typeof classroom.theme === 'string' ? JSON.parse(classroom.theme) : classroom.theme;
+            } catch {}
+        }
+
         res.status(200).json({ 
             classroom: {
                 ...classroom,
+                theme: parsedTheme,
                 instructorEmail: classroom.instructor_email || ''
             }, 
             message: 'Enrolled successfully' 
@@ -1166,8 +1210,17 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('classroom_theme_updated', (data) => {
+    socket.on('classroom_theme_updated', async (data) => {
         if (!data) return;
+        const { classroomId, theme } = data;
+        if (classroomId && theme) {
+            try {
+                const themeStr = typeof theme === 'object' ? JSON.stringify(theme) : theme;
+                await db.run('UPDATE classrooms SET theme = ? WHERE id = ?', themeStr, classroomId);
+            } catch (e) {
+                console.error('Error persisting classroom theme via socket:', e);
+            }
+        }
         io.emit('classroom_theme_changed', data);
     });
 

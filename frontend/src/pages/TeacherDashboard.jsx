@@ -228,6 +228,31 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
     return () => clearTimeout(timer);
   }, []);
 
+  // Real-time banner updates listener
+  useEffect(() => {
+    const handleBannerUpdate = (e) => {
+      const detail = e.detail;
+      if (!detail || !detail.theme) return;
+
+      setClassrooms(prev => prev.map(c => {
+        const matches =
+          (c.id != null && String(detail.classroomId) === String(c.id)) ||
+          (c.code && detail.code && String(detail.code).toLowerCase() === String(c.code).toLowerCase()) ||
+          (c.section && detail.code && String(detail.code).toLowerCase() === String(c.section).toLowerCase()) ||
+          (c.name && detail.name && String(detail.name).toLowerCase() === String(c.name).toLowerCase()) ||
+          (detail.keys && detail.keys.includes(`verity_classroom_theme_${c.id}`));
+
+        if (matches) {
+          return { ...c, theme: detail.theme };
+        }
+        return c;
+      }));
+    };
+
+    window.addEventListener('verity:banner-updated', handleBannerUpdate);
+    return () => window.removeEventListener('verity:banner-updated', handleBannerUpdate);
+  }, []);
+
   // Persist classrooms whenever they change — locally (survives refresh) and to
   // the backend (so the Admin dashboard can count them server-wide).
   useEffect(() => {

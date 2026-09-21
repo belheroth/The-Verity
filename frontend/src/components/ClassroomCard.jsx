@@ -25,15 +25,12 @@ export default function ClassroomCard({
 
   useEffect(() => {
     setTheme(getClassroomTheme(classroom));
-  }, [classroom?.id, classroom?.code, classroom?.section, classroom?.name]);
+  }, [classroom?.id, classroom?.code, classroom?.section, classroom?.name, classroom?.theme]);
 
   useEffect(() => {
     const handleBannerUpdate = (e) => {
       const detail = e.detail;
-      if (!detail) {
-        setTheme(getClassroomTheme(classroom));
-        return;
-      }
+      if (!detail) return;
       const matches =
         (classroom?.id != null && String(detail.classroomId) === String(classroom.id)) ||
         (classroom?.code && detail.code && String(detail.code).toLowerCase() === String(classroom.code).toLowerCase()) ||
@@ -43,8 +40,6 @@ export default function ClassroomCard({
 
       if (matches && detail.theme) {
         setTheme(detail.theme);
-      } else {
-        setTheme(getClassroomTheme(classroom));
       }
     };
 
@@ -60,7 +55,7 @@ export default function ClassroomCard({
       window.removeEventListener('verity:banner-updated', handleBannerUpdate);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [classroom?.id, classroom?.code, classroom?.section, classroom?.name]);
+  }, [classroom?.id, classroom?.code, classroom?.section, classroom?.name, classroom?.theme]);
 
   const handleCopyCode = (e) => {
     e.stopPropagation();

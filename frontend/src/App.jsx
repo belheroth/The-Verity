@@ -17,6 +17,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import NotFound from './pages/NotFound';
 import syncService from './services/syncService';
 import { subscribeConnectionStatus, getConnectionStatus, getCloudUrl } from './utils/api';
+import { saveClassroomTheme } from './utils/classroomUtils';
 
 // Connect to Backend (Cloud-first with local offline fallback)
 const CLOUD_SOCKET = (import.meta.env.VITE_SOCKET_URL || '').replace(/\/$/, '');
@@ -214,6 +215,44 @@ export default function App() {
     return () => socket.off('classwork_changed', handleClassworkChanged);
   }, [socket]);
 
+  // Keep classroom themes in sync in real-time across all views, tabs, and student sessions
+  useEffect(() => {
+    if (!socket) return;
+    const handleThemeChanged = (data) => {
+      if (!data || !data.theme) return;
+
+      const targetClassroom = {
+        id: data.classroomId,
+        code: data.code,
+        name: data.name,
+        section: data.code || data.section
+      };
+
+      // Save locally to localStorage, update stored classroom lists, and dispatch verity:banner-updated
+      saveClassroomTheme(targetClassroom, data.theme, null);
+
+      // Keep activeClassroom in sync if it's currently open
+      setActiveClassroom(prev => {
+        if (!prev) return prev;
+        const matches =
+          (data.classroomId != null && String(prev.id) === String(data.classroomId)) ||
+          (data.code && prev.code && String(prev.code).toLowerCase() === String(data.code).toLowerCase()) ||
+          (data.code && prev.section && String(prev.section).toLowerCase() === String(data.code).toLowerCase()) ||
+          (data.name && prev.name && String(prev.name).toLowerCase() === String(data.name).toLowerCase());
+
+        if (matches) {
+          const updated = { ...prev, theme: data.theme };
+          localStorage.setItem('activeClassroom', JSON.stringify(updated));
+          return updated;
+        }
+        return prev;
+      });
+    };
+
+    socket.on('classroom_theme_changed', handleThemeChanged);
+    return () => socket.off('classroom_theme_changed', handleThemeChanged);
+  }, [socket]);
+
 
   // Lockdown helpers — no-op outside Electron (e.g. browser dev).
   const lockDown = () => window.electronAPI?.enableLockdown?.();
@@ -276,6 +315,7 @@ export default function App() {
       {currentScreen === 'student_dashboard' && (
         <ProtectedRoute currentUser={currentUser} setCurrentScreen={setCurrentScreen}>
           <StudentDashboard
+            socket={socket}
             currentUser={currentUser}
             onLogout={handleLogout}
             onEnterClassroom={(classroom) => {

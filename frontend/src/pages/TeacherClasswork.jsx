@@ -219,7 +219,7 @@ export default function TeacherClasswork({
   // Reset banner theme when classroom changes
   useEffect(() => {
     setBannerTheme(getClassroomTheme(classroom));
-  }, [classroom?.id, classroom?.code, classroom?.section, classroom?.name]);
+  }, [classroom?.id, classroom?.code, classroom?.section, classroom?.name, classroom?.theme]);
 
   // Real-time socket & window theme updates listener
   useEffect(() => {
@@ -248,7 +248,7 @@ export default function TeacherClasswork({
         socket.off('classroom_theme_changed');
       }
     };
-  }, [classroom?.id, classroom?.code, classroom?.section, classroom?.name, socket]);
+  }, [classroom?.id, classroom?.code, classroom?.section, classroom?.name, classroom?.theme, socket]);
 
   // Modal dialog states
   const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);

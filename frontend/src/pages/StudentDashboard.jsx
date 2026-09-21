@@ -10,6 +10,7 @@ import { apiFetch } from '../utils/api';
 import Skeleton from '../components/Skeleton';
 import ClassroomCard from '../components/ClassroomCard';
 import { useDarkMode } from '../hooks/useDarkMode';
+import { getThemeStorageKeys } from '../utils/classroomUtils';
 
 // We now generate the storage key dynamically based on the current user
 const getStorageKey = (user) => {
@@ -22,7 +23,7 @@ const DEFAULT_CLASSROOMS = [
   { id: 2, code: "IT202", name: "Data Structures", instructor: "kim fabie", instructorEmail: "kimfabie@gmail.com" }
 ];
 
-export default function StudentDashboard({ currentUser, onLogout, onEnterClassroom }) {
+export default function StudentDashboard({ currentUser, onLogout, onEnterClassroom, socket }) {
   const { isDark } = useDarkMode();
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('verity_sidebar_collapsed') === 'true');
   const toggleSidebar = () => {
@@ -158,7 +159,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
     }
   }, [classrooms, currentUser]);
 
-  // Refresh joined classrooms with latest server instructor info
+  // Refresh joined classrooms with latest server instructor info and theme
   useEffect(() => {
     const refreshInstructors = async () => {
       try {
@@ -169,11 +170,19 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
           if (serverList.length > 0) {
             setClassrooms(prev => prev.map(c => {
               const matched = serverList.find(s => s.id === c.id || (s.section && s.section === c.code));
-              if (matched && matched.instructor) {
+              if (matched) {
+                if (matched.theme) {
+                  const keys = getThemeStorageKeys(matched);
+                  keys.forEach(k => {
+                    try { localStorage.setItem(k, JSON.stringify(matched.theme)); } catch {}
+                  });
+                }
                 return {
                   ...c,
-                  instructor: matched.instructor,
-                  instructorEmail: matched.instructorEmail || matched.instructor_email || c.instructorEmail || ''
+                  ...matched,
+                  instructor: matched.instructor || c.instructor,
+                  instructorEmail: matched.instructorEmail || matched.instructor_email || c.instructorEmail || '',
+                  theme: matched.theme !== undefined ? matched.theme : c.theme
                 };
               }
               return c;
@@ -184,6 +193,39 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
     };
     refreshInstructors();
   }, []);
+
+  // Real-time banner updates listener (socket + window event)
+  useEffect(() => {
+    const handleBannerUpdate = (e) => {
+      const detail = e.detail;
+      if (!detail || !detail.theme) return;
+
+      setClassrooms(prev => prev.map(c => {
+        const matches =
+          (c.id != null && String(detail.classroomId) === String(c.id)) ||
+          (c.code && detail.code && String(detail.code).toLowerCase() === String(c.code).toLowerCase()) ||
+          (c.section && detail.code && String(detail.code).toLowerCase() === String(c.section).toLowerCase()) ||
+          (c.name && detail.name && String(detail.name).toLowerCase() === String(c.name).toLowerCase()) ||
+          (detail.keys && detail.keys.includes(`verity_classroom_theme_${c.id}`));
+
+        if (matches) {
+          return { ...c, theme: detail.theme };
+        }
+        return c;
+      }));
+    };
+
+    window.addEventListener('verity:banner-updated', handleBannerUpdate);
+    if (socket) {
+      socket.on('classroom_theme_changed', (data) => handleBannerUpdate({ detail: data }));
+    }
+    return () => {
+      window.removeEventListener('verity:banner-updated', handleBannerUpdate);
+      if (socket) {
+        socket.off('classroom_theme_changed');
+      }
+    };
+  }, [socket]);
 
 
 
@@ -279,8 +321,16 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
       code: match.section || match.code || code.toUpperCase(),
       name: match.name || code,
       instructor: match.instructor || 'Instructor',
-      instructorEmail: match.instructorEmail || match.instructor_email || ''
+      instructorEmail: match.instructorEmail || match.instructor_email || '',
+      theme: match.theme || null
     };
+
+    if (match.theme) {
+      const keys = getThemeStorageKeys(joined);
+      keys.forEach(k => {
+        try { localStorage.setItem(k, JSON.stringify(match.theme)); } catch {}
+      });
+    }
 
     // Enroll on server
     try {

@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS classrooms (
     name VARCHAR(255) NOT NULL,
     subject VARCHAR(255),
     instructor VARCHAR(255),
-    instructor_email VARCHAR(255)
+    instructor_email VARCHAR(255),
+    theme TEXT
 );
 
 CREATE TABLE IF NOT EXISTS enrollments (

@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import Skeleton from '../components/Skeleton';
 import { useDarkMode } from '../hooks/useDarkMode';
-import { THEME_PRESETS, getClassroomTheme } from '../utils/classroomUtils';
+import { THEME_PRESETS, getClassroomTheme, saveClassroomTheme } from '../utils/classroomUtils';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const formatShortDate = (value) => {
@@ -140,7 +140,7 @@ export default function ClassroomView({
   // Reset banner theme when classroom changes
   useEffect(() => {
     setBannerTheme(getClassroomTheme(classroom));
-  }, [classroom?.id, classroom?.code, classroom?.section, classroom?.name]);
+  }, [classroom?.id, classroom?.code, classroom?.section, classroom?.name, classroom?.theme]);
 
   useEffect(() => {
     const handleUpdate = (e) => {
@@ -155,9 +155,8 @@ export default function ClassroomView({
 
       if (matches && detail.theme) {
         setBannerTheme(detail.theme);
-      } else {
-        // Fallback re-query
-        setBannerTheme(getClassroomTheme(classroom));
+        // Persist locally in student storage so tab switching doesn't revert
+        saveClassroomTheme(classroom, detail.theme, null);
       }
     };
 
@@ -180,7 +179,7 @@ export default function ClassroomView({
         socket.off('classroom_theme_changed');
       }
     };
-  }, [classroom?.id, classroom?.code, classroom?.section, classroom?.name, socket]);
+  }, [classroom?.id, classroom?.code, classroom?.section, classroom?.name, classroom?.theme, socket]);
 
   // Modal for class details
   const [isClassInfoModalOpen, setIsClassInfoModalOpen] = useState(false);

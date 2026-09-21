@@ -30,7 +30,9 @@ db.exec(`
         section TEXT,
         name TEXT,
         subject TEXT,
-        instructor TEXT
+        instructor TEXT,
+        instructor_email TEXT,
+        theme TEXT
     );
 
     CREATE TABLE IF NOT EXISTS classwork (
@@ -101,5 +103,8 @@ db.exec(`
         UNIQUE(assignment_id, student_id)
     );
 `);
+
+try { db.exec(`ALTER TABLE classrooms ADD COLUMN instructor_email TEXT;`); } catch (e) {}
+try { db.exec(`ALTER TABLE classrooms ADD COLUMN theme TEXT;`); } catch (e) {}
 
 module.exports = db;

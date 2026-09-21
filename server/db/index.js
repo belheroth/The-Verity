@@ -73,7 +73,8 @@ function initSqlite() {
             name TEXT,
             subject TEXT,
             instructor TEXT,
-            instructor_email TEXT
+            instructor_email TEXT,
+            theme TEXT
         );
 
         CREATE TABLE IF NOT EXISTS enrollments (
@@ -159,6 +160,7 @@ function initSqlite() {
     `);
 
     try { sqliteDb.exec(`ALTER TABLE classrooms ADD COLUMN instructor_email TEXT;`); } catch (e) {}
+    try { sqliteDb.exec(`ALTER TABLE classrooms ADD COLUMN theme TEXT;`); } catch (e) {}
     try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN avatar TEXT;`); } catch (e) {}
 
     provider = 'sqlite';
@@ -237,6 +239,7 @@ async function initPostgres(connStr = cleanedUrl) {
             try {
                 await client.query('ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS instructor_email VARCHAR(255);');
                 await client.query('ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS instructor VARCHAR(255);');
+                await client.query('ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS theme TEXT;');
                 await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;');
             } catch (colErr) {
                 console.warn('[Database] Note on column migration:', colErr.message);

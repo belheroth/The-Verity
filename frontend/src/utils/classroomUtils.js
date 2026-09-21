@@ -84,6 +84,8 @@ export const THEME_PRESETS = [
   }
 ];
 
+import { apiFetch } from './api';
+
 /**
  * Returns all potential storage keys for a classroom object to guarantee matching
  * between teacher and student views regardless of whether classroom is identified
@@ -91,7 +93,7 @@ export const THEME_PRESETS = [
  */
 export const getThemeStorageKeys = (classroom) => {
   const keys = [];
-  if (!classroom) return ['verity_classroom_theme_default'];
+  if (!classroom) return [];
 
   if (classroom.id !== undefined && classroom.id !== null) {
     keys.push(`verity_classroom_theme_${classroom.id}`);
@@ -105,7 +107,6 @@ export const getThemeStorageKeys = (classroom) => {
   if (classroom.name) {
     keys.push(`verity_classroom_theme_name_${String(classroom.name).trim().toLowerCase()}`);
   }
-  keys.push('verity_classroom_theme_default');
   return keys;
 };
 
@@ -113,8 +114,16 @@ export const getThemeStorageKeys = (classroom) => {
  * Resolves the active theme for a classroom object.
  */
 export const getClassroomTheme = (classroom) => {
-  if (classroom?.theme && typeof classroom.theme === 'object') {
-    return classroom.theme;
+  if (classroom?.theme) {
+    if (typeof classroom.theme === 'object') return classroom.theme;
+    if (typeof classroom.theme === 'string') {
+      try {
+        const parsed = JSON.parse(classroom.theme);
+        if (parsed && (parsed.primary || parsed.customImageUrl || parsed.id)) {
+          return parsed;
+        }
+      } catch {}
+    }
   }
   const keys = getThemeStorageKeys(classroom);
   for (const key of keys) {
@@ -135,7 +144,7 @@ export const getClassroomTheme = (classroom) => {
 
 /**
  * Saves classroom theme across all canonical keys, updates local caches,
- * dispatches local events, and emits socket event for real-time cross-tab/cross-device updates.
+ * dispatches local events, emits socket event, and updates server DB via REST API.
  */
 export const saveClassroomTheme = (classroom, theme, socket = null) => {
   if (!theme) return;
@@ -193,7 +202,18 @@ export const saveClassroomTheme = (classroom, theme, socket = null) => {
   window.dispatchEvent(new CustomEvent('verity:banner-updated', { detail: detailPayload }));
 
   // Emit socket event for real-time server/client propagation
-  if (socket && socket.connected) {
+  if (socket) {
     socket.emit('classroom_theme_updated', detailPayload);
+  }
+
+  // Persist to backend database via REST API
+  if (classroom?.id) {
+    apiFetch(`/classrooms/${classroom.id}/theme`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ theme })
+    }).catch(err => {
+      console.warn('[ClassroomTheme] Failed to save theme via API:', err?.message || err);
+    });
   }
 };
