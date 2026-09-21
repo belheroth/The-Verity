@@ -199,8 +199,53 @@ export default function ClassroomCard({
       </div>
 
       {/* ═══ MIDDLE WHITE BODY ═══ */}
-      <div style={{ flex: 1, backgroundColor: isDark ? '#242424' : '#ffffff', padding: '14px 20px' }}>
-        {/* Clean middle area */}
+      <div style={{ flex: 1, backgroundColor: isDark ? '#242424' : '#ffffff', padding: '14px 20px', position: 'relative' }}>
+        {/* Floating Instructor Profile Picture (Google Classroom signature element) */}
+        {role === 'Student' && (
+          <div
+            style={{
+              position: 'absolute',
+              right: '16px',
+              top: '-28px',
+              width: '56px',
+              height: '56px',
+              borderRadius: '50%',
+              backgroundColor: isDark ? '#2c2c2c' : '#ffffff',
+              border: isDark ? '3px solid #242424' : '3px solid #ffffff',
+              boxShadow: isDark ? '0 4px 12px rgba(0,0,0,0.45)' : '0 4px 12px rgba(0,0,0,0.14)',
+              overflow: 'hidden',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 10
+            }}
+            title={classroom.instructor ? `Instructor: ${classroom.instructor}` : 'Instructor'}
+          >
+            {(classroom.instructorAvatar || classroom.avatar) ? (
+              <img
+                src={classroom.instructorAvatar || classroom.avatar}
+                alt={classroom.instructor || 'Instructor'}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  backgroundColor: '#10b981',
+                  color: '#ffffff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: '700',
+                  fontSize: '1.25rem'
+                }}
+              >
+                {(classroom.instructor || 'I').charAt(0).toUpperCase()}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ═══ BOTTOM FOOTER ACTION BAR ═══ */}

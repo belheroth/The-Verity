@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { io } from 'socket.io-client';
 import Editor from '@monaco-editor/react';
-import { ArrowLeft, Save, Play, Square, Settings, TerminalSquare, Check, AlertTriangle, Trash2, Moon, Sun, X } from 'lucide-react';
+import { ArrowLeft, Save, Play, Square, Settings, TerminalSquare, Check, AlertTriangle, Trash2, Moon, Sun, X, Link2 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import localStore from '../services/localStore';
 import { useDarkMode } from '../hooks/useDarkMode';
+import ImagePreviewModal from '../components/ImagePreviewModal';
+import VideoPreviewModal from '../components/VideoPreviewModal';
+import VideoAttachment from '../components/VideoAttachment';
+import AttachmentCard from '../components/AttachmentCard';
 
 // Strip whitespace so editor auto-indent on paste doesn't cause false mismatches.
 const normalize = (text) => (text || "").replace(/\s+/g, '');
@@ -48,6 +52,8 @@ export default function StudentView({ socket, currentUser, username, assignment,
   const [strictCompiler, setStrictCompiler] = useState(false);
   const { isDark, toggle: toggleDarkMode } = useDarkMode();
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [previewImage, setPreviewImage] = useState(null);
+  const [previewVideo, setPreviewVideo] = useState(null);
   const [editorFontSize, setEditorFontSize] = useState(() => {
     try {
       return Number(localStorage.getItem('verity_editor_font_size')) || 16;
@@ -700,26 +706,26 @@ export default function StudentView({ socket, currentUser, username, assignment,
     if (!rawText) return null;
     const lines = rawText.split('\n');
     return lines.map((line, idx) => {
-      let color = '#1f2937';
+      let color = isDark ? '#E8EAED' : '#1f2937';
       let fontWeight = 'normal';
       let fontStyle = 'normal';
 
       if (/error CS\d+/i.test(line) || /The build failed/i.test(line) || /\[Process terminated/i.test(line)) {
-        color = '#dc2626'; // red-600
+        color = isDark ? '#f87171' : '#dc2626'; // bright red
         fontWeight = '600';
       } else if (/warning CS\d+/i.test(line)) {
-        color = '#d97706'; // amber-600
+        color = isDark ? '#fbbf24' : '#d97706'; // bright amber
         fontWeight = '600';
       } else if (/Initializing compiler environment/i.test(line) || /Compiling and running/i.test(line)) {
-        color = '#0284c7'; // sky-600
+        color = isDark ? '#38bdf8' : '#0284c7'; // bright sky blue
       } else if (/\[Process exited with code 0\]/i.test(line)) {
-        color = '#059669'; // emerald-600
+        color = isDark ? '#34d399' : '#059669'; // bright emerald
         fontWeight = '600';
       } else if (/\[Process exited with code/i.test(line)) {
-        color = '#dc2626'; // red-600
+        color = isDark ? '#f87171' : '#dc2626'; // bright red
         fontWeight = '600';
       } else if (/\[Process stopped by user\]/i.test(line)) {
-        color = '#6b7280'; // gray-500
+        color = isDark ? '#9ca3af' : '#6b7280'; // soft gray
         fontStyle = 'italic';
       }
 
@@ -734,59 +740,62 @@ export default function StudentView({ socket, currentUser, username, assignment,
   return (
     <div style={{
       ...styles.container,
-      ...(isDark ? { backgroundColor: '#0b0f19' } : {})
+      ...(isDark ? { backgroundColor: '#1e1e1e' } : {})
     }}>
       <div style={{
         ...styles.leftSidebar,
-        ...(isDark ? { backgroundColor: '#0f172a', borderRight: '1px solid #1e293b' } : {})
+        ...(isDark ? { backgroundColor: '#282828', borderRight: '1px solid #3c3c3c' } : {})
       }}>
         <div style={{
           ...styles.instructionSection,
-          ...(isDark ? { backgroundColor: '#0f172a' } : {})
+          ...(isDark ? { backgroundColor: '#282828' } : {})
         }}>
-          <h2 style={{ color: isDark ? '#f8fafc' : 'black', margin: '0 0 20px 0', fontSize: '1.2rem' }}>Instruction</h2>
+          <h2 style={{ color: isDark ? '#E8EAED' : 'black', margin: '0 0 20px 0', fontSize: '1.2rem' }}>Instruction</h2>
           {instruction ? (
             <p style={{
               ...styles.instructionText,
-              ...(isDark ? { color: '#cbd5e1' } : {})
+              ...(isDark ? { color: '#d1d5db' } : {})
             }}>{instruction}</p>
           ) : (
-            <p style={{ color: '#9ca3af', fontStyle: 'italic', fontSize: '0.9rem' }}>Waiting for instructions...</p>
+            <p style={{ color: isDark ? '#888888' : '#9ca3af', fontStyle: 'italic', fontSize: '0.9rem' }}>Waiting for instructions...</p>
           )}
 
-          {assignment?.attachments?.length > 0 && (
+          {/* In the workspace, link attachments are hidden to maintain proctoring/focus, keeping only images and videos */}
+          {assignment?.attachments?.filter((att) => att.type !== 'link').length > 0 && (
             <div style={styles.attachmentList}>
-              {assignment.attachments.map((att, i) => {
-                if (att.type === 'image') {
-                  return <a key={i} href={att.url} target="_blank" rel="noreferrer"><img src={att.url} alt={att.name} style={styles.attachThumb} /></a>;
-                }
-                if (att.type === 'video') {
-                  return <video key={i} src={att.url} controls style={styles.attachVideo} />;
-                }
-                return (
-                  <a key={i} href={att.url} target="_blank" rel="noreferrer" style={styles.attachLink}>🔗 {att.name}</a>
-                );
-              })}
+              {assignment.attachments
+                .filter((att) => att.type !== 'link')
+                .map((att, i) => (
+                  <AttachmentCard
+                    key={i}
+                    att={att}
+                    isDark={isDark}
+                    onClick={(clickedAtt) => {
+                      if (clickedAtt.type === 'image') setPreviewImage(clickedAtt);
+                      else if (clickedAtt.type === 'video') setPreviewVideo(clickedAtt);
+                    }}
+                  />
+                ))}
             </div>
           )}
         </div>
 
         <div style={{
           ...styles.warningSection,
-          ...(isDark ? { backgroundColor: '#1e293b', borderTop: '1px solid #334155' } : {})
+          ...(isDark ? { backgroundColor: '#222222', borderTop: '1px solid #3c3c3c' } : {})
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
-            <span style={{ fontSize: '1.1rem', color: 'white', fontWeight: 'bold' }}>Warning</span>
-            <span style={{ fontSize: '1.1rem', color: 'white', fontWeight: 'bold' }}>Time</span>
+            <span style={{ fontSize: '1.1rem', color: isDark ? '#E8EAED' : 'white', fontWeight: 'bold' }}>Warning</span>
+            <span style={{ fontSize: '1.1rem', color: isDark ? '#E8EAED' : 'white', fontWeight: 'bold' }}>Time</span>
           </div>
           <div style={styles.logContainer}>
             {proctorLogs.length === 0 ? (
-              <span style={{ color: '#9ca3af', fontStyle: 'italic', fontSize: '0.9rem' }}>Monitoring active...</span>
+              <span style={{ color: isDark ? '#888888' : '#9ca3af', fontStyle: 'italic', fontSize: '0.9rem' }}>Monitoring active...</span>
             ) : (
               proctorLogs.map(log => (
                 <div key={log.id} style={styles.logRow}>
                   <span style={{ color: log.color, fontWeight: 'bold' }}>{log.message}</span>
-                  <span style={{ color: '#e5e7eb' }}>{log.time}</span>
+                  <span style={{ color: isDark ? '#a3a3a3' : '#e5e7eb' }}>{log.time}</span>
                 </div>
               ))
             )}
@@ -797,14 +806,14 @@ export default function StudentView({ socket, currentUser, username, assignment,
       <div style={styles.mainArea}>
         <div style={{
           ...styles.toolbar,
-          ...(isDark ? { backgroundColor: '#0f172a', borderBottom: '1px solid #1e293b' } : {})
+          ...(isDark ? { backgroundColor: '#262626', borderBottom: '1px solid #3c3c3c' } : {})
         }}>
           <div style={styles.toolGroupLeft}>
             <button
               onClick={onBack}
               style={{
                 ...styles.backButton,
-                ...(isDark ? { backgroundColor: '#1e293b', borderColor: '#334155', color: '#cbd5e1' } : {})
+                ...(isDark ? { backgroundColor: '#333333', borderColor: '#484848', color: '#E8EAED' } : {})
               }}
             >
               <ArrowLeft size={18} /> Back
@@ -813,7 +822,7 @@ export default function StudentView({ socket, currentUser, username, assignment,
               onClick={handleSaveCode}
               style={{
                 ...styles.iconButton,
-                ...(isDark ? { backgroundColor: '#1e293b', borderColor: '#334155', color: '#cbd5e1' } : {}),
+                ...(isDark ? { backgroundColor: '#333333', borderColor: '#484848', color: '#E8EAED' } : {}),
                 ...(saveStatus ? styles.iconButtonSaved : {})
               }}
               title="Save draft (Ctrl+S)"
@@ -831,7 +840,10 @@ export default function StudentView({ socket, currentUser, username, assignment,
             <button onClick={handleStopCode} disabled={!isRunning} style={{ ...styles.stopButton, opacity: isRunning ? 1 : 0.5, cursor: isRunning ? 'pointer' : 'not-allowed' }}><Square size={14} fill="currentColor" /> Stop</button>
             {strictCompiler && (
               <div
-                style={styles.strictBadge}
+                style={{
+                  ...styles.strictBadge,
+                  ...(isDark ? { backgroundColor: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.3)', color: '#fbbf24' } : {})
+                }}
                 title="Strict Compiler Mode: Compiler warnings are treated as errors and will block execution."
               >
                 <AlertTriangle size={13} style={{ marginRight: '5px', flexShrink: 0 }} />
@@ -846,7 +858,7 @@ export default function StudentView({ socket, currentUser, username, assignment,
                 onClick={handleUnsubmit}
                 style={{
                   ...styles.unsubmitBtn,
-                  ...(isDark ? { backgroundColor: '#1e293b', borderColor: '#334155', color: '#cbd5e1' } : {})
+                  ...(isDark ? { backgroundColor: '#333333', borderColor: '#484848', color: '#E8EAED' } : {})
                 }}
                 title="Unsubmit to edit and re-submit your code"
               >
@@ -870,7 +882,7 @@ export default function StudentView({ socket, currentUser, username, assignment,
               style={styles.gearIcon}
               title="Settings"
             >
-              <Settings size={22} color={isDark ? '#94a3b8' : '#6b7280'} />
+              <Settings size={22} color={isDark ? '#d4d4d4' : '#6b7280'} />
             </button>
           </div>
         </div>
@@ -908,29 +920,29 @@ export default function StudentView({ socket, currentUser, username, assignment,
         <div
           style={{
             ...styles.resizeHandle,
-            ...(isDark ? { backgroundColor: '#0f172a', borderTop: '1px solid #1e293b', borderBottom: '1px solid #0f172a' } : {})
+            ...(isDark ? { backgroundColor: '#262626', borderTop: '1px solid #3c3c3c', borderBottom: '1px solid #262626' } : {})
           }}
           onMouseDown={handleDividerMouseDown}
           title="Drag up or down to resize terminal height"
         >
           <div style={{
             ...styles.resizeHandleGrip,
-            ...(isDark ? { backgroundColor: '#475569' } : {})
+            ...(isDark ? { backgroundColor: '#555555' } : {})
           }} />
         </div>
 
         <div style={{
           ...styles.terminalWrapper,
           height: `${terminalHeight}px`,
-          ...(isDark ? { backgroundColor: '#0b0f19', borderTop: '1px solid #1e293b' } : {})
+          ...(isDark ? { backgroundColor: '#1e1e1e', borderTop: '1px solid #3c3c3c' } : {})
         }}>
           <div style={{
             ...styles.terminalHeader,
-            ...(isDark ? { backgroundColor: '#0f172a', borderBottom: '1px solid #1e293b' } : {})
+            ...(isDark ? { backgroundColor: '#262626', borderBottom: '1px solid #3c3c3c' } : {})
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <TerminalSquare size={15} color={isDark ? '#94a3b8' : '#4b5563'} />
-              <span style={{ fontWeight: '600', fontSize: '0.82rem', color: isDark ? '#f8fafc' : '#1f2937', letterSpacing: '0.04em' }}>TERMINAL</span>
+              <TerminalSquare size={15} color={isDark ? '#10b981' : '#4b5563'} />
+              <span style={{ fontWeight: '600', fontSize: '0.82rem', color: isDark ? '#E8EAED' : '#1f2937', letterSpacing: '0.04em' }}>TERMINAL</span>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -938,7 +950,7 @@ export default function StudentView({ socket, currentUser, username, assignment,
                 onClick={handleClearTerminal}
                 style={{
                   ...styles.terminalActionBtn,
-                  ...(isDark ? { backgroundColor: '#1e293b', borderColor: '#334155', color: '#cbd5e1' } : {})
+                  ...(isDark ? { backgroundColor: '#333333', borderColor: '#484848', color: '#E8EAED' } : {})
                 }}
                 title="Clear Terminal Output"
               >
@@ -949,13 +961,13 @@ export default function StudentView({ socket, currentUser, username, assignment,
           </div>
           <div ref={terminalBodyRef} style={{
             ...styles.terminalBody,
-            ...(isDark ? { backgroundColor: '#0b0f19', color: '#f8fafc' } : {})
+            ...(isDark ? { backgroundColor: '#1e1e1e', color: '#E8EAED' } : {})
           }}>
             {renderFormattedOutput(output)}
             {isRunning && programStarted && (
               <div style={{
                 ...styles.terminalInputRow,
-                ...(isDark ? { backgroundColor: '#0f172a', borderColor: '#334155' } : {})
+                ...(isDark ? { backgroundColor: '#252525', borderColor: '#3c3c3c' } : {})
               }}>
                 <span style={{ marginRight: '8px', color: '#10b981', fontWeight: 'bold' }}>{'>'}</span>
                 <input
@@ -966,7 +978,7 @@ export default function StudentView({ socket, currentUser, username, assignment,
                   autoFocus
                   style={{
                     ...styles.terminalInput,
-                    ...(isDark ? { color: '#f8fafc' } : {})
+                    ...(isDark ? { color: '#E8EAED' } : {})
                   }}
                   placeholder="Type input here and press Enter..."
                 />
@@ -994,14 +1006,14 @@ export default function StudentView({ socket, currentUser, username, assignment,
         >
           <div
             style={{
-              backgroundColor: isDark ? '#1e293b' : '#ffffff',
-              color: isDark ? '#f8fafc' : '#1e293b',
+              backgroundColor: isDark ? '#2c2c2c' : '#ffffff',
+              color: isDark ? '#E8EAED' : '#1e293b',
               borderRadius: '20px',
               padding: '28px',
               width: '90%',
               maxWidth: '460px',
               boxShadow: '0 20px 45px rgba(0,0,0,0.35)',
-              border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+              border: isDark ? '1px solid #484848' : '1px solid #e2e8f0',
               display: 'flex',
               flexDirection: 'column',
               gap: '20px',
@@ -1011,7 +1023,7 @@ export default function StudentView({ socket, currentUser, username, assignment,
             {/* Modal Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Settings size={22} color={isDark ? '#38bdf8' : '#0284c7'} />
+                <Settings size={22} color={isDark ? '#10b981' : '#0284c7'} />
                 <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '700' }}>Workspace Settings</h3>
               </div>
               <button
@@ -1020,7 +1032,7 @@ export default function StudentView({ socket, currentUser, username, assignment,
                   background: 'transparent',
                   border: 'none',
                   cursor: 'pointer',
-                  color: isDark ? '#94a3b8' : '#64748b',
+                  color: isDark ? '#a3a3a3' : '#64748b',
                   display: 'flex',
                   alignItems: 'center',
                   padding: '4px',
@@ -1040,17 +1052,17 @@ export default function StudentView({ socket, currentUser, username, assignment,
                 alignItems: 'center',
                 padding: '16px',
                 borderRadius: '14px',
-                backgroundColor: isDark ? '#0f172a' : '#f8fafc',
-                border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                backgroundColor: isDark ? '#222222' : '#f8fafc',
+                border: isDark ? '1px solid #3c3c3c' : '1px solid #e2e8f0',
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                {isDark ? <Moon size={22} color="#818cf8" /> : <Sun size={22} color="#f59e0b" />}
+                {isDark ? <Moon size={22} color="#10b981" /> : <Sun size={22} color="#f59e0b" />}
                 <div>
                   <div style={{ fontWeight: '600', fontSize: '0.95rem' }}>
                     {isDark ? 'Dark Mode' : 'Light Mode'}
                   </div>
-                  <div style={{ fontSize: '0.8rem', color: isDark ? '#94a3b8' : '#64748b', marginTop: '2px' }}>
+                  <div style={{ fontSize: '0.8rem', color: isDark ? '#a3a3a3' : '#64748b', marginTop: '2px' }}>
                     {isDark ? 'Dark theme active' : 'Light theme active'}
                   </div>
                 </div>
@@ -1095,8 +1107,8 @@ export default function StudentView({ socket, currentUser, username, assignment,
               style={{
                 padding: '16px',
                 borderRadius: '14px',
-                backgroundColor: isDark ? '#0f172a' : '#f8fafc',
-                border: isDark ? '1px solid #334155' : '1px solid #e2e8f0',
+                backgroundColor: isDark ? '#222222' : '#f8fafc',
+                border: isDark ? '1px solid #3c3c3c' : '1px solid #e2e8f0',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '10px',
@@ -1118,9 +1130,9 @@ export default function StudentView({ socket, currentUser, username, assignment,
                       flex: 1,
                       padding: '8px 0',
                       borderRadius: '8px',
-                      border: `1px solid ${editorFontSize === sz ? '#10b981' : (isDark ? '#334155' : '#cbd5e1')}`,
-                      backgroundColor: editorFontSize === sz ? (isDark ? '#064e3b' : '#ecfdf5') : (isDark ? '#1e293b' : '#ffffff'),
-                      color: editorFontSize === sz ? '#10b981' : (isDark ? '#cbd5e1' : '#475569'),
+                      border: `1px solid ${editorFontSize === sz ? '#10b981' : (isDark ? '#484848' : '#cbd5e1')}`,
+                      backgroundColor: editorFontSize === sz ? (isDark ? '#064e3b' : '#ecfdf5') : (isDark ? '#333333' : '#ffffff'),
+                      color: editorFontSize === sz ? '#10b981' : (isDark ? '#E8EAED' : '#475569'),
                       fontWeight: editorFontSize === sz ? '700' : '500',
                       fontSize: '0.85rem',
                       cursor: 'pointer',
@@ -1154,6 +1166,22 @@ export default function StudentView({ socket, currentUser, username, assignment,
           </div>
         </div>
       )}
+
+      {previewImage && (
+        <ImagePreviewModal
+          src={previewImage.url}
+          alt={previewImage.name}
+          onClose={() => setPreviewImage(null)}
+        />
+      )}
+
+      {previewVideo && (
+        <VideoPreviewModal
+          src={previewVideo.url}
+          name={previewVideo.name}
+          onClose={() => setPreviewVideo(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1163,10 +1191,25 @@ const styles = {
   leftSidebar: { width: '300px', height: '100%', display: 'flex', flexDirection: 'column', borderRight: '1px solid #d1d5db', backgroundColor: '#f3f4f6', flexShrink: 0 },
   instructionSection: { flex: 1, padding: '30px', backgroundColor: '#f3f4f6', overflowY: 'auto' },
   instructionText: { color: '#1f2937', fontSize: '1rem', lineHeight: 1.6, whiteSpace: 'pre-wrap', margin: 0 },
-  attachmentList: { display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '20px', alignItems: 'flex-start' },
+  attachmentList: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px', width: '100%' },
   attachThumb: { maxWidth: '100%', maxHeight: '120px', borderRadius: '8px', objectFit: 'cover', display: 'block' },
   attachVideo: { maxWidth: '100%', maxHeight: '140px', borderRadius: '8px', backgroundColor: '#000' },
-  attachLink: { display: 'inline-flex', alignItems: 'center', color: '#2563eb', textDecoration: 'none', fontSize: '0.9rem', wordBreak: 'break-all' },
+  attachLink: { 
+    display: 'inline-flex', 
+    alignItems: 'center', 
+    gap: '8px',
+    color: '#059669', 
+    backgroundColor: '#ffffff',
+    border: '1px solid #cbd5e1',
+    borderRadius: '8px',
+    padding: '8px 14px',
+    textDecoration: 'none', 
+    fontSize: '0.88rem', 
+    fontWeight: '500',
+    maxWidth: '100%',
+    wordBreak: 'break-all',
+    boxSizing: 'border-box'
+  },
   greyPill: { height: '30px', backgroundColor: '#d1d5db', borderRadius: '50px', marginBottom: '15px', boxShadow: 'inset 2px 2px 5px rgba(0,0,0,0.1)' },
   warningSection: { height: '250px', minHeight: '250px', backgroundColor: '#4b5563', padding: '30px', display: 'flex', flexDirection: 'column', flexShrink: 0 },
   logContainer: { overflowY: 'auto', flex: 1, paddingRight: '5px' },

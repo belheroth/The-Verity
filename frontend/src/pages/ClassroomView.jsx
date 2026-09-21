@@ -8,7 +8,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import Skeleton from '../components/Skeleton';
 import { useDarkMode } from '../hooks/useDarkMode';
+import { useSidebarNav } from '../hooks/useSidebarNav';
 import { THEME_PRESETS, getClassroomTheme, saveClassroomTheme } from '../utils/classroomUtils';
+import ImagePreviewModal from '../components/ImagePreviewModal';
+import VideoPreviewModal from '../components/VideoPreviewModal';
+import VideoAttachment from '../components/VideoAttachment';
+import AttachmentCard from '../components/AttachmentCard';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const formatShortDate = (value) => {
@@ -46,6 +51,8 @@ export default function ClassroomView({
 }) {
   const { isDark } = useDarkMode();
   const styles = getStyles(isDark);
+  const [previewImage, setPreviewImage] = useState(null);
+  const [previewVideo, setPreviewVideo] = useState(null);
   const isPhantom = (c) => !c || !c.name || (/^Classroom \d+$/i.test(String(c.name).trim()) && (!c.section || !String(c.section).trim()) && (!c.subject || !String(c.subject).trim()));
 
   const [classrooms, setClassrooms] = useState(() => {
@@ -70,13 +77,7 @@ export default function ClassroomView({
     return () => window.removeEventListener('storage', sync);
   }, [currentUser]);
 
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('verity_sidebar_collapsed') === 'true');
-  const toggleSidebar = () => {
-    const next = !collapsed;
-    setCollapsed(next);
-    localStorage.setItem('verity_sidebar_collapsed', next);
-  };
-
+  const { collapsed, toggleSidebar, sidebarProps, isPinned } = useSidebarNav();
   const navRefs = useRef({});
   const enrolledRefs = useRef({});
   const [indicatorStyle, setIndicatorStyle] = useState(() => {
@@ -412,7 +413,40 @@ export default function ClassroomView({
     };
 
     loadStudents();
-  }, [classroom?.id, classroom?.section, classroom?.instructor, classroom?.instructorEmail, currentUser]);
+
+    const handleAvatarBroadcast = (data) => {
+      if (!data) return;
+      setInstructorInfo(prev => {
+        if (prev && (
+          (data.email && prev.email && data.email.toLowerCase() === prev.email.toLowerCase()) ||
+          (data.name && prev.name && data.name.toLowerCase() === prev.name.toLowerCase())
+        )) {
+          return { ...prev, avatar: data.avatar };
+        }
+        return prev;
+      });
+
+      setEnrolledStudents(prev => prev.map(s => {
+        if (
+          (data.email && s.email && data.email.toLowerCase() === s.email.toLowerCase()) ||
+          (data.name && s.name && data.name.toLowerCase() === s.name.toLowerCase())
+        ) {
+          return { ...s, avatar: data.avatar };
+        }
+        return s;
+      }));
+    };
+
+    if (socket) {
+      socket.on('user_avatar_updated', handleAvatarBroadcast);
+    }
+
+    return () => {
+      if (socket) {
+        socket.off('user_avatar_updated', handleAvatarBroadcast);
+      }
+    };
+  }, [classroom?.id, classroom?.section, classroom?.instructor, classroom?.instructorEmail, currentUser, socket]);
 
   // Upcoming items for left column in Stream
   const upcomingItems = assignments
@@ -533,7 +567,7 @@ export default function ClassroomView({
               flexShrink: 0,
               marginRight: '16px'
             }}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={isPinned ? "Unpin sidebar" : "Pin sidebar"}
             className="icon-btn-anim"
           >
             <Menu size={24} color={isDark ? '#d4d4d4' : '#64748b'} />
@@ -561,7 +595,7 @@ export default function ClassroomView({
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         
         {/* SIDEBAR NAVIGATION */}
-        <aside style={styles.sidebar(collapsed)}>
+        <aside {...sidebarProps} style={styles.sidebar(collapsed)}>
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, position: 'relative' }}>
             <div style={{
               position: 'absolute',
@@ -985,23 +1019,23 @@ export default function ClassroomView({
 
                                         {item.attachments?.length > 0 && (
                                           <div style={styles.cardAttachments}>
-                                            {item.attachments.map((att, i) => {
-                                              if (att.type === 'image') {
-                                                return (
-                                                  <a key={i} href={att.url} target="_blank" rel="noreferrer">
-                                                    <img src={att.url} alt={att.name} style={styles.attachThumb} />
-                                                  </a>
-                                                );
-                                              }
-                                              if (att.type === 'video') {
-                                                return <video key={i} src={att.url} controls style={styles.attachVideo} />;
-                                              }
-                                              return (
-                                                <a key={i} href={att.url} target="_blank" rel="noreferrer" style={styles.attachLink}>
-                                                  <Link2 size={14} style={{ marginRight: '6px' }} /> {att.name}
-                                                </a>
-                                              );
-                                            })}
+                                            {item.attachments.map((att, i) => (
+                                              <AttachmentCard
+                                                key={i}
+                                                att={att}
+                                                isDark={isDark}
+                                                onClick={(clickedAtt) => {
+                                                  if (clickedAtt.type === 'image') setPreviewImage(clickedAtt);
+                                                  else if (clickedAtt.type === 'video') setPreviewVideo(clickedAtt);
+                                                  else if (clickedAtt.type === 'link' && clickedAtt.url) {
+                                                    const targetUrl = clickedAtt.url.startsWith('http://') || clickedAtt.url.startsWith('https://')
+                                                      ? clickedAtt.url
+                                                      : `https://${clickedAtt.url}`;
+                                                    window.open(targetUrl, '_blank', 'noopener,noreferrer');
+                                                  }
+                                                }}
+                                              />
+                                            ))}
                                           </div>
                                         )}
                                       </div>
@@ -1209,6 +1243,22 @@ export default function ClassroomView({
         </div>
       )}
 
+      {previewImage && (
+        <ImagePreviewModal
+          src={previewImage.url}
+          alt={previewImage.name}
+          onClose={() => setPreviewImage(null)}
+        />
+      )}
+
+      {previewVideo && (
+        <VideoPreviewModal
+          src={previewVideo.url}
+          name={previewVideo.name}
+          onClose={() => setPreviewVideo(null)}
+        />
+      )}
+
     </div>
   );
 }
@@ -1257,9 +1307,10 @@ const getStyles = (isDark) => ({
     display: 'flex',
     flexDirection: 'column',
     flexShrink: 0,
-    transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+    transition: 'all 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
     background: 'transparent',
-    overflowY: 'auto'
+    overflowY: 'auto',
+    overflowX: 'hidden'
   }),
   sidebarBtn: (collapsed) => ({
     display: 'flex',
@@ -1626,33 +1677,42 @@ const getStyles = (isDark) => ({
     lineHeight: 1.5 
   },
   cardAttachments: { 
-    display: 'flex', 
-    flexWrap: 'wrap', 
+    display: 'grid', 
+    gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', 
     gap: '12px', 
     marginTop: '15px', 
-    alignItems: 'flex-start' 
+    width: '100%'
   },
   attachThumb: { 
-    maxWidth: '140px', 
-    maxHeight: '100px', 
+    maxWidth: '240px', 
+    maxHeight: '160px', 
     borderRadius: '8px', 
     objectFit: 'cover', 
-    display: 'block' 
+    display: 'block',
+    border: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0'
   },
   attachVideo: { 
-    maxWidth: '220px', 
-    maxHeight: '140px', 
+    maxWidth: '380px', 
+    maxHeight: '220px', 
+    width: '100%',
     borderRadius: '8px', 
     backgroundColor: '#000' 
   },
   attachLink: { 
     display: 'inline-flex', 
     alignItems: 'center', 
-    color: '#3b82f6', 
+    gap: '8px',
+    color: isDark ? '#34d399' : '#059669', 
+    backgroundColor: isDark ? '#3A3A3A' : '#f8fafc',
+    border: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0',
+    borderRadius: '8px',
+    padding: '8px 14px',
     textDecoration: 'none', 
     fontSize: '0.88rem', 
-    fontWeight: '600',
-    wordBreak: 'break-all' 
+    fontWeight: '500',
+    maxWidth: '100%',
+    wordBreak: 'break-all',
+    boxSizing: 'border-box'
   },
   detailStudentStatusBox: {
     display: 'flex',

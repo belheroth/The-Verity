@@ -10,6 +10,7 @@ import ClassroomCard from '../components/ClassroomCard';
 import { apiFetch } from '../utils/api';
 import Skeleton from '../components/Skeleton';
 import { useDarkMode } from '../hooks/useDarkMode';
+import { useSidebarNav } from '../hooks/useSidebarNav';
 
 const getStorageKey = (user) => {
   const id = user?.email || user?.id || 'default';
@@ -26,12 +27,7 @@ export { isPhantomClassroom, mergeClassroomsPreservingOrder };
 
 export default function TeacherDashboard({ currentUser, onLogout, onEnterClassroom }) {
   const { isDark } = useDarkMode();
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('verity_sidebar_collapsed') === 'true');
-  const toggleSidebar = () => {
-    const next = !collapsed;
-    setCollapsed(next);
-    localStorage.setItem('verity_sidebar_collapsed', next);
-  };
+  const { collapsed, toggleSidebar, sidebarProps, isPinned } = useSidebarNav();
   const styles = {
     container: {
       height: '100vh',
@@ -64,9 +60,10 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
       display: 'flex',
       flexDirection: 'column',
       flexShrink: 0,
-      transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+      transition: 'all 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
       background: 'transparent',
-      overflowY: 'auto'
+      overflowY: 'auto',
+      overflowX: 'hidden'
     }),
     sidebarBtn: (collapsed) => ({
       display: 'flex',
@@ -121,7 +118,22 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
     },
 
     // The Green Create Button
-    createButton: { display: 'flex', alignItems: 'center', padding: '10px 30px', backgroundColor: '#10b981', border: 'none', borderRadius: '50px', color: 'white', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', boxShadow: '0 4px 6px rgba(16, 185, 129, 0.2)' },
+    createButton: { 
+      display: 'flex', 
+      alignItems: 'center', 
+      padding: '10px 30px', 
+      backgroundColor: '#10b981', 
+      border: 'none', 
+      borderRadius: '50px', 
+      color: 'white', 
+      fontWeight: 'bold', 
+      fontSize: '1rem', 
+      cursor: 'pointer', 
+      boxShadow: isDark 
+        ? '0 0 16px rgba(16, 185, 129, 0.35), 0 2px 6px rgba(0, 0, 0, 0.35)' 
+        : '0 2px 6px rgba(16, 185, 129, 0.24), 0 1px 2px rgba(0, 0, 0, 0.05)',
+      transition: 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease'
+    },
 
     grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '24px' },
 
@@ -133,12 +145,12 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
       borderRadius: '24px',
       width: '90%',
       maxWidth: '500px',
-      boxShadow: '0 20px 40px rgba(0,0,0,0.4)',
+      boxShadow: isDark ? '0 0 24px rgba(0,0,0,0.5), 0 12px 32px rgba(0,0,0,0.6)' : '0 20px 40px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.05)',
       border: isDark ? '1px solid #4A4A4A' : 'none',
       color: isDark ? '#E8EAED' : 'inherit'
     },
     modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' },
-    closeModalBtn: { background: 'transparent', border: 'none', cursor: 'pointer', color: isDark ? '#a3a3a3' : '#9ca3af' },
+    closeModalBtn: { background: 'transparent', border: 'none', cursor: 'pointer', color: isDark ? '#a3a3a3' : '#9ca3af', padding: '6px', borderRadius: '50%' },
     form: { display: 'flex', flexDirection: 'column', gap: '15px' },
     input: {
       width: '100%',
@@ -149,9 +161,22 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
       color: isDark ? '#E8EAED' : '#4b5563',
       fontSize: '1rem',
       boxSizing: 'border-box',
-      boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
+      boxShadow: isDark ? '0 0 8px rgba(0,0,0,0.2) inset' : 'inset 0 2px 4px rgba(0,0,0,0.02)'
     },
-    submitModalBtn: { padding: '10px 40px', backgroundColor: '#10b981', border: 'none', borderRadius: '50px', color: 'white', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer' }
+    submitModalBtn: { 
+      padding: '10px 40px', 
+      backgroundColor: '#10b981', 
+      border: 'none', 
+      borderRadius: '50px', 
+      color: 'white', 
+      fontWeight: 'bold', 
+      fontSize: '1rem', 
+      cursor: 'pointer',
+      boxShadow: isDark 
+        ? '0 0 16px rgba(16, 185, 129, 0.35), 0 2px 6px rgba(0, 0, 0, 0.35)' 
+        : '0 2px 6px rgba(16, 185, 129, 0.24), 0 1px 2px rgba(0, 0, 0, 0.05)',
+      transition: 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease'
+    }
   };
 
   const navRefs = useRef({});
@@ -397,7 +422,7 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
               flexShrink: 0,
               marginRight: '16px'
             }}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={isPinned ? "Unpin sidebar" : "Pin sidebar"}
             className="icon-btn-anim"
           >
             <Menu size={24} color={isDark ? '#d4d4d4' : '#64748b'} />
@@ -421,7 +446,7 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
       {/* ═══ MAIN LAYOUT WITH SIDEBAR ═══ */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* ═══ SIDEBAR NAVIGATION ═══ */}
-        <aside style={styles.sidebar(collapsed)}>
+        <aside {...sidebarProps} style={styles.sidebar(collapsed)}>
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, position: 'relative' }}>
             {/* Liquid sliding indicator */}
             <div style={{
@@ -546,7 +571,7 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
-              style={{ position: 'relative', flex: 1 }}
+              style={{ position: 'relative', flex: 1, display: 'flex', flexDirection: 'column' }}
             >
 
               {activeView === 'calendar' && (

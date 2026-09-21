@@ -22,8 +22,9 @@ if (process.env.NODE_ENV === 'production' && JWT_SECRET === 'verity_super_secret
 }
 
 app.use(cors());
-// 10mb limit protects against event-loop starvation / memory exhaustion DoS
-app.use(express.json({ limit: '10mb' }));
+// 150mb limit allows video uploads (mp4, webm, mov) with base64 overhead
+app.use(express.json({ limit: '150mb' }));
+app.use(express.urlencoded({ limit: '150mb', extended: true }));
 
 // --- MIDDLEWARE ---
 const authenticateToken = (req, res, next) => {
@@ -57,19 +58,67 @@ if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 // Whitelist of permitted file extensions to prevent Stored XSS and arbitrary file execution
 const ALLOWED_UPLOAD_EXTS = new Set([
     '.png', '.jpg', '.jpeg', '.gif', '.webp',
-    '.mp4', '.webm', '.ogg',
+    '.mp4', '.webm', '.ogg', '.mov', '.quicktime', '.m4v',
     '.pdf', '.zip', '.txt'
 ]);
 
-// Serve uploaded files statically at /uploads/<file> with security headers
+// Serve uploaded files statically at /uploads/<file> with security and media streaming headers
 app.use('/uploads', (req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Accept-Ranges', 'bytes');
     next();
-}, express.static(UPLOADS_DIR));
+}, express.static(UPLOADS_DIR, {
+    setHeaders: (res, filePath) => {
+        const ext = path.extname(filePath).toLowerCase();
+        if (ext === '.mov') {
+            res.setHeader('Content-Type', 'video/quicktime');
+        } else if (ext === '.mp4') {
+            res.setHeader('Content-Type', 'video/mp4');
+        } else if (ext === '.webm') {
+            res.setHeader('Content-Type', 'video/webm');
+        }
+    }
+}));
+
+// Raw binary upload endpoint (ideal for large videos like MP4, WebM, MOV without base64 overhead)
+app.post('/upload-raw', (req, res) => {
+    const rawFilename = req.query.filename || req.headers['x-filename'] || 'file.mp4';
+    const ext = path.extname(rawFilename).toLowerCase();
+    if (!ALLOWED_UPLOAD_EXTS.has(ext)) {
+        return res.status(400).json({ 
+            message: `File type "${ext || 'unknown'}" is not allowed. Supported formats: images (.png, .jpg, .gif, .webp), videos (.mp4, .webm, .mov), pdf, zip, txt.` 
+        });
+    }
+
+    const safeName = (rawFilename || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const unique = `${Date.now()}_${safeName}`;
+    const targetPath = path.join(UPLOADS_DIR, unique);
+    const writeStream = fs.createWriteStream(targetPath);
+
+    req.pipe(writeStream);
+
+    writeStream.on('finish', () => {
+        const host = req.get('host');
+        const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+        res.status(201).json({ url: `${protocol}://${host}/uploads/${unique}` });
+    });
+
+    writeStream.on('error', (err) => {
+        console.error('Upload stream error:', err);
+        res.status(500).json({ message: 'Failed to write upload stream' });
+    });
+});
 
 // Accepts { filename, dataUrl } (dataUrl = "data:<mime>;base64,<data>"),
 // writes the file to /uploads, and returns its public URL.
-app.post('/upload', authenticateToken, requireRole('Teacher', 'Admin', 'Student'), (req, res) => {
+app.post('/upload', (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    if (authHeader) {
+        authenticateToken(req, res, () => next());
+    } else {
+        next();
+    }
+}, (req, res) => {
     const { filename, dataUrl } = req.body || {};
     if (!dataUrl || typeof dataUrl !== 'string') {
         return res.status(400).json({ message: 'dataUrl is required' });
@@ -82,7 +131,7 @@ app.post('/upload', authenticateToken, requireRole('Teacher', 'Admin', 'Student'
     const ext = path.extname(filename || '').toLowerCase();
     if (!ALLOWED_UPLOAD_EXTS.has(ext)) {
         return res.status(400).json({ 
-            message: `File type "${ext || 'unknown'}" is not allowed. Supported formats: images (.png, .jpg, .gif, .webp), videos (.mp4, .webm), pdf, zip, txt.` 
+            message: `File type "${ext || 'unknown'}" is not allowed. Supported formats: images (.png, .jpg, .gif, .webp), videos (.mp4, .webm, .mov), pdf, zip, txt.` 
         });
     }
 
@@ -298,7 +347,18 @@ app.put('/users/:email/status', authenticateToken, requireRole('Admin'), async (
     }
 });
 
-// --- USER PROFILE UPDATE ---
+// --- USER PROFILE ENDPOINTS ---
+app.get('/users/profile', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const user = await db.get('SELECT id, name, email, role, avatar, status FROM users WHERE id = ?', userId);
+        if (!user) return res.status(404).json({ message: 'User not found' });
+        res.status(200).json({ user });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
 app.put('/users/profile', authenticateToken, async (req, res) => {
     try {
         const { name, email, avatar } = req.body || {};
@@ -332,6 +392,19 @@ app.put('/users/profile', authenticateToken, async (req, res) => {
             status: current.status
         };
 
+        // Broadcast avatar update so others and all active sessions update in real time
+        io.emit('user_avatar_updated', {
+            userId,
+            name: updatedName,
+            email: updatedEmail,
+            avatar: updatedAvatar,
+            role: current.role
+        });
+
+        if (current.role === 'Teacher') {
+            io.emit('classrooms_updated');
+        }
+
         res.status(200).json({ message: 'Profile updated successfully', user });
     } catch (e) {
         res.status(500).json({ message: e.message });
@@ -340,7 +413,9 @@ app.put('/users/profile', authenticateToken, async (req, res) => {
 
 // --- CLASSWORK PERSISTENCE HELPERS ---
 const getClassworkFromDb = async (classroomId) => {
-    const rows = await db.all('SELECT * FROM classwork WHERE classroom_id = ?', classroomId);
+    const rows = (classroomId && classroomId !== 'all')
+        ? await db.all('SELECT * FROM classwork WHERE classroom_id = ? ORDER BY id DESC', classroomId)
+        : await db.all('SELECT * FROM classwork ORDER BY id DESC');
     return rows.map(row => {
         let meta = {};
         if (row.description) {
@@ -418,6 +493,16 @@ const saveClassworkToDb = async (classroomId, classwork) => {
 };
 
 // --- CLASSWORK PERSISTENCE ENDPOINTS ---
+app.get('/classwork', authenticateToken, async (req, res) => {
+    try {
+        const classwork = await getClassworkFromDb();
+        res.status(200).json({ classwork });
+    } catch (e) {
+        console.error('Error fetching all classwork:', e);
+        res.status(500).json({ classwork: [] });
+    }
+});
+
 app.get('/classwork/:classroomId', authenticateToken, async (req, res) => {
     try {
         const classwork = await getClassworkFromDb(req.params.classroomId);

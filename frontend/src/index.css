@@ -266,41 +266,68 @@ body, button, input, select, textarea {
   transform: translateX(2px);
 }
 
-/* Button press/hover feedback */
+/* Button press/hover feedback with non-generic bespoke shadow & glow mechanics */
 .btn-anim {
-  transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    filter 0.2s ease,
+    background-color 0.2s ease,
+    border-color 0.2s ease;
 }
 
-.btn-anim:hover {
-  transform: translateY(-1px);
-  filter: brightness(1.05);
+/* Light mode faint layered tactile shadow */
+:root:not(.dark) .btn-anim {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
-.btn-anim:active {
+:root:not(.dark) .btn-anim:hover {
+  transform: translateY(-1.5px);
+  filter: brightness(1.03);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+:root:not(.dark) .btn-anim:active {
   transform: translateY(0) scale(0.97);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
-/* Modal overlay fade */
-.modal-overlay-anim {
-  animation: fadeIn 0.2s ease both;
+/* Dark mode faint ambient luminescence glow */
+.dark .btn-anim {
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.04), 0 2px 6px rgba(0, 0, 0, 0.35);
 }
 
-/* Sidebar collapse transition */
-.sidebar-anim {
-  transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-    min-width 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-    padding 0.3s ease;
+.dark .btn-anim:hover {
+  transform: translateY(-1.5px);
+  filter: brightness(1.08);
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.24), 0 4px 12px rgba(0, 0, 0, 0.45);
 }
 
-/* Icon button hover */
+.dark .btn-anim:active {
+  transform: translateY(0) scale(0.97);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.16), 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+/* Icon button tactile feedback with faint glow/shadow */
 .icon-btn-anim {
-  transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.icon-btn-anim:hover {
+:root:not(.dark) .icon-btn-anim:hover {
   background-color: rgba(16, 185, 129, 0.10);
   color: #10b981;
   transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
+}
+
+.dark .icon-btn-anim:hover {
+  background-color: rgba(16, 185, 129, 0.14);
+  color: #10b981;
+  transform: translateY(-1px);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.25);
+}
+
+.icon-btn-anim:active {
+  transform: translateY(0) scale(0.94);
 }
 
 @keyframes glassFadeIn {

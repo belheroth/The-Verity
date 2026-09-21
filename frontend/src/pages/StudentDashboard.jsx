@@ -10,6 +10,7 @@ import { apiFetch } from '../utils/api';
 import Skeleton from '../components/Skeleton';
 import ClassroomCard from '../components/ClassroomCard';
 import { useDarkMode } from '../hooks/useDarkMode';
+import { useSidebarNav } from '../hooks/useSidebarNav';
 import { getThemeStorageKeys } from '../utils/classroomUtils';
 
 // We now generate the storage key dynamically based on the current user
@@ -25,12 +26,7 @@ const DEFAULT_CLASSROOMS = [
 
 export default function StudentDashboard({ currentUser, onLogout, onEnterClassroom, socket }) {
   const { isDark } = useDarkMode();
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('verity_sidebar_collapsed') === 'true');
-  const toggleSidebar = () => {
-    const next = !collapsed;
-    setCollapsed(next);
-    localStorage.setItem('verity_sidebar_collapsed', next);
-  };
+  const { collapsed, toggleSidebar, sidebarProps, isPinned } = useSidebarNav();
 
   const navRefs = useRef({});
   const [indicatorStyle, setIndicatorStyle] = useState(() => {
@@ -433,9 +429,10 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
       display: 'flex',
       flexDirection: 'column',
       flexShrink: 0,
-      transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+      transition: 'all 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
       background: 'transparent',
-      overflowY: 'auto'
+      overflowY: 'auto',
+      overflowX: 'hidden'
     }),
     sidebarBtn: (collapsed) => ({
       display: 'flex',
@@ -477,14 +474,18 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
     addButton: {
       display: 'flex',
       alignItems: 'center',
-      padding: '10px 20px',
-      backgroundColor: isDark ? '#3A3A3A' : '#d1d5db',
-      border: isDark ? '1px solid #505050' : 'none',
+      padding: '10px 24px',
+      backgroundColor: '#10b981',
+      border: 'none',
       borderRadius: '50px',
-      color: isDark ? '#E8EAED' : '#4b5563',
+      color: '#ffffff',
       fontWeight: 'bold',
+      fontSize: '0.95rem',
       cursor: 'pointer',
-      boxShadow: isDark ? '0 2px 8px rgba(0,0,0,0.3)' : '2px 2px 5px rgba(0,0,0,0.1)'
+      boxShadow: isDark 
+        ? '0 0 16px rgba(16, 185, 129, 0.35), 0 2px 6px rgba(0, 0, 0, 0.35)' 
+        : '0 2px 6px rgba(16, 185, 129, 0.24), 0 1px 2px rgba(0, 0, 0, 0.05)',
+      transition: 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease'
     },
     grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '24px' },
     cardContainer: { display: 'flex', flexDirection: 'column', gap: '10px', cursor: 'pointer' },
@@ -516,7 +517,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
       borderRadius: '24px',
       width: '100%',
       maxWidth: '460px',
-      boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.4)',
+      boxShadow: isDark ? '0 0 24px rgba(0,0,0,0.5), 0 12px 32px rgba(0,0,0,0.6)' : '0 25px 50px -12px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0,0,0,0.05)',
       position: 'relative',
       border: isDark ? '1px solid #4A4A4A' : 'none',
       color: isDark ? '#E8EAED' : 'inherit'
@@ -534,7 +535,20 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
       fontSize: '1rem',
       boxSizing: 'border-box'
     },
-    joinButton: { padding: '11px 32px', backgroundColor: '#10b981', border: 'none', borderRadius: '50px', color: 'white', fontWeight: 'bold', fontSize: '0.95rem', cursor: 'pointer', boxShadow: '0 4px 12px rgba(16,185,129,0.25)' },
+    joinButton: { 
+      padding: '11px 32px', 
+      backgroundColor: '#10b981', 
+      border: 'none', 
+      borderRadius: '50px', 
+      color: 'white', 
+      fontWeight: 'bold', 
+      fontSize: '0.95rem', 
+      cursor: 'pointer', 
+      boxShadow: isDark 
+        ? '0 0 16px rgba(16, 185, 129, 0.35), 0 2px 6px rgba(0, 0, 0, 0.35)' 
+        : '0 2px 6px rgba(16, 185, 129, 0.24), 0 1px 2px rgba(0, 0, 0, 0.05)',
+      transition: 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease'
+    },
     errorText: { color: '#ef4444', backgroundColor: '#fee2e2', border: '1px solid #fca5a5', padding: '10px 15px', borderRadius: '10px', margin: 0, fontSize: '0.875rem', textAlign: 'center' }
   };
 
@@ -559,7 +573,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
               flexShrink: 0,
               marginRight: '16px'
             }}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={isPinned ? "Unpin sidebar" : "Pin sidebar"}
             className="icon-btn-anim"
           >
             <Menu size={24} color={isDark ? '#ffffff' : '#64748b'} />
@@ -583,7 +597,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
       {/* ═══ MAIN LAYOUT WITH SIDEBAR ═══ */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* ═══ SIDEBAR NAVIGATION ═══ */}
-        <aside style={styles.sidebar(collapsed)}>
+        <aside {...sidebarProps} style={styles.sidebar(collapsed)}>
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, position: 'relative' }}>
             {/* Liquid sliding indicator */}
             <div style={{
@@ -749,8 +763,9 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
                   whileTap={{ scale: 0.95 }}
                   onClick={() => { setJoinError(''); setClassCode(''); setIsModalOpen(true); }}
                   style={styles.addButton}
+                  className="btn-anim"
                 >
-                  <Plus size={18} style={{ marginRight: '5px' }} /> Add
+                  <Plus size={18} style={{ marginRight: '6px' }} /> Add
                 </motion.button>
               </div>
 
@@ -851,12 +866,13 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
                     padding: '10px 20px',
                     borderRadius: '50px',
                     border: isDark ? '1px solid #444444' : '1px solid #cbd5e1',
-                    backgroundColor: isDark ? '#262626' : 'transparent',
+                    backgroundColor: isDark ? '#262626' : '#ffffff',
                     color: isDark ? '#d4d4d4' : '#64748b',
                     fontWeight: '600',
                     fontSize: '0.92rem',
                     cursor: 'pointer'
                   }}
+                  className="btn-anim"
                 >
                   Cancel
                 </button>
@@ -865,6 +881,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
                   whileTap={{ scale: 0.98 }}
                   type="submit"
                   disabled={isJoining}
+                  className="btn-anim"
                   style={{
                     ...styles.joinButton,
                     opacity: isJoining ? 0.7 : 1,

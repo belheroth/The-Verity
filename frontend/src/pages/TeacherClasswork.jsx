@@ -9,7 +9,13 @@ import {
 import { apiFetch } from '../utils/api';
 import Skeleton from '../components/Skeleton';
 import { useDarkMode } from '../hooks/useDarkMode';
+import { useSidebarNav } from '../hooks/useSidebarNav';
 import { isPhantomClassroom, mergeClassroomsPreservingOrder, THEME_PRESETS, getClassroomTheme, saveClassroomTheme } from '../utils/classroomUtils';
+import ImagePreviewModal from '../components/ImagePreviewModal';
+import AddLinkModal from '../components/AddLinkModal';
+import VideoPreviewModal from '../components/VideoPreviewModal';
+import VideoAttachment from '../components/VideoAttachment';
+import AttachmentCard from '../components/AttachmentCard';
 
 const EMPTY_FORM = { title: '', noDueDate: true, dueDate: '', instruction: '', points: '100', grading: 'On', attachments: [] };
 
@@ -88,12 +94,7 @@ export default function TeacherClasswork({
       })
       .catch(() => {});
   }, [currentUser]);
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('verity_sidebar_collapsed') === 'true');
-  const toggleSidebar = () => {
-    const next = !collapsed;
-    setCollapsed(next);
-    localStorage.setItem('verity_sidebar_collapsed', next);
-  };
+  const { collapsed, toggleSidebar, sidebarProps, isPinned } = useSidebarNav();
   const navRefs = useRef({});
   const enrolledRefs = useRef({});
   const [indicatorStyle, setIndicatorStyle] = useState(() => {
@@ -265,7 +266,8 @@ export default function TeacherClasswork({
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [instructorInfo, setInstructorInfo] = useState({
     name: classroom?.instructor || (currentUser?.role === 'Teacher' ? currentUser.name : ''),
-    email: classroom?.instructorEmail || classroom?.instructor_email || (currentUser?.role === 'Teacher' ? currentUser.email : '')
+    email: classroom?.instructorEmail || classroom?.instructor_email || (currentUser?.role === 'Teacher' ? currentUser.email : ''),
+    avatar: (currentUser?.role === 'Teacher' && currentUser?.avatar) ? currentUser.avatar : null
   });
 
   useEffect(() => {
@@ -290,7 +292,11 @@ export default function TeacherClasswork({
                 );
                 if (match) {
                   const studentName = k.replace('verity_student_classrooms_', '');
-                  studentsMap[studentName] = { name: studentName, email: `${studentName.toLowerCase().replace(/\s+/g, '.')}@student.verity.edu` };
+                  studentsMap[studentName.toLowerCase()] = { 
+                    name: studentName, 
+                    email: `${studentName.toLowerCase().replace(/\s+/g, '.')}@student.verity.edu`,
+                    avatar: null
+                  };
                 }
               }
             }
@@ -306,7 +312,7 @@ export default function TeacherClasswork({
             setInstructorInfo({
               name: data.instructor.name,
               email: data.instructor.email || '',
-              avatar: data.instructor.avatar || null
+              avatar: data.instructor.avatar || (currentUser?.role === 'Teacher' && currentUser?.avatar ? currentUser.avatar : null)
             });
           }
           if (Array.isArray(data.students)) {
@@ -334,7 +340,8 @@ export default function TeacherClasswork({
               if (s && s.name) {
                 studentsMap[s.name.toLowerCase()] = {
                   name: s.name,
-                  email: s.email || `${s.name.toLowerCase().replace(/\s+/g, '.')}@student.verity.edu`
+                  email: s.email || `${s.name.toLowerCase().replace(/\s+/g, '.')}@student.verity.edu`,
+                  avatar: s.avatar || studentsMap[s.name.toLowerCase()]?.avatar || null
                 };
               }
             });
@@ -347,7 +354,40 @@ export default function TeacherClasswork({
     };
 
     loadStudents();
-  }, [classroom?.id, classCode, classroom?.section]);
+
+    const handleAvatarBroadcast = (data) => {
+      if (!data) return;
+      setInstructorInfo(prev => {
+        if (prev && (
+          (data.email && prev.email && data.email.toLowerCase() === prev.email.toLowerCase()) ||
+          (data.name && prev.name && data.name.toLowerCase() === prev.name.toLowerCase())
+        )) {
+          return { ...prev, avatar: data.avatar };
+        }
+        return prev;
+      });
+
+      setEnrolledStudents(prev => prev.map(s => {
+        if (
+          (data.email && s.email && data.email.toLowerCase() === data.email.toLowerCase()) ||
+          (data.name && s.name && data.name.toLowerCase() === data.name.toLowerCase())
+        ) {
+          return { ...s, avatar: data.avatar };
+        }
+        return s;
+      }));
+    };
+
+    if (socket) {
+      socket.on('user_avatar_updated', handleAvatarBroadcast);
+    }
+
+    return () => {
+      if (socket) {
+        socket.off('user_avatar_updated', handleAvatarBroadcast);
+      }
+    };
+  }, [classroom?.id, classCode, classroom?.section, socket, currentUser]);
 
   // GRADES TAB STATE (Scoped to this classroom only)
   const visibleClasswork = classwork.filter(item => !item.archived);
@@ -501,27 +541,66 @@ export default function TeacherClasswork({
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [uploading, setUploading] = useState(false);
+  const [previewImage, setPreviewImage] = useState(null);
+  const [previewVideo, setPreviewVideo] = useState(null);
+  const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const imageInputRef = useRef(null);
   const videoInputRef = useRef(null);
 
-  const uploadFile = (file, type) => new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = reader.result;
-      try {
-        const res = await apiFetch(`${import.meta.env.VITE_API_URL}/upload`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filename: file.name, dataUrl })
-        });
+  const uploadFile = async (file, type) => {
+    const filename = file.name;
+    const cleanFilename = encodeURIComponent(filename);
+
+    // 1. Direct binary streaming upload (fast, supports 100MB+ MP4/WebM/MOV)
+    try {
+      const token = localStorage.getItem('verity_token') || localStorage.getItem('token');
+      const headers = { 'X-Filename': filename };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/upload-raw?filename=${cleanFilename}`, {
+        method: 'POST',
+        headers,
+        body: file
+      });
+
+      if (res.ok) {
         const data = await res.json();
-        resolve({ type, name: file.name, url: data.url });
-      } catch {
-        resolve({ type, name: file.name, url: dataUrl });
+        if (data.url) {
+          return { type, name: filename, url: data.url };
+        }
       }
-    };
-    reader.readAsDataURL(file);
-  });
+    } catch (rawErr) {
+      console.warn('Direct stream upload failed, trying base64...', rawErr);
+    }
+
+    // 2. Base64 fallback to /upload (for smaller images/clips)
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const res = await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename, dataUrl })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.url) {
+          return { type, name: filename, url: data.url };
+        }
+      }
+    } catch (b64Err) {
+      console.warn('Base64 fallback failed:', b64Err);
+    }
+
+    // 3. Object URL fallback so the video is immediately playable in current session
+    return { type, name: filename, url: URL.createObjectURL(file) };
+  };
 
   const handleFilePicked = async (e, type) => {
     const file = e.target.files?.[0];
@@ -534,12 +613,28 @@ export default function TeacherClasswork({
   };
 
   const handleAddLink = () => {
-    const url = window.prompt('Paste a link (URL):');
-    if (!url) return;
-    const trimmed = url.trim();
-    const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-    setForm(prev => ({ ...prev, attachments: [...(prev.attachments || []), { type: 'link', name: trimmed, url: normalized }] }));
+    setIsLinkModalOpen(true);
   };
+
+  const handleSaveLink = (linkAttachment) => {
+    setForm(prev => ({
+      ...prev,
+      attachments: [...(prev.attachments || []), linkAttachment]
+    }));
+  };
+
+  // Keyboard shortcut (Ctrl+K / Cmd+K) to open Link modal when assignment modal is open
+  useEffect(() => {
+    if (!isModalOpen) return;
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsLinkModalOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isModalOpen]);
 
   const removeAttachment = (index) => {
     setForm(prev => ({ ...prev, attachments: prev.attachments.filter((_, i) => i !== index) }));
@@ -739,7 +834,7 @@ export default function TeacherClasswork({
               flexShrink: 0,
               marginRight: '16px'
             }}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={isPinned ? "Unpin sidebar" : "Pin sidebar"}
             className="icon-btn-anim"
           >
             <Menu size={24} color={isDark ? '#d4d4d4' : '#64748b'} />
@@ -767,7 +862,7 @@ export default function TeacherClasswork({
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         
         {/* SIDEBAR NAVIGATION (UNTOUCHED) */}
-        <aside style={styles.sidebar(collapsed)}>
+        <aside {...sidebarProps} style={styles.sidebar(collapsed)}>
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, position: 'relative' }}>
             <div style={{
               position: 'absolute',
@@ -1145,7 +1240,7 @@ export default function TeacherClasswork({
                         Create and organize assignments, questions, and learning activities for this class.
                       </p>
                     </div>
-                    <button onClick={openCreate} style={styles.addButton}>
+                    <button onClick={openCreate} style={styles.addButton} className="btn-anim">
                       <Plus size={18} style={{ marginRight: '6px' }} /> Create
                     </button>
                   </div>
@@ -1203,19 +1298,23 @@ export default function TeacherClasswork({
 
                                     {item.attachments?.length > 0 && (
                                       <div style={styles.cardAttachments}>
-                                        {item.attachments.map((att, i) => {
-                                          if (att.type === 'image') {
-                                            return <a key={i} href={att.url} target="_blank" rel="noreferrer"><img src={att.url} alt={att.name} style={styles.attachThumb} /></a>;
-                                          }
-                                          if (att.type === 'video') {
-                                            return <video key={i} src={att.url} controls style={styles.attachVideo} />;
-                                          }
-                                          return (
-                                            <a key={i} href={att.url} target="_blank" rel="noreferrer" style={styles.attachLink}>
-                                              <Link2 size={14} style={{ marginRight: '6px' }} /> {att.name}
-                                            </a>
-                                          );
-                                        })}
+                                        {item.attachments.map((att, i) => (
+                                          <AttachmentCard
+                                            key={i}
+                                            att={att}
+                                            isDark={isDark}
+                                            onClick={(clickedAtt) => {
+                                              if (clickedAtt.type === 'image') setPreviewImage(clickedAtt);
+                                              else if (clickedAtt.type === 'video') setPreviewVideo(clickedAtt);
+                                              else if (clickedAtt.type === 'link' && clickedAtt.url) {
+                                                const targetUrl = clickedAtt.url.startsWith('http://') || clickedAtt.url.startsWith('https://')
+                                                  ? clickedAtt.url
+                                                  : `https://${clickedAtt.url}`;
+                                                window.open(targetUrl, '_blank', 'noopener,noreferrer');
+                                              }
+                                            }}
+                                          />
+                                        ))}
                                       </div>
                                     )}
                                   </div>
@@ -1924,7 +2023,7 @@ export default function TeacherClasswork({
               <div style={styles.labelRow}>
                 <label style={styles.fieldLabel}>Instruction</label>
                 <div style={styles.attachIcons}>
-                  <Link2 size={18} style={styles.attachIcon} title="Add link" onClick={handleAddLink} />
+                  <Link2 size={18} style={styles.attachIcon} title="Add link (Ctrl+K)" onClick={handleAddLink} />
                   <Image size={18} style={styles.attachIcon} title="Upload image" onClick={() => imageInputRef.current?.click()} />
                   <Video size={18} style={styles.attachIcon} title="Upload video" onClick={() => videoInputRef.current?.click()} />
                 </div>
@@ -1936,20 +2035,29 @@ export default function TeacherClasswork({
               />
 
               <input ref={imageInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => handleFilePicked(e, 'image')} />
-              <input ref={videoInputRef} type="file" accept="video/*" style={{ display: 'none' }} onChange={(e) => handleFilePicked(e, 'video')} />
+              <input ref={videoInputRef} type="file" accept="video/*,.mp4,.webm,.mov,.m4v,.mkv" style={{ display: 'none' }} onChange={(e) => handleFilePicked(e, 'video')} />
 
               {uploading && <span style={{ fontSize: '0.8rem', color: '#6b7280' }}>Uploading…</span>}
 
               {form.attachments?.length > 0 && (
                 <div style={styles.attachmentList}>
                   {form.attachments.map((att, i) => (
-                    <div key={i} style={styles.attachmentChip}>
-                      {att.type === 'image' && <Image size={14} />}
-                      {att.type === 'video' && <Video size={14} />}
-                      {att.type === 'link' && <Link2 size={14} />}
-                      <span style={styles.attachmentName} title={att.name}>{att.name}</span>
-                      <X size={14} style={{ cursor: 'pointer' }} onClick={() => removeAttachment(i)} />
-                    </div>
+                    <AttachmentCard
+                      key={i}
+                      att={att}
+                      isDark={isDark}
+                      onRemove={() => removeAttachment(i)}
+                      onClick={(clickedAtt) => {
+                        if (clickedAtt.type === 'image') setPreviewImage(clickedAtt);
+                        else if (clickedAtt.type === 'video') setPreviewVideo(clickedAtt);
+                        else if (clickedAtt.type === 'link' && clickedAtt.url) {
+                          const targetUrl = clickedAtt.url.startsWith('http://') || clickedAtt.url.startsWith('https://')
+                            ? clickedAtt.url
+                            : `https://${clickedAtt.url}`;
+                          window.open(targetUrl, '_blank', 'noopener,noreferrer');
+                        }
+                      }}
+                    />
                   ))}
                 </div>
               )}
@@ -1995,6 +2103,28 @@ export default function TeacherClasswork({
         </div>
       )}
 
+      {previewImage && (
+        <ImagePreviewModal
+          src={previewImage.url}
+          alt={previewImage.name}
+          onClose={() => setPreviewImage(null)}
+        />
+      )}
+
+      <AddLinkModal
+        isOpen={isLinkModalOpen}
+        onClose={() => setIsLinkModalOpen(false)}
+        onAdd={handleSaveLink}
+        isDark={isDark}
+      />
+
+      {previewVideo && (
+        <VideoPreviewModal
+          src={previewVideo.url}
+          name={previewVideo.name}
+          onClose={() => setPreviewVideo(null)}
+        />
+      )}
     </div>
   );
 }
@@ -2031,9 +2161,10 @@ const getStyles = (isDark) => ({
     display: 'flex',
     flexDirection: 'column',
     flexShrink: 0,
-    transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+    transition: 'all 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
     background: 'transparent',
-    overflowY: 'auto'
+    overflowY: 'auto',
+    overflowX: 'hidden'
   }),
   sidebarBtn: (collapsed) => ({
     display: 'flex',
@@ -2199,9 +2330,11 @@ const getStyles = (isDark) => ({
     fontWeight: '700',
     color: isDark ? '#E8EAED' : '#1e293b',
     cursor: 'pointer',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+    boxShadow: isDark 
+      ? '0 0 14px rgba(255, 255, 255, 0.08), 0 2px 8px rgba(0,0,0,0.45)' 
+      : '0 2px 8px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)',
     zIndex: 10,
-    transition: 'transform 0.15s ease'
+    transition: 'transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1), filter 0.18s ease'
   },
   infoBtn: {
     position: 'absolute',
@@ -2431,7 +2564,22 @@ const getStyles = (isDark) => ({
     borderBottom: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0',
     marginBottom: '24px'
   },
-  addButton: { display: 'flex', alignItems: 'center', padding: '10px 24px', backgroundColor: '#10b981', border: 'none', borderRadius: '50px', color: 'white', fontWeight: 'bold', fontSize: '0.95rem', cursor: 'pointer', boxShadow: '0 4px 6px rgba(16, 185, 129, 0.2)' },
+  addButton: { 
+    display: 'flex', 
+    alignItems: 'center', 
+    padding: '10px 24px', 
+    backgroundColor: '#10b981', 
+    border: 'none', 
+    borderRadius: '50px', 
+    color: 'white', 
+    fontWeight: 'bold', 
+    fontSize: '0.95rem', 
+    cursor: 'pointer', 
+    boxShadow: isDark 
+      ? '0 0 16px rgba(16, 185, 129, 0.35), 0 2px 6px rgba(0, 0, 0, 0.35)' 
+      : '0 2px 6px rgba(16, 185, 129, 0.24), 0 1px 2px rgba(0, 0, 0, 0.05)',
+    transition: 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease'
+  },
   list: { display: 'flex', flexDirection: 'column', gap: '20px' },
   itemWrapper: { display: 'flex', flexDirection: 'column', gap: '10px' },
   itemHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
@@ -2457,7 +2605,23 @@ const getStyles = (isDark) => ({
   detailDivider: { height: '1px', backgroundColor: isDark ? '#4A4A4A' : '#e2e8f0', margin: '0 28px' },
   detailFooter: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 28px' },
   viewActivityLink: { color: '#10b981', fontSize: '0.95rem', cursor: 'pointer', fontWeight: '700' },
-  liveMonitorBtn: { display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 20px', backgroundColor: '#10b981', border: 'none', borderRadius: '50px', color: 'white', fontWeight: 'bold', fontSize: '0.88rem', cursor: 'pointer', boxShadow: '0 4px 6px rgba(16,185,129,0.2)' },
+  liveMonitorBtn: { 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: '6px', 
+    padding: '8px 20px', 
+    backgroundColor: '#10b981', 
+    border: 'none', 
+    borderRadius: '50px', 
+    color: 'white', 
+    fontWeight: 'bold', 
+    fontSize: '0.88rem', 
+    cursor: 'pointer', 
+    boxShadow: isDark 
+      ? '0 0 14px rgba(16, 185, 129, 0.32), 0 2px 6px rgba(0, 0, 0, 0.3)' 
+      : '0 2px 6px rgba(16, 185, 129, 0.22), 0 1px 2px rgba(0, 0, 0, 0.05)',
+    transition: 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease'
+  },
 
   // People Tab
   peopleSectionHeader: {
@@ -2641,8 +2805,34 @@ const getStyles = (isDark) => ({
   },
 
   // Modal Common Styles
-  modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 100, backdropFilter: 'blur(3px)' },
-  modalCard: { backgroundColor: isDark ? '#323232' : 'white', padding: '32px', borderRadius: '20px', width: '90%', maxWidth: '520px', boxShadow: isDark ? '0 20px 40px rgba(0,0,0,0.5)' : '0 20px 40px rgba(0,0,0,0.2)', border: isDark ? '1px solid #4A4A4A' : 'none' },
+  modalOverlay: { 
+    position: 'fixed', 
+    top: 0, 
+    left: 0, 
+    right: 0, 
+    bottom: 0, 
+    backgroundColor: 'rgba(0,0,0,0.55)', 
+    display: 'flex', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    zIndex: 100, 
+    backdropFilter: 'blur(4px)',
+    padding: '24px 16px',
+    boxSizing: 'border-box'
+  },
+  modalCard: { 
+    backgroundColor: isDark ? '#323232' : 'white', 
+    padding: '28px 32px', 
+    borderRadius: '20px', 
+    width: '90%', 
+    maxWidth: '540px', 
+    maxHeight: '88vh',
+    overflowY: 'auto',
+    scrollbarWidth: 'none',
+    msOverflowStyle: 'none',
+    boxShadow: isDark ? '0 20px 40px rgba(0,0,0,0.5)' : '0 20px 40px rgba(0,0,0,0.2)', 
+    border: isDark ? '1px solid #4A4A4A' : 'none' 
+  },
   modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
   closeModalBtn: { background: 'transparent', border: 'none', cursor: 'pointer', color: isDark ? '#a3a3a3' : '#9ca3af', padding: '4px' },
   form: { display: 'flex', flexDirection: 'column', gap: '8px' },
@@ -2652,14 +2842,58 @@ const getStyles = (isDark) => ({
   checkboxLabel: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', color: isDark ? '#E8EAED' : '#4b5563', cursor: 'pointer' },
   attachIcons: { display: 'flex', gap: '12px', color: isDark ? '#a3a3a3' : '#6b7280' },
   attachIcon: { cursor: 'pointer' },
-  attachmentList: { display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' },
-  attachmentChip: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: isDark ? '#3A3A3A' : '#f3f4f6', border: isDark ? '1px solid #4A4A4A' : '1px solid #d1d5db', borderRadius: '8px', padding: '6px 10px', fontSize: '0.85rem', color: isDark ? '#E8EAED' : '#4b5563' },
-  attachmentName: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  cardAttachments: { display: 'flex', flexWrap: 'wrap', gap: '12px', marginTop: '15px', alignItems: 'flex-start' },
-  attachThumb: { maxWidth: '140px', maxHeight: '100px', borderRadius: '8px', objectFit: 'cover', display: 'block' },
-  attachVideo: { maxWidth: '220px', maxHeight: '140px', borderRadius: '8px', backgroundColor: '#000' },
-  attachLink: { display: 'inline-flex', alignItems: 'center', color: '#10b981', textDecoration: 'none', fontSize: '0.9rem', wordBreak: 'break-all' },
-  bottomRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px' },
+  attachmentList: { 
+    display: 'grid', 
+    gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', 
+    gap: '10px', 
+    marginTop: '6px',
+    width: '100%'
+  },
+  cardAttachments: { 
+    display: 'grid', 
+    gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', 
+    gap: '12px', 
+    marginTop: '15px', 
+    width: '100%'
+  },
+  attachThumb: { 
+    maxWidth: '240px', 
+    maxHeight: '160px', 
+    borderRadius: '8px', 
+    objectFit: 'cover', 
+    display: 'block',
+    border: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0'
+  },
+  attachVideo: { 
+    maxWidth: '380px', 
+    maxHeight: '220px', 
+    width: '100%',
+    borderRadius: '8px', 
+    backgroundColor: '#000' 
+  },
+  attachLink: { 
+    display: 'inline-flex', 
+    alignItems: 'center', 
+    gap: '8px',
+    color: isDark ? '#34d399' : '#059669', 
+    backgroundColor: isDark ? '#3A3A3A' : '#f8fafc',
+    border: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0',
+    borderRadius: '8px',
+    padding: '8px 14px',
+    textDecoration: 'none', 
+    fontSize: '0.88rem', 
+    fontWeight: '500',
+    maxWidth: '100%',
+    wordBreak: 'break-all',
+    boxSizing: 'border-box'
+  },
+  bottomRow: { 
+    display: 'flex', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    marginTop: '20px',
+    paddingBottom: '4px'
+  },
   gradingGroup: { display: 'flex', alignItems: 'center', gap: '15px' },
   radioLabel: { display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.9rem', color: isDark ? '#E8EAED' : '#4b5563', cursor: 'pointer' },
   assignBtn: { padding: '10px 32px', backgroundColor: '#10b981', border: 'none', borderRadius: '50px', color: 'white', fontWeight: 'bold', fontSize: '0.95rem', cursor: 'pointer', boxShadow: '0 4px 6px rgba(16,185,129,0.2)' },

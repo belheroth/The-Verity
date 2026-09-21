@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { apiFetch } from '../utils/api';
 
 const STORAGE_KEY = 'currentUser';
 
@@ -45,8 +46,9 @@ if (typeof window !== 'undefined') {
 
 /**
  * Update the stored currentUser and notify all listeners reactively.
+ * Also permanently persists changes to the database so avatars and profiles are visible to everyone.
  */
-export function updateCurrentUser(updates) {
+export async function updateCurrentUser(updates) {
   const current = getStoredUser() || {};
   const updated = { ...current, ...updates };
   try {
@@ -60,11 +62,11 @@ export function updateCurrentUser(updates) {
     window.dispatchEvent(new CustomEvent('verity:user-updated', { detail: updated }));
   }
 
-  // Also sync to backend API so all classrooms & People tabs see real account updates
+  // Persist to backend database via PUT /users/profile using real auth token
   try {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('verity_token') || localStorage.getItem('token');
     if (token) {
-      fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/users/profile`, {
+      const res = await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/users/profile`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -73,11 +75,23 @@ export function updateCurrentUser(updates) {
         body: JSON.stringify({
           name: updated.name,
           email: updated.email,
-          avatar: updated.avatar
+          avatar: updated.avatar !== undefined ? updated.avatar : (updated.profilePicture || null)
         })
-      }).catch(() => {});
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.user) {
+          const synced = { ...updated, ...data.user };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(synced));
+          globalUser = synced;
+          notifyUserListeners(synced);
+          return synced;
+        }
+      }
     }
-  } catch {}
+  } catch (err) {
+    console.warn('Failed to sync profile to backend:', err);
+  }
 
   return updated;
 }

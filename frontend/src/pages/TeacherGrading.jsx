@@ -4,6 +4,7 @@ import ProfileMenu from './ProfileMenu';
 import { apiFetch } from '../utils/api';
 import Skeleton from '../components/Skeleton';
 import { useDarkMode } from '../hooks/useDarkMode';
+import { useSidebarNav } from '../hooks/useSidebarNav';
 import { isPhantomClassroom, mergeClassroomsPreservingOrder } from '../utils/classroomUtils';
 
 /**
@@ -64,12 +65,7 @@ export default function TeacherGrading({ classroom, assignment, onBack, onLogout
       })
       .catch(() => {});
   }, [currentUser]);
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('verity_sidebar_collapsed') === 'true');
-  const toggleSidebar = () => {
-    const next = !collapsed;
-    setCollapsed(next);
-    localStorage.setItem('verity_sidebar_collapsed', next);
-  };
+  const { collapsed, toggleSidebar, sidebarProps, isPinned } = useSidebarNav();
   const navRefs = useRef({});
   const enrolledRefs = useRef({});
   const [indicatorStyle, setIndicatorStyle] = useState(() => {
@@ -472,7 +468,7 @@ export default function TeacherGrading({ classroom, assignment, onBack, onLogout
               flexShrink: 0,
               marginRight: '16px'
             }}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={isPinned ? "Unpin sidebar" : "Pin sidebar"}
             className="icon-btn-anim"
           >
             <Menu size={24} color={isDark ? '#E8EAED' : '#64748b'} />
@@ -499,7 +495,7 @@ export default function TeacherGrading({ classroom, assignment, onBack, onLogout
       {/* ═══ MAIN LAYOUT WITH SIDEBAR ═══ */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* ═══ SIDEBAR NAVIGATION ═══ */}
-        <aside style={styles.sidebar(collapsed)}>
+        <aside {...sidebarProps} style={styles.sidebar(collapsed)}>
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, position: 'relative' }}>
             {/* Liquid sliding indicator */}
             <div style={{
@@ -954,9 +950,10 @@ const getStyles = (isDark) => ({
     display: 'flex',
     flexDirection: 'column',
     flexShrink: 0,
-    transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+    transition: 'all 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
     background: 'transparent',
-    overflowY: 'auto'
+    overflowY: 'auto',
+    overflowX: 'hidden'
   }),
   sidebarBtn: (collapsed) => ({
     display: 'flex',
@@ -1081,7 +1078,9 @@ const getStyles = (isDark) => ({
     backgroundColor: '#10b981',
     color: '#ffffff',
     border: '1px solid #10b981',
-    boxShadow: '0 4px 12px rgba(16,185,129,0.35)'
+    boxShadow: isDark 
+      ? '0 0 16px rgba(16, 185, 129, 0.42), 0 2px 6px rgba(0, 0, 0, 0.35)' 
+      : '0 4px 12px rgba(16, 185, 129, 0.3), 0 1px 3px rgba(0, 0, 0, 0.04)'
   },
   gradedLabel: {
     color: isDark ? '#E8EAED' : '#6b7280',
@@ -1089,7 +1088,7 @@ const getStyles = (isDark) => ({
     margin: '22px 0 12px 0'
   },
   gradedEmpty: {
-    color: isDark ? '#a3a3a3' : '#9ca3af',
+    color: isDark ? '#a3a3a3' : '#94a3af',
     fontSize: '0.85rem',
     fontStyle: 'italic'
   },
@@ -1123,13 +1122,17 @@ const getStyles = (isDark) => ({
     alignItems: 'center',
     gap: '6px',
     padding: '8px 18px',
-    backgroundColor: isDark ? '#383838' : '#e5e7eb',
-    border: isDark ? '1px solid #4A4A4A' : 'none',
+    backgroundColor: isDark ? '#383838' : '#ffffff',
+    border: isDark ? '1px solid #4A4A4A' : '1px solid #d1d5db',
     borderRadius: '50px',
     color: isDark ? '#E8EAED' : '#4b5563',
     fontWeight: 'bold',
     fontSize: '0.85rem',
-    cursor: 'pointer'
+    cursor: 'pointer',
+    boxShadow: isDark 
+      ? '0 0 10px rgba(255, 255, 255, 0.04), 0 2px 5px rgba(0,0,0,0.3)' 
+      : '0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04)',
+    transition: 'transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1), filter 0.18s ease'
   },
   fieldLabel: {
     color: isDark ? '#E8EAED' : '#4b5563',
@@ -1174,8 +1177,10 @@ const getStyles = (isDark) => ({
     fontSize: '0.95rem',
     fontWeight: 'bold',
     cursor: 'pointer',
-    boxShadow: '0 4px 12px rgba(16,185,129,0.3)',
-    transition: 'all 0.15s ease'
+    boxShadow: isDark 
+      ? '0 0 16px rgba(16, 185, 129, 0.38), 0 2px 6px rgba(0, 0, 0, 0.35)' 
+      : '0 2px 8px rgba(16, 185, 129, 0.25), 0 1px 2px rgba(0, 0, 0, 0.05)',
+    transition: 'transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s cubic-bezier(0.16, 1, 0.3, 1), filter 0.18s ease'
   },
   modalOverlay: {
     position: 'fixed',

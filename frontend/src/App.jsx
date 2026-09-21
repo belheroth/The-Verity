@@ -16,7 +16,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import ProtectedRoute from './components/ProtectedRoute';
 import NotFound from './pages/NotFound';
 import syncService from './services/syncService';
-import { subscribeConnectionStatus, getConnectionStatus, getCloudUrl } from './utils/api';
+import { subscribeConnectionStatus, getConnectionStatus, getCloudUrl, apiFetch } from './utils/api';
 import { saveClassroomTheme } from './utils/classroomUtils';
 
 // Connect to Backend (Cloud-first with local offline fallback)
@@ -144,6 +144,39 @@ export default function App() {
       syncService.syncOfflineQueue(token);
     }
   }, []);
+
+  // Hydrate real permanent user profile (including avatar) from database
+  useEffect(() => {
+    const token = localStorage.getItem('verity_token') || localStorage.getItem('token');
+    if (token) {
+      apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/users/profile`)
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          if (data && data.user) {
+            setCurrentUser(prev => {
+              const updated = { ...prev, ...data.user };
+              localStorage.setItem('currentUser', JSON.stringify(updated));
+              return updated;
+            });
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleAvatarBroadcast = (data) => {
+      if (data && currentUser && (String(data.userId) === String(currentUser.id) || data.email === currentUser.email)) {
+        setCurrentUser(prev => {
+          const updated = { ...prev, avatar: data.avatar, name: data.name };
+          localStorage.setItem('currentUser', JSON.stringify(updated));
+          return updated;
+        });
+      }
+    };
+    socket.on('user_avatar_updated', handleAvatarBroadcast);
+    return () => socket.off('user_avatar_updated', handleAvatarBroadcast);
+  }, [currentUser]);
 
   useEffect(() => {
     localStorage.setItem('currentScreen', currentScreen);

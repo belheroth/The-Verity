@@ -25,9 +25,10 @@ const getLayoutStyles = (isDark) => ({
     display: 'flex',
     flexDirection: 'column',
     flexShrink: 0,
-    transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+    transition: 'all 0.28s cubic-bezier(0.16, 1, 0.3, 1)',
     background: 'transparent',
-    overflowY: 'auto'
+    overflowY: 'auto',
+    overflowX: 'hidden'
   }),
   sidebarBtn: (collapsed) => ({
     display: 'flex',
@@ -135,6 +136,24 @@ export default function AdminLayout({
   const finalSetNewUser = setNewUser || setLocalNewUser;
   const finalSetShowSelectUsersPopup = setShowSelectUsersPopup || setLocalShowSelectUsersPopup;
 
+  const [isHovered, setIsHovered] = useState(false);
+  const hoverTimeoutRef = useRef(null);
+
+  const handleMouseEnter = () => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    setIsHovered(true);
+  };
+
+  const handleMouseLeave = () => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    hoverTimeoutRef.current = setTimeout(() => {
+      setIsHovered(false);
+    }, 120);
+  };
+
+  const isExpanded = !currentSidebarCollapsed || isHovered;
+  const effectiveSidebarCollapsed = !isExpanded;
+
   const navRefs = useRef({});
   const [indicatorStyle, setIndicatorStyle] = useState(() => {
     try {
@@ -179,7 +198,7 @@ export default function AdminLayout({
     update();
     const timer = setTimeout(update, 20);
     return () => clearTimeout(timer);
-  }, [currentActiveTab, currentSidebarCollapsed]);
+  }, [currentActiveTab, effectiveSidebarCollapsed]);
 
   const navItems = [
     { id: 'dashboard', Icon: BarChart3, label: 'Dashboard Overview' },
@@ -230,7 +249,7 @@ export default function AdminLayout({
               flexShrink: 0,
               marginRight: '16px'
             }}
-            title={currentSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={!currentSidebarCollapsed ? "Unpin sidebar" : "Pin sidebar"}
             className="icon-btn-anim"
           >
             <Menu size={24} color={isDark ? '#d4d4d4' : '#64748b'} />
@@ -384,7 +403,9 @@ export default function AdminLayout({
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* ═══ SIDEBAR NAVIGATION ═══ */}
         <aside
-          style={layoutStyles.sidebar(currentSidebarCollapsed)}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+          style={layoutStyles.sidebar(effectiveSidebarCollapsed)}
         >
           {/* Navigation Items with Glass Highlight */}
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, position: 'relative' }}>
@@ -416,11 +437,11 @@ export default function AdminLayout({
                   key={id}
                   ref={el => navRefs.current[id] = el}
                   onClick={() => finalSetActiveTab(id)}
-                  style={layoutStyles.sidebarBtn(currentSidebarCollapsed)}
-                  title={currentSidebarCollapsed ? label : ''}
+                  style={layoutStyles.sidebarBtn(effectiveSidebarCollapsed)}
+                  title={effectiveSidebarCollapsed ? label : ''}
                 >
                   <Icon size={20} color={active ? '#10b981' : (isDark ? '#a3a3a3' : '#475569')} style={{ flexShrink: 0 }} />
-                  {!currentSidebarCollapsed && (
+                  {!effectiveSidebarCollapsed && (
                     <span style={{ fontSize: '0.85rem', fontWeight: active ? '700' : '600', color: active ? '#10b981' : (isDark ? '#e5e5e5' : '#334155'), overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {label}
                     </span>
