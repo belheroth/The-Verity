@@ -12,8 +12,8 @@ import VideoAttachment from '../components/VideoAttachment';
 import AttachmentCard from '../components/AttachmentCard';
 
 const getStorageKey = (user) => {
-  const identifier = user?.email || user?.id || user?.name || 'default';
-  return `verity_student_classrooms_${identifier}`;
+  const identifier = user?.email || user?.id || (user?.name ? user.name.toLowerCase().replace(/\s+/g, '_') : null);
+  return identifier ? `verity_student_classrooms_${identifier}` : 'verity_student_classrooms_anon';
 };
 
 export default function StudentActivityDetail({
@@ -97,6 +97,21 @@ export default function StudentActivityDetail({
       }
     };
     sync();
+
+    apiFetch(`${import.meta.env.VITE_API_URL}/classrooms`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (!data) return;
+        const list = (Array.isArray(data) ? data : (data.classrooms || [])).filter(c => c && c.name);
+        if (list.length > 0) {
+          setClassrooms(list);
+          try {
+            localStorage.setItem(key, JSON.stringify(list));
+          } catch {}
+        }
+      })
+      .catch(() => {});
+
     window.addEventListener('storage', sync);
     return () => window.removeEventListener('storage', sync);
   }, [currentUser]);

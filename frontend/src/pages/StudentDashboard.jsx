@@ -13,16 +13,11 @@ import { useDarkMode } from '../hooks/useDarkMode';
 import { useSidebarNav } from '../hooks/useSidebarNav';
 import { getThemeStorageKeys } from '../utils/classroomUtils';
 
-// We now generate the storage key dynamically based on the current user
+// Storage key uniquely scoped per student account
 const getStorageKey = (user) => {
-  const identifier = user?.email || user?.id || user?.name || 'default';
-  return `verity_student_classrooms_${identifier}`;
+  const identifier = user?.email || user?.id || (user?.name ? user.name.toLowerCase().replace(/\s+/g, '_') : null);
+  return identifier ? `verity_student_classrooms_${identifier}` : 'verity_student_classrooms_anon';
 };
-
-const DEFAULT_CLASSROOMS = [
-  { id: 1, code: "CS101", name: "C# Programming", instructor: "kim fabie", instructorEmail: "kimfabie@gmail.com" },
-  { id: 2, code: "IT202", name: "Data Structures", instructor: "kim fabie", instructorEmail: "kimfabie@gmail.com" }
-];
 
 export default function StudentDashboard({ currentUser, onLogout, onEnterClassroom, socket }) {
   const { isDark } = useDarkMode();
@@ -105,90 +100,49 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
     return () => clearTimeout(timer);
   }, [activeView, collapsed]);
 
-  // Load the student's joined classrooms (persists across refresh/logout).
+  // Load the student's joined classrooms (strictly scoped to currentUser).
   const [classrooms, setClassrooms] = useState(() => {
     try {
       const saved = localStorage.getItem(getStorageKey(currentUser));
-      // Start fresh for new accounts (don't force DEFAULT_CLASSROOMS unless it's a completely fresh browser)
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
     }
   });
 
-  // Show skeleton only when there are no cached classrooms yet (first-time user).
+  // Show skeleton while loading if we don't have cached data yet
   const [loadingClassrooms, setLoadingClassrooms] = useState(
     () => !localStorage.getItem(getStorageKey(currentUser))
   );
 
-  // Once mounted, briefly check the server — then reveal whatever we have.
+  // Sync to local storage whenever classrooms change
   useEffect(() => {
-    if (!loadingClassrooms) return;
-    const timer = setTimeout(() => setLoadingClassrooms(false), 1200);
-    return () => clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(getStorageKey(currentUser), JSON.stringify(classrooms));
-
-    // Sync student enrollment to server & local storage for each joined classroom
-    if (currentUser?.email && classrooms.length > 0) {
-      classrooms.forEach(c => {
-        apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/classrooms/${c.id}/enroll`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            studentName: currentUser.name,
-            studentEmail: currentUser.email
-          })
-        }).catch(() => {});
-
-        try {
-          const localEnrollKey = `verity_classroom_enrollments_${c.id}`;
-          const existing = JSON.parse(localStorage.getItem(localEnrollKey) || '[]');
-          if (!existing.some(s => s.email === currentUser.email || s.name === currentUser.name)) {
-            existing.push({ name: currentUser.name, email: currentUser.email });
-            localStorage.setItem(localEnrollKey, JSON.stringify(existing));
-          }
-        } catch {}
-      });
-    }
+    try {
+      localStorage.setItem(getStorageKey(currentUser), JSON.stringify(classrooms));
+    } catch {}
   }, [classrooms, currentUser]);
 
-  // Refresh joined classrooms with latest server instructor info and theme
+  // Fetch real enrolled classrooms from server for this student
   useEffect(() => {
-    const refreshInstructors = async () => {
+    let active = true;
+    const fetchEnrolledClassrooms = async () => {
       try {
         const res = await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/classrooms`);
-        if (res.ok) {
+        if (res.ok && active) {
           const data = await res.json();
-          const serverList = Array.isArray(data) ? data : (data.classrooms || []);
-          if (serverList.length > 0) {
-            setClassrooms(prev => prev.map(c => {
-              const matched = serverList.find(s => s.id === c.id || (s.section && s.section === c.code));
-              if (matched) {
-                if (matched.theme) {
-                  const keys = getThemeStorageKeys(matched);
-                  keys.forEach(k => {
-                    try { localStorage.setItem(k, JSON.stringify(matched.theme)); } catch {}
-                  });
-                }
-                return {
-                  ...c,
-                  ...matched,
-                  instructor: matched.instructor || c.instructor,
-                  instructorEmail: matched.instructorEmail || matched.instructor_email || c.instructorEmail || '',
-                  theme: matched.theme !== undefined ? matched.theme : c.theme
-                };
-              }
-              return c;
-            }));
-          }
+          const serverList = (Array.isArray(data) ? data : (data.classrooms || [])).filter(c => c && c.name);
+          setClassrooms(serverList);
+          try {
+            localStorage.setItem(getStorageKey(currentUser), JSON.stringify(serverList));
+          } catch {}
         }
-      } catch {}
+      } catch {} finally {
+        if (active) setLoadingClassrooms(false);
+      }
     };
-    refreshInstructors();
-  }, []);
+    fetchEnrolledClassrooms();
+    return () => { active = false; };
+  }, [currentUser]);
 
   // Real-time banner updates listener (socket + window event)
   useEffect(() => {
@@ -261,104 +215,55 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
 
     setIsJoining(true);
 
-    // Look up the code against all potential sources:
-    // 1. Server classrooms
-    let serverClasses = [];
     try {
-      const res = await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/classrooms`);
-      if (res.ok) {
-        const data = await res.json();
-        serverClasses = Array.isArray(data) ? data : (data.classrooms || []);
-      }
-    } catch { /* offline fallback */ }
-
-    // 2. Local teacher classrooms
-    let teacherClasses = [];
-    try {
-      const raw = localStorage.getItem('verity_teacher_classrooms') || localStorage.getItem('verity_classrooms');
-      if (raw) teacherClasses = JSON.parse(raw);
-    } catch { }
-
-    // 3. Local global/admin classrooms
-    let globalClasses = [];
-    try {
-      const raw = localStorage.getItem('verity_global_classrooms');
-      if (raw) globalClasses = JSON.parse(raw);
-    } catch { }
-
-    // 4. Default teacher fallback classes
-    const fallbackClasses = [
-      { id: 1, section: "CS101", code: "CS101", name: "C# Programming", subject: "Computer Science" },
-      { id: 2, section: "IT202", code: "IT202", name: "Data Structures", subject: "Information Tech" }
-    ];
-
-    const allCandidates = [
-      ...serverClasses,
-      ...teacherClasses,
-      ...globalClasses,
-      ...fallbackClasses
-    ];
-
-    const match = allCandidates.find(c =>
-      (c.section && c.section.trim().toLowerCase() === code.toLowerCase()) ||
-      (c.code && c.code.trim().toLowerCase() === code.toLowerCase()) ||
-      (c.name && c.name.trim().toLowerCase() === code.toLowerCase()) ||
-      (String(c.id).toLowerCase() === code.toLowerCase())
-    );
-
-    if (!match) {
-      setIsJoining(false);
-      setJoinError('No class found with that code. Please check the code and try again.');
-      return;
-    }
-
-    const joined = {
-      id: match.id || Date.now(),
-      code: match.section || match.code || code.toUpperCase(),
-      name: match.name || code,
-      instructor: match.instructor || 'Instructor',
-      instructorEmail: match.instructorEmail || match.instructor_email || '',
-      theme: match.theme || null
-    };
-
-    if (match.theme) {
-      const keys = getThemeStorageKeys(joined);
-      keys.forEach(k => {
-        try { localStorage.setItem(k, JSON.stringify(match.theme)); } catch {}
-      });
-    }
-
-    // Enroll on server
-    try {
-      apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/classrooms/${joined.id}/enroll`, {
+      const res = await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/classrooms/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          code,
           studentName: currentUser?.name,
           studentEmail: currentUser?.email
         })
-      }).catch(() => {});
-    } catch {}
+      });
 
-    // Persist in local enrollment key for instant sync
-    try {
-      const localEnrollKey = `verity_classroom_enrollments_${joined.id}`;
-      const existing = JSON.parse(localStorage.getItem(localEnrollKey) || '[]');
-      if (!existing.some(s => s.email === currentUser?.email || s.name === currentUser?.name)) {
-        existing.push({ name: currentUser?.name, email: currentUser?.email });
-        localStorage.setItem(localEnrollKey, JSON.stringify(existing));
+      const data = await res.json();
+      if (!res.ok) {
+        setIsJoining(false);
+        setJoinError(data.message || 'No class found with that code. Please check the code and try again.');
+        return;
       }
-    } catch {}
 
-    const updated = [joined, ...classrooms.filter(c => c.id !== joined.id)];
-    setClassrooms(updated);
-    try {
-      localStorage.setItem(getStorageKey(currentUser), JSON.stringify(updated));
-    } catch { }
+      const joined = data.classroom;
+      if (joined.theme) {
+        const keys = getThemeStorageKeys(joined);
+        keys.forEach(k => {
+          try { localStorage.setItem(k, JSON.stringify(joined.theme)); } catch {}
+        });
+      }
 
-    setIsJoining(false);
-    setIsModalOpen(false);
-    setClassCode('');
+      // Persist in local enrollment key for instant peer detection
+      try {
+        const localEnrollKey = `verity_classroom_enrollments_${joined.id}`;
+        const existing = JSON.parse(localStorage.getItem(localEnrollKey) || '[]');
+        if (!existing.some(s => s.email === currentUser?.email || s.name === currentUser?.name)) {
+          existing.push({ name: currentUser?.name, email: currentUser?.email });
+          localStorage.setItem(localEnrollKey, JSON.stringify(existing));
+        }
+      } catch {}
+
+      const updated = [joined, ...classrooms.filter(c => c.id !== joined.id)];
+      setClassrooms(updated);
+      try {
+        localStorage.setItem(getStorageKey(currentUser), JSON.stringify(updated));
+      } catch { }
+
+      setIsJoining(false);
+      setIsModalOpen(false);
+      setClassCode('');
+    } catch {
+      setIsJoining(false);
+      setJoinError('Could not connect to server. Please try again.');
+    }
   };
 
   const handleArchiveClass = (e, id) => {
@@ -639,7 +544,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
             })}
 
             {/* Enrolled Section */}
-            {classrooms.length > 0 && (
+            {classrooms.filter(c => !c.archived).length > 0 && (
               <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 {!collapsed && (
                   <div style={{
@@ -773,7 +678,39 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
               <div style={styles.grid}>
                 {loadingClassrooms
                   ? Array.from({ length: 4 }).map((_, i) => <Skeleton.Card key={i} />)
-                  : classrooms.filter(c => !c.archived).map(cls => (
+                  : classrooms.filter(c => !c.archived).length === 0 ? (
+                    <div style={{
+                      gridColumn: '1 / -1',
+                      padding: '50px 20px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      textAlign: 'center',
+                      background: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)',
+                      borderRadius: '20px',
+                      border: isDark ? '1.5px dashed #404040' : '1.5px dashed #cbd5e1'
+                    }}>
+                      <div style={{
+                        width: '56px',
+                        height: '56px',
+                        borderRadius: '16px',
+                        backgroundColor: isDark ? '#262626' : '#f1f5f9',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginBottom: '14px'
+                      }}>
+                        <ClipboardList size={28} color={isDark ? '#10b981' : '#059669'} />
+                      </div>
+                      <h3 style={{ margin: '0 0 6px', fontSize: '1.15rem', fontWeight: '700', color: isDark ? '#f5f5f5' : '#1e293b' }}>
+                        No Enrolled Classrooms
+                      </h3>
+                      <p style={{ margin: '0 0 16px', maxWidth: '380px', fontSize: '0.88rem', color: isDark ? '#a3a3a3' : '#64748b' }}>
+                        You are not enrolled in any classes yet. Click <strong>+ Add</strong> above to enter a class code from your instructor.
+                      </p>
+                    </div>
+                  ) : classrooms.filter(c => !c.archived).map(cls => (
                     <ClassroomCard
                       key={cls.id}
                       classroom={cls}

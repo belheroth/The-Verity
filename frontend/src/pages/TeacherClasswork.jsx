@@ -55,9 +55,9 @@ export default function TeacherClasswork({
 
   const [classrooms, setClassrooms] = useState(() => {
     try {
-      const id = currentUser?.email || currentUser?.id || 'default';
-      const key = `verity_teacher_classrooms_${id}`;
-      const raw = localStorage.getItem(key) || localStorage.getItem('verity_teacher_classrooms');
+      const id = currentUser?.email || currentUser?.id || (currentUser?.name ? currentUser.name.toLowerCase().replace(/\s+/g, '_') : null);
+      const key = id ? `verity_teacher_classrooms_${id}` : 'verity_teacher_classrooms_anon';
+      const raw = localStorage.getItem(key);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
@@ -74,23 +74,18 @@ export default function TeacherClasswork({
       .then(data => {
         if (!data) return;
         const serverList = (Array.isArray(data) ? data : (data.classrooms || [])).filter(c => !isPhantomClassroom(c));
-        if (serverList.length > 0) {
-          const teacherClasses = serverList.filter(c => 
-            !c.instructor_email || 
-            (currentUser?.email && c.instructor_email.toLowerCase() === currentUser.email.toLowerCase()) || 
-            (currentUser?.name && c.instructor && c.instructor.toLowerCase() === currentUser.name.toLowerCase())
-          );
-          const classesToUse = teacherClasses.length > 0 ? teacherClasses : serverList;
-          setClassrooms(prev => {
-            const merged = mergeClassroomsPreservingOrder(prev, classesToUse);
-            try {
-              const id = currentUser?.email || currentUser?.id || 'default';
-              localStorage.setItem(`verity_teacher_classrooms_${id}`, JSON.stringify(merged));
-              localStorage.setItem('verity_teacher_classrooms', JSON.stringify(merged));
-            } catch {}
-            return merged;
-          });
-        }
+        const teacherClasses = serverList.filter(c => 
+          (currentUser?.email && c.instructor_email && c.instructor_email.toLowerCase() === currentUser.email.toLowerCase()) || 
+          (currentUser?.email && c.instructorEmail && c.instructorEmail.toLowerCase() === currentUser.email.toLowerCase()) || 
+          (currentUser?.name && c.instructor && c.instructor.toLowerCase() === currentUser.name.toLowerCase()) ||
+          (!c.instructor_email && !c.instructor)
+        );
+        setClassrooms(teacherClasses);
+        try {
+          const id = currentUser?.email || currentUser?.id || (currentUser?.name ? currentUser.name.toLowerCase().replace(/\s+/g, '_') : null);
+          const key = id ? `verity_teacher_classrooms_${id}` : 'verity_teacher_classrooms_anon';
+          localStorage.setItem(key, JSON.stringify(teacherClasses));
+        } catch {}
       })
       .catch(() => {});
   }, [currentUser]);
@@ -921,7 +916,7 @@ export default function TeacherClasswork({
               {!collapsed && <span style={styles.sidebarBtnText}>Archived</span>}
             </button>
 
-            {classrooms.length > 0 && (
+            {classrooms.filter(c => !c.archived).length > 0 && (
               <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 {!collapsed && (
                   <div style={{

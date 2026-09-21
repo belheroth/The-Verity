@@ -32,8 +32,8 @@ const formatShortDate = (value) => {
 const isLegacyHardcoded = (item) => (item?.id === 1 || item?.id === 2) && (item?.title?.startsWith('Activity 1:') || item?.title?.startsWith('Activity 2:'));
 
 const getStorageKey = (user) => {
-  const identifier = user?.email || user?.id || user?.name || 'default';
-  return `verity_student_classrooms_${identifier}`;
+  const identifier = user?.email || user?.id || (user?.name ? user.name.toLowerCase().replace(/\s+/g, '_') : null);
+  return identifier ? `verity_student_classrooms_${identifier}` : 'verity_student_classrooms_anon';
 };
 
 
@@ -73,6 +73,22 @@ export default function ClassroomView({
       }
     };
     sync();
+
+    // Also fetch the student's enrolled classrooms from the server
+    apiFetch(`${import.meta.env.VITE_API_URL}/classrooms`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (!data) return;
+        const list = (Array.isArray(data) ? data : (data.classrooms || [])).filter(c => !isPhantom(c));
+        if (list.length > 0) {
+          setClassrooms(list);
+          try {
+            localStorage.setItem(key, JSON.stringify(list));
+          } catch {}
+        }
+      })
+      .catch(() => {});
+
     window.addEventListener('storage', sync);
     return () => window.removeEventListener('storage', sync);
   }, [currentUser]);
@@ -654,7 +670,7 @@ export default function ClassroomView({
               {!collapsed && <span style={styles.sidebarBtnText}>Archived</span>}
             </button>
 
-            {classrooms.length > 0 && (
+            {classrooms.filter(c => !c.archived).length > 0 && (
               <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 {!collapsed && (
                   <div style={{

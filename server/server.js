@@ -240,7 +240,7 @@ app.post('/register', async (req, res) => {
             name, email, password, userRole, status
         );
         const user = { id: info.lastInsertRowid, name, email, password, role: userRole, status };
-        const userToken = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET);
+        const userToken = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET);
         res.status(201).json({ message: 'User registered successfully', user, token: userToken });
     } catch (e) {
         res.status(500).json({ message: e.message });
@@ -259,7 +259,7 @@ app.post('/login', async (req, res) => {
         }
         user.lastLogin = new Date().toISOString();
         await db.run('UPDATE users SET lastLogin = ? WHERE id = ?', user.lastLogin, user.id);
-        const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET);
+        const token = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET);
         res.status(200).json({ message: 'Login successful', user, token });
     } catch (e) {
         res.status(500).json({ message: e.message });
@@ -302,7 +302,7 @@ app.post('/auth/google', async (req, res) => {
             }
         }
 
-        res.status(200).json({ message: 'Google login successful', user, token: jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET) });
+        res.status(200).json({ message: 'Google login successful', user, token: jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET) });
     } catch (error) {
         console.error('Google Auth Error:', error);
         res.status(401).json({ message: 'Invalid Google token' });
@@ -532,11 +532,33 @@ app.put('/classwork/:classroomId', authenticateToken, requireRole('Teacher', 'Ad
 // --- CLASSROOMS ---
 app.get('/classrooms', authenticateToken, async (req, res) => {
     try {
-        const classrooms = await db.all('SELECT * FROM classrooms ORDER BY id ASC');
-        const defaultTeacher = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(role) = 'teacher' ORDER BY id ASC LIMIT 1").catch(() => null);
+        let rawClassrooms = [];
+        if (req.user?.role === 'Student') {
+            const studentEmail = (req.user.email || '').trim().toLowerCase();
+            const studentId = req.user.id || 0;
+            rawClassrooms = await db.all(`
+                SELECT DISTINCT c.* FROM classrooms c
+                INNER JOIN enrollments e ON e.classroom_id = c.id
+                WHERE (e.student_email IS NOT NULL AND LOWER(e.student_email) = ?)
+                   OR (e.student_id IS NOT NULL AND e.student_id = ?)
+                ORDER BY c.id ASC
+            `, studentEmail, studentId);
+        } else if (req.user?.role === 'Teacher') {
+            const teacherEmail = (req.user.email || '').trim().toLowerCase();
+            const teacherName = (req.user.name || '').trim().toLowerCase();
+            rawClassrooms = await db.all(`
+                SELECT * FROM classrooms
+                WHERE (instructor_email IS NOT NULL AND LOWER(instructor_email) = ?)
+                   OR (instructor IS NOT NULL AND LOWER(instructor) = ?)
+                ORDER BY id ASC
+            `, teacherEmail, teacherName);
+        } else {
+            // Admin can view all classrooms
+            rawClassrooms = await db.all('SELECT * FROM classrooms ORDER BY id ASC');
+        }
 
         // Filter out phantom/dummy classrooms with no valid section/subject
-        const validClassrooms = classrooms.filter(c => {
+        const validClassrooms = rawClassrooms.filter(c => {
             if (!c || !c.name) return false;
             const isPhantom = /^Classroom \d+$/i.test(c.name.trim()) && (!c.section || !c.section.trim()) && (!c.subject || !c.subject.trim());
             return !isPhantom;
@@ -553,16 +575,10 @@ app.get('/classrooms', authenticateToken, async (req, res) => {
             if (!realTeacher && instName && instName !== 'Instructor') {
                 realTeacher = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(name) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", instName).catch(() => null);
             }
-            if (!realTeacher && defaultTeacher) {
-                realTeacher = defaultTeacher;
-            }
 
             if (realTeacher) {
                 instName = realTeacher.name;
                 instEmail = realTeacher.email;
-                if (!c.instructor_email || c.instructor !== realTeacher.name) {
-                    await db.run('UPDATE classrooms SET instructor = ?, instructor_email = ? WHERE id = ?', realTeacher.name, realTeacher.email, c.id).catch(() => {});
-                }
             }
 
             let parsedTheme = null;
@@ -959,9 +975,9 @@ app.post('/classrooms/join', authenticateToken, async (req, res) => {
             return res.status(404).json({ message: 'No class found with that code' });
         }
 
-        const studentName = req.user.name;
-        const studentEmail = req.user.email;
-        const studentId = req.user.id;
+        const studentName = req.body?.studentName || req.user?.name || (req.user?.email ? req.user.email.split('@')[0] : 'Student');
+        const studentEmail = (req.body?.studentEmail || req.user?.email || '').trim().toLowerCase();
+        const studentId = req.user?.id || null;
         const now = new Date().toISOString();
 
         await db.run(`
@@ -979,11 +995,27 @@ app.post('/classrooms/join', authenticateToken, async (req, res) => {
             } catch {}
         }
 
+        let instName = (classroom.instructor && classroom.instructor.trim()) || '';
+        let instEmail = (classroom.instructor_email && classroom.instructor_email.trim()) || '';
+        let realTeacher = null;
+        if (instEmail) {
+            realTeacher = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(email) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", instEmail).catch(() => null);
+        }
+        if (!realTeacher && instName && instName !== 'Instructor') {
+            realTeacher = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(name) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", instName).catch(() => null);
+        }
+        if (realTeacher) {
+            instName = realTeacher.name;
+            instEmail = realTeacher.email;
+        }
+
         res.status(200).json({ 
             classroom: {
                 ...classroom,
                 theme: parsedTheme,
-                instructorEmail: classroom.instructor_email || ''
+                instructor: instName || 'Instructor',
+                instructorEmail: instEmail,
+                instructorAvatar: realTeacher?.avatar || null
             }, 
             message: 'Enrolled successfully' 
         });

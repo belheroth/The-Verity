@@ -305,14 +305,21 @@ export default function App() {
     setCurrentUser(null);
     setActiveClassroom(null);
     setCurrentScreen('login');
-    // Clear only the session keys — keep saved classrooms/classwork so they
-    // persist across logout. (Previously localStorage.clear() wiped everything.)
     localStorage.removeItem('currentScreen');
     localStorage.removeItem('currentUser');
     localStorage.removeItem('activeClassroom');
     localStorage.removeItem('activeAssignment');
     localStorage.removeItem('verity_token');
-    sessionStorage.removeItem('verity_workspace_return');
+    localStorage.removeItem('verity_user');
+    // Clear un-scoped legacy keys so accounts never bleed into each other
+    localStorage.removeItem('verity_teacher_classrooms');
+    localStorage.removeItem('verity_classrooms');
+    localStorage.removeItem('verity_student_classrooms_default');
+    localStorage.removeItem('verity_student_classrooms_anon');
+    localStorage.removeItem('verity_teacher_classrooms_anon');
+    localStorage.removeItem('verity_teacher_classrooms_default');
+    localStorage.removeItem('verity_cached_classrooms');
+    sessionStorage.clear();
   };
 
 // ==========================
@@ -325,6 +332,10 @@ export default function App() {
           {currentScreen === 'login' && (
             <Login
               onLogin={(user, token) => {
+                localStorage.removeItem('verity_teacher_classrooms');
+                localStorage.removeItem('verity_classrooms');
+                localStorage.removeItem('verity_student_classrooms_default');
+                localStorage.removeItem('verity_teacher_classrooms_default');
                 setCurrentUser(user);
                 if (token) localStorage.setItem('verity_token', token);
                 if (user.role === 'Admin') {

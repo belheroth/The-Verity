@@ -13,14 +13,9 @@ import { useDarkMode } from '../hooks/useDarkMode';
 import { useSidebarNav } from '../hooks/useSidebarNav';
 
 const getStorageKey = (user) => {
-  const id = user?.email || user?.id || 'default';
-  return `verity_teacher_classrooms_${id}`;
+  const identifier = user?.email || user?.id || (user?.name ? user.name.toLowerCase().replace(/\s+/g, '_') : null);
+  return identifier ? `verity_teacher_classrooms_${identifier}` : 'verity_teacher_classrooms_anon';
 };
-
-const DEFAULT_CLASSROOMS = [
-  { id: 1, section: "CS101", name: "C# Programming", subject: "Computer Science", instructor: "kim fabie", instructorEmail: "kimfabie@gmail.com" },
-  { id: 2, section: "IT202", name: "Data Structures", subject: "Information Tech", instructor: "kim fabie", instructorEmail: "kimfabie@gmail.com" }
-];
 
 import { isPhantomClassroom, mergeClassroomsPreservingOrder } from '../utils/classroomUtils';
 export { isPhantomClassroom, mergeClassroomsPreservingOrder };
@@ -200,58 +195,52 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
   const [classrooms, setClassrooms] = useState(() => {
     try {
       const key = getStorageKey(currentUser);
-      const raw = localStorage.getItem(key) || localStorage.getItem('verity_teacher_classrooms');
+      const raw = localStorage.getItem(key);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          const cleaned = parsed.filter(c => !isPhantomClassroom(c));
-          // Overwrite dirty cache
-          localStorage.setItem(key, JSON.stringify(cleaned));
-          localStorage.setItem('verity_teacher_classrooms', JSON.stringify(cleaned));
-          return cleaned.length > 0 ? cleaned : DEFAULT_CLASSROOMS;
+          return parsed.filter(c => !isPhantomClassroom(c));
         }
       }
-      return DEFAULT_CLASSROOMS;
+      return [];
     } catch {
-      return DEFAULT_CLASSROOMS;
+      return [];
     }
   });
 
   // Show skeleton only when there's no cached data yet.
   const [loadingClassrooms, setLoadingClassrooms] = useState(
-    () => !localStorage.getItem(getStorageKey(currentUser)) && !localStorage.getItem('verity_teacher_classrooms')
+    () => !localStorage.getItem(getStorageKey(currentUser))
   );
 
-  // Fetch real classrooms from backend server
+  // Fetch real classrooms from backend server strictly for this teacher
   useEffect(() => {
+    let active = true;
     const fetchClassrooms = async () => {
       try {
         const res = await apiFetch(`${import.meta.env.VITE_API_URL}/classrooms`);
-        if (res.ok) {
+        if (res.ok && active) {
           const data = await res.json();
           const serverList = (Array.isArray(data) ? data : (data.classrooms || [])).filter(c => !isPhantomClassroom(c));
-          if (serverList.length > 0) {
-            // Find classrooms created by or belonging to this teacher
-            const teacherClasses = serverList.filter(c => 
-              !c.instructor_email || 
-              (currentUser?.email && c.instructor_email.toLowerCase() === currentUser.email.toLowerCase()) || 
-              (currentUser?.name && c.instructor && c.instructor.toLowerCase() === currentUser.name.toLowerCase())
-            );
-            const classesToUse = teacherClasses.length > 0 ? teacherClasses : serverList;
-            setClassrooms(prev => mergeClassroomsPreservingOrder(prev, classesToUse));
-            setLoadingClassrooms(false);
-          }
+          // Filter strictly for this teacher
+          const teacherClasses = serverList.filter(c => 
+            (currentUser?.email && c.instructor_email && c.instructor_email.toLowerCase() === currentUser.email.toLowerCase()) || 
+            (currentUser?.email && c.instructorEmail && c.instructorEmail.toLowerCase() === currentUser.email.toLowerCase()) || 
+            (currentUser?.name && c.instructor && c.instructor.toLowerCase() === currentUser.name.toLowerCase()) ||
+            (!c.instructor_email && !c.instructor)
+          );
+          setClassrooms(teacherClasses);
+          try {
+            localStorage.setItem(getStorageKey(currentUser), JSON.stringify(teacherClasses));
+          } catch {}
         }
-      } catch {}
+      } catch {} finally {
+        if (active) setLoadingClassrooms(false);
+      }
     };
     fetchClassrooms();
+    return () => { active = false; };
   }, [currentUser]);
-
-  useEffect(() => {
-    if (!loadingClassrooms) return;
-    const timer = setTimeout(() => setLoadingClassrooms(false), 1200);
-    return () => clearTimeout(timer);
-  }, []);
 
   // Real-time banner updates listener
   useEffect(() => {
@@ -488,7 +477,7 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
             })}
 
             {/* Teaching Section */}
-            {classrooms.length > 0 && (
+            {classrooms.filter(c => !c.archived).length > 0 && (
               <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 {!collapsed && (
                   <div style={{
@@ -633,7 +622,39 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
                   <div style={styles.grid}>
                     {loadingClassrooms
                       ? Array.from({ length: 4 }).map((_, i) => <Skeleton.Card key={i} />)
-                      : classrooms.filter(c => !c.archived).map(cls => (
+                      : classrooms.filter(c => !c.archived).length === 0 ? (
+                        <div style={{
+                          gridColumn: '1 / -1',
+                          padding: '50px 20px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          textAlign: 'center',
+                          background: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)',
+                          borderRadius: '20px',
+                          border: isDark ? '1.5px dashed #404040' : '1.5px dashed #cbd5e1'
+                        }}>
+                          <div style={{
+                            width: '56px',
+                            height: '56px',
+                            borderRadius: '16px',
+                            backgroundColor: isDark ? '#262626' : '#f1f5f9',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            marginBottom: '14px'
+                          }}>
+                            <Home size={28} color="#10b981" />
+                          </div>
+                          <h3 style={{ margin: '0 0 6px', fontSize: '1.15rem', fontWeight: '700', color: isDark ? '#f5f5f5' : '#1e293b' }}>
+                            No Classrooms Yet
+                          </h3>
+                          <p style={{ margin: '0 0 16px', maxWidth: '380px', fontSize: '0.88rem', color: isDark ? '#a3a3a3' : '#64748b' }}>
+                            Click <strong>Create</strong> above to create your first classroom and share the class code with your students.
+                          </p>
+                        </div>
+                      ) : classrooms.filter(c => !c.archived).map(cls => (
                       <ClassroomCard
                         key={cls.id}
                         classroom={cls}
