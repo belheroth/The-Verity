@@ -1166,6 +1166,11 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('classroom_theme_updated', (data) => {
+        if (!data) return;
+        io.emit('classroom_theme_changed', data);
+    });
+
     socket.on('compile_code', async (data) => {
         if (!socket.user) {
             authenticateSocket(socket, data?.token || socket.handshake.auth?.token, data?.user);

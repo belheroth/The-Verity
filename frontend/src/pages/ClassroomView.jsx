@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import Skeleton from '../components/Skeleton';
 import { useDarkMode } from '../hooks/useDarkMode';
+import { THEME_PRESETS, getClassroomTheme } from '../utils/classroomUtils';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const formatShortDate = (value) => {
@@ -30,44 +31,7 @@ const getStorageKey = (user) => {
   return `verity_student_classrooms_${identifier}`;
 };
 
-// Banner Themes Configuration (Shared with Instructor view)
-const THEME_PRESETS = [
-  {
-    id: 'emerald_books',
-    name: 'Emerald Books',
-    primary: '#137333',
-    secondary: '#1e8e3e',
-    textColor: '#ffffff'
-  },
-  {
-    id: 'ocean_academia',
-    name: 'Ocean Academia',
-    primary: '#1a73e8',
-    secondary: '#0d47a1',
-    textColor: '#ffffff'
-  },
-  {
-    id: 'royal_violet',
-    name: 'Royal Violet',
-    primary: '#7c3aed',
-    secondary: '#581c87',
-    textColor: '#ffffff'
-  },
-  {
-    id: 'warm_amber',
-    name: 'Warm Amber',
-    primary: '#ea580c',
-    secondary: '#9a3412',
-    textColor: '#ffffff'
-  },
-  {
-    id: 'midnight_slate',
-    name: 'Midnight Tech',
-    primary: '#0f172a',
-    secondary: '#1e293b',
-    textColor: '#ffffff'
-  }
-];
+
 
 export default function ClassroomView({
   classroom,
@@ -171,41 +135,52 @@ export default function ClassroomView({
   const [activeTab, setActiveTab] = useState('stream');
 
   // Banner Theme synced with instructor setting
-  const themeStorageKey = `verity_classroom_theme_${classroom?.id ?? 'default'}`;
-  const [bannerTheme, setBannerTheme] = useState(() => {
-    try {
-      const saved = localStorage.getItem(themeStorageKey);
-      if (saved) return JSON.parse(saved);
-    } catch {}
-    return THEME_PRESETS[0];
-  });
+  const [bannerTheme, setBannerTheme] = useState(() => getClassroomTheme(classroom));
 
   // Reset banner theme when classroom changes
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(themeStorageKey);
-      if (saved) {
-        setBannerTheme(JSON.parse(saved));
-      } else {
-        // Reset to default if no saved theme for this classroom
-        setBannerTheme(THEME_PRESETS[0]);
-      }
-    } catch {
-      setBannerTheme(THEME_PRESETS[0]);
-    }
-  }, [themeStorageKey]);
+    setBannerTheme(getClassroomTheme(classroom));
+  }, [classroom?.id, classroom?.code, classroom?.section, classroom?.name]);
 
   useEffect(() => {
-    const handleStorage = (e) => {
-      if (e.key === themeStorageKey && e.newValue) {
-        try {
-          setBannerTheme(JSON.parse(e.newValue));
-        } catch {}
+    const handleUpdate = (e) => {
+      const detail = e.detail;
+      if (!detail) return;
+      const matches =
+        (classroom?.id != null && String(detail.classroomId) === String(classroom.id)) ||
+        (classroom?.code && detail.code && String(detail.code).toLowerCase() === String(classroom.code).toLowerCase()) ||
+        (classroom?.section && detail.code && String(detail.code).toLowerCase() === String(classroom.section).toLowerCase()) ||
+        (classroom?.name && detail.name && String(detail.name).toLowerCase() === String(classroom.name).toLowerCase()) ||
+        (detail.keys && detail.keys.includes(`verity_classroom_theme_${classroom?.id}`));
+
+      if (matches && detail.theme) {
+        setBannerTheme(detail.theme);
+      } else {
+        // Fallback re-query
+        setBannerTheme(getClassroomTheme(classroom));
       }
     };
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
-  }, [themeStorageKey]);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        setBannerTheme(getClassroomTheme(classroom));
+      }
+    };
+
+    window.addEventListener('verity:banner-updated', handleUpdate);
+    document.addEventListener('visibilitychange', handleVisibility);
+    if (socket) {
+      socket.on('classroom_theme_changed', (data) => handleUpdate({ detail: data }));
+    }
+
+    return () => {
+      window.removeEventListener('verity:banner-updated', handleUpdate);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      if (socket) {
+        socket.off('classroom_theme_changed');
+      }
+    };
+  }, [classroom?.id, classroom?.code, classroom?.section, classroom?.name, socket]);
 
   // Modal for class details
   const [isClassInfoModalOpen, setIsClassInfoModalOpen] = useState(false);

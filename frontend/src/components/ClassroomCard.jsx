@@ -2,23 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { MoreVertical, Copy, Check, Trash2, Archive, RotateCcw, Settings } from 'lucide-react';
 import { useDarkMode } from '../hooks/useDarkMode';
-
-export const getClassroomCardTheme = (cls) => {
-  try {
-    const saved = localStorage.getItem(`verity_classroom_theme_${cls.id}`);
-    if (saved) return JSON.parse(saved);
-  } catch {}
-
-  const presets = [
-    { primary: '#137333', secondary: '#1e8e3e' }, // Emerald (Screenshot match)
-    { primary: '#1a73e8', secondary: '#0d47a1' }, // Ocean
-    { primary: '#7c3aed', secondary: '#581c87' }, // Violet
-    { primary: '#ea580c', secondary: '#9a3412' }, // Amber
-    { primary: '#0f172a', secondary: '#1e293b' }, // Slate
-  ];
-  const idx = Math.abs(Number(cls.id) || 0) % presets.length;
-  return presets[idx];
-};
+import { getClassroomTheme } from '../utils/classroomUtils';
+export const getClassroomCardTheme = (cls) => getClassroomTheme(cls);
 
 export default function ClassroomCard({
   classroom,
@@ -36,28 +21,46 @@ export default function ClassroomCard({
   const [copied, setCopied] = useState(false);
 
   // Reactive banner theme: re-reads from localStorage when storage changes
-  const themeStorageKey = `verity_classroom_theme_${classroom?.id ?? 'default'}`;
-  const [theme, setTheme] = useState(() => getClassroomCardTheme(classroom));
+  const [theme, setTheme] = useState(() => getClassroomTheme(classroom));
 
   useEffect(() => {
-    // Re-read when the classroom prop changes
-    setTheme(getClassroomCardTheme(classroom));
-  }, [classroom?.id, themeStorageKey]);
+    setTheme(getClassroomTheme(classroom));
+  }, [classroom?.id, classroom?.code, classroom?.section, classroom?.name]);
 
   useEffect(() => {
-    const handleStorage = (e) => {
-      if (e.key === themeStorageKey) {
-        try {
-          const parsed = e.newValue ? JSON.parse(e.newValue) : null;
-          setTheme(parsed || getClassroomCardTheme(classroom));
-        } catch {
-          setTheme(getClassroomCardTheme(classroom));
-        }
+    const handleBannerUpdate = (e) => {
+      const detail = e.detail;
+      if (!detail) {
+        setTheme(getClassroomTheme(classroom));
+        return;
+      }
+      const matches =
+        (classroom?.id != null && String(detail.classroomId) === String(classroom.id)) ||
+        (classroom?.code && detail.code && String(detail.code).toLowerCase() === String(classroom.code).toLowerCase()) ||
+        (classroom?.section && detail.code && String(detail.code).toLowerCase() === String(classroom.section).toLowerCase()) ||
+        (classroom?.name && detail.name && String(detail.name).toLowerCase() === String(classroom.name).toLowerCase()) ||
+        (detail.keys && detail.keys.includes(`verity_classroom_theme_${classroom?.id}`));
+
+      if (matches && detail.theme) {
+        setTheme(detail.theme);
+      } else {
+        setTheme(getClassroomTheme(classroom));
       }
     };
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
-  }, [themeStorageKey]);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        setTheme(getClassroomTheme(classroom));
+      }
+    };
+
+    window.addEventListener('verity:banner-updated', handleBannerUpdate);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('verity:banner-updated', handleBannerUpdate);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [classroom?.id, classroom?.code, classroom?.section, classroom?.name]);
 
   const handleCopyCode = (e) => {
     e.stopPropagation();

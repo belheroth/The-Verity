@@ -307,7 +307,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
     const updated = [joined, ...classrooms.filter(c => c.id !== joined.id)];
     setClassrooms(updated);
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      localStorage.setItem(getStorageKey(currentUser), JSON.stringify(updated));
     } catch { }
 
     setIsJoining(false);

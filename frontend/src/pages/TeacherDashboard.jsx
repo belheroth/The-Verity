@@ -531,13 +531,13 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
               {activeView === 'archived' && (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', padding: '0 10px' }}>
-                    <h2 style={{ color: '#4b5563', margin: 0 }}>Archived Classrooms</h2>
+                    <h2 style={{ color: isDark ? '#E8EAED' : '#4b5563', margin: 0 }}>Archived Classrooms</h2>
                   </div>
 
                   {classrooms.filter(c => c.archived).length === 0 ? (
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
-                      <h3 style={{ margin: 0 }}>No Archived Classrooms</h3>
-                      <p style={{ marginTop: '10px' }}>Classrooms you archive will appear here.</p>
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: isDark ? '#6b7280' : '#9ca3af' }}>
+                      <h3 style={{ margin: 0, color: isDark ? '#a3a3a3' : '#6b7280' }}>No Archived Classrooms</h3>
+                      <p style={{ marginTop: '10px', color: isDark ? '#6b7280' : '#9ca3af' }}>Classrooms you archive will appear here.</p>
                     </div>
                   ) : (
                     <div style={styles.grid}>

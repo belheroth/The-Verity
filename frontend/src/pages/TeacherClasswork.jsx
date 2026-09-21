@@ -9,7 +9,7 @@ import {
 import { apiFetch } from '../utils/api';
 import Skeleton from '../components/Skeleton';
 import { useDarkMode } from '../hooks/useDarkMode';
-import { isPhantomClassroom, mergeClassroomsPreservingOrder } from '../utils/classroomUtils';
+import { isPhantomClassroom, mergeClassroomsPreservingOrder, THEME_PRESETS, getClassroomTheme, saveClassroomTheme } from '../utils/classroomUtils';
 
 const EMPTY_FORM = { title: '', noDueDate: true, dueDate: '', instruction: '', points: '100', grading: 'On', attachments: [] };
 
@@ -29,49 +29,7 @@ const formatShortDate = (value) => {
 
 const isLegacyHardcoded = (item) => (item?.id === 1 || item?.id === 2) && (item?.title?.startsWith('Activity 1:') || item?.title?.startsWith('Activity 2:'));
 
-// Banner Themes Configuration
-const THEME_PRESETS = [
-  {
-    id: 'emerald_books',
-    name: 'Emerald Books',
-    primary: '#137333',
-    secondary: '#1e8e3e',
-    textColor: '#ffffff',
-    description: 'Classic green with notebooks and stationery'
-  },
-  {
-    id: 'ocean_academia',
-    name: 'Ocean Academia',
-    primary: '#1a73e8',
-    secondary: '#0d47a1',
-    textColor: '#ffffff',
-    description: 'Scholarly blue with geometry and math graphics'
-  },
-  {
-    id: 'royal_violet',
-    name: 'Royal Violet',
-    primary: '#7c3aed',
-    secondary: '#581c87',
-    textColor: '#ffffff',
-    description: 'Vibrant purple for creative arts and design'
-  },
-  {
-    id: 'warm_amber',
-    name: 'Warm Amber',
-    primary: '#ea580c',
-    secondary: '#9a3412',
-    textColor: '#ffffff',
-    description: 'Warm harvest tone with literature aesthetics'
-  },
-  {
-    id: 'midnight_slate',
-    name: 'Midnight Tech',
-    primary: '#0f172a',
-    secondary: '#1e293b',
-    textColor: '#ffffff',
-    description: 'Sleek dark mode with cyber and code graphics'
-  }
-];
+
 
 export default function TeacherClasswork({ 
   classroom, 
@@ -256,30 +214,41 @@ export default function TeacherClasswork({
 
   // Class code & theme
   const classCode = classroom?.code || classroom?.section || (classroom?.id ? `vji${classroom.id}ku4` : 'vji3bku4');
-  const themeStorageKey = `verity_classroom_theme_${classroom?.id ?? 'default'}`;
-  const [bannerTheme, setBannerTheme] = useState(() => {
-    try {
-      const saved = localStorage.getItem(themeStorageKey);
-      return saved ? JSON.parse(saved) : THEME_PRESETS[0];
-    } catch {
-      return THEME_PRESETS[0];
-    }
-  });
+  const [bannerTheme, setBannerTheme] = useState(() => getClassroomTheme(classroom));
 
   // Reset banner theme when classroom changes
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(themeStorageKey);
-      if (saved) {
-        setBannerTheme(JSON.parse(saved));
-      } else {
-        // Reset to default if no saved theme for this classroom
-        setBannerTheme(THEME_PRESETS[0]);
+    setBannerTheme(getClassroomTheme(classroom));
+  }, [classroom?.id, classroom?.code, classroom?.section, classroom?.name]);
+
+  // Real-time socket & window theme updates listener
+  useEffect(() => {
+    const handleUpdate = (e) => {
+      const detail = e.detail;
+      if (!detail) return;
+      const matches =
+        (classroom?.id != null && String(detail.classroomId) === String(classroom.id)) ||
+        (classroom?.code && detail.code && String(detail.code).toLowerCase() === String(classroom.code).toLowerCase()) ||
+        (classroom?.section && detail.code && String(detail.code).toLowerCase() === String(classroom.section).toLowerCase()) ||
+        (classroom?.name && detail.name && String(detail.name).toLowerCase() === String(classroom.name).toLowerCase()) ||
+        (detail.keys && detail.keys.includes(`verity_classroom_theme_${classroom?.id}`));
+
+      if (matches && detail.theme) {
+        setBannerTheme(detail.theme);
       }
-    } catch {
-      setBannerTheme(THEME_PRESETS[0]);
+    };
+
+    window.addEventListener('verity:banner-updated', handleUpdate);
+    if (socket) {
+      socket.on('classroom_theme_changed', (data) => handleUpdate({ detail: data }));
     }
-  }, [themeStorageKey]);
+    return () => {
+      window.removeEventListener('verity:banner-updated', handleUpdate);
+      if (socket) {
+        socket.off('classroom_theme_changed');
+      }
+    };
+  }, [classroom?.id, classroom?.code, classroom?.section, classroom?.name, socket]);
 
   // Modal dialog states
   const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
@@ -1700,14 +1669,7 @@ export default function TeacherClasswork({
                 </button>
                 <button
                   onClick={() => {
-                    const themeJson = JSON.stringify(bannerTheme);
-                    localStorage.setItem(themeStorageKey, themeJson);
-                    // Dispatch synthetic storage event so same-tab listeners (ClassroomView student banner, ClassroomCard) update immediately
-                    window.dispatchEvent(new StorageEvent('storage', {
-                      key: themeStorageKey,
-                      newValue: themeJson,
-                      storageArea: localStorage,
-                    }));
+                    saveClassroomTheme(classroom, bannerTheme, socket);
                     setIsCustomizeOpen(false);
                   }}
                   style={styles.saveGradeBtn}
