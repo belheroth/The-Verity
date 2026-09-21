@@ -644,3 +644,8 @@ html.dark input::placeholder,
 html.dark textarea::placeholder {
   color: #9AA0A6 !important;
 }
+
+/* Auth screens dark background */
+html.dark .auth-container {
+  background: linear-gradient(180deg, #323232 0%, #262626 45%, #1a1a1a 100%) !important;
+}
