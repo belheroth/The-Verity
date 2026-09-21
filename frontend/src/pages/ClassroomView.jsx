@@ -176,10 +176,24 @@ export default function ClassroomView({
     try {
       const saved = localStorage.getItem(themeStorageKey);
       if (saved) return JSON.parse(saved);
-      if (classroom?.theme) return classroom.theme;
     } catch {}
     return THEME_PRESETS[0];
   });
+
+  // Reset banner theme when classroom changes
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(themeStorageKey);
+      if (saved) {
+        setBannerTheme(JSON.parse(saved));
+      } else {
+        // Reset to default if no saved theme for this classroom
+        setBannerTheme(THEME_PRESETS[0]);
+      }
+    } catch {
+      setBannerTheme(THEME_PRESETS[0]);
+    }
+  }, [themeStorageKey]);
 
   useEffect(() => {
     const handleStorage = (e) => {

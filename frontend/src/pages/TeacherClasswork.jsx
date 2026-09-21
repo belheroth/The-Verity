@@ -266,12 +266,28 @@ export default function TeacherClasswork({
     }
   });
 
+  // Reset banner theme when classroom changes
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(themeStorageKey);
+      if (saved) {
+        setBannerTheme(JSON.parse(saved));
+      } else {
+        // Reset to default if no saved theme for this classroom
+        setBannerTheme(THEME_PRESETS[0]);
+      }
+    } catch {
+      setBannerTheme(THEME_PRESETS[0]);
+    }
+  }, [themeStorageKey]);
+
   // Modal dialog states
   const [isCustomizeOpen, setIsCustomizeOpen] = useState(false);
   const [isClassCodeModalOpen, setIsClassCodeModalOpen] = useState(false);
   const [isClassInfoModalOpen, setIsClassInfoModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [originalBannerTheme, setOriginalBannerTheme] = useState(null);
 
 
 
@@ -1004,7 +1020,10 @@ export default function TeacherClasswork({
 
                     {/* Top-Right "Customize" Button */}
                     <button
-                      onClick={() => setIsCustomizeOpen(true)}
+                      onClick={() => {
+                        setOriginalBannerTheme(bannerTheme);
+                        setIsCustomizeOpen(true);
+                      }}
                       style={styles.customizeBtn}
                       title="Customize class theme and background"
                     >
@@ -1617,11 +1636,7 @@ export default function TeacherClasswork({
                 {THEME_PRESETS.map((preset) => (
                   <div
                     key={preset.id}
-                    onClick={() => {
-                      const updated = { ...preset };
-                      setBannerTheme(updated);
-                      localStorage.setItem(themeStorageKey, JSON.stringify(updated));
-                    }}
+                    onClick={() => setBannerTheme(preset)}
                     style={{
                       borderRadius: '12px',
                       padding: '10px',
@@ -1659,20 +1674,12 @@ export default function TeacherClasswork({
                     type="url"
                     placeholder="https://images.unsplash.com/photo-..."
                     value={bannerTheme.customImageUrl || ''}
-                    onChange={(e) => {
-                      const updated = { ...bannerTheme, customImageUrl: e.target.value };
-                      setBannerTheme(updated);
-                      localStorage.setItem(themeStorageKey, JSON.stringify(updated));
-                    }}
+                    onChange={(e) => setBannerTheme({ ...bannerTheme, customImageUrl: e.target.value })}
                     style={styles.input}
                   />
                   {bannerTheme.customImageUrl && (
                     <button
-                      onClick={() => {
-                        const updated = { ...bannerTheme, customImageUrl: '' };
-                        setBannerTheme(updated);
-                        localStorage.setItem(themeStorageKey, JSON.stringify(updated));
-                      }}
+                      onClick={() => setBannerTheme({ ...bannerTheme, customImageUrl: '' })}
                       style={{ padding: '0 12px', border: isDark ? '1px solid #4A4A4A' : '1px solid #cbd5e1', borderRadius: '8px', background: isDark ? '#3A3A3A' : 'white', color: isDark ? '#a3a3a3' : '#64748b', cursor: 'pointer' }}
                     >
                       Clear
@@ -1681,12 +1688,31 @@ export default function TeacherClasswork({
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px', gap: '10px' }}>
                 <button
-                  onClick={() => setIsCustomizeOpen(false)}
+                  onClick={() => {
+                    setBannerTheme(originalBannerTheme || bannerTheme);
+                    setIsCustomizeOpen(false);
+                  }}
+                  style={styles.cancelBtn}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    const themeJson = JSON.stringify(bannerTheme);
+                    localStorage.setItem(themeStorageKey, themeJson);
+                    // Dispatch synthetic storage event so same-tab listeners (ClassroomView student banner, ClassroomCard) update immediately
+                    window.dispatchEvent(new StorageEvent('storage', {
+                      key: themeStorageKey,
+                      newValue: themeJson,
+                      storageArea: localStorage,
+                    }));
+                    setIsCustomizeOpen(false);
+                  }}
                   style={styles.saveGradeBtn}
                 >
-                  Done
+                  Save
                 </button>
               </div>
             </div>

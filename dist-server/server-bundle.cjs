@@ -76555,7 +76555,18 @@ var require_db4 = __commonJS({
             section TEXT,
             name TEXT,
             subject TEXT,
-            instructor TEXT
+            instructor TEXT,
+            instructor_email TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS enrollments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            classroom_id INTEGER,
+            student_id INTEGER,
+            student_name TEXT,
+            student_email TEXT,
+            enrolled_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(classroom_id, student_email)
         );
 
         CREATE TABLE IF NOT EXISTS classwork (
@@ -76629,6 +76640,14 @@ var require_db4 = __commonJS({
         INSERT OR IGNORE INTO users (name, email, password, role, status)
         VALUES ('System Admin', 'admin@verity.com', 'admin', 'Admin', 'Active');
     `);
+        try {
+          sqliteDb.exec(`ALTER TABLE classrooms ADD COLUMN instructor_email TEXT;`);
+        } catch (e2) {
+        }
+        try {
+          sqliteDb.exec(`ALTER TABLE users ADD COLUMN avatar TEXT;`);
+        } catch (e2) {
+        }
         provider = "sqlite";
         console.log(`[Database] Connected to SQLite (Local Storage): ${DB_FILE}`);
       } catch (err) {
@@ -76678,6 +76697,13 @@ var require_db4 = __commonJS({
         if (fs3.existsSync(schemaPath)) {
           const schemaSql = fs3.readFileSync(schemaPath, "utf8");
           await client.query(schemaSql);
+          try {
+            await client.query("ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS instructor_email VARCHAR(255);");
+            await client.query("ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS instructor VARCHAR(255);");
+            await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;");
+          } catch (colErr) {
+            console.warn("[Database] Note on column migration:", colErr.message);
+          }
           console.log("[Database] PostgreSQL schema verified/initialized.");
         }
         provider = "postgres";
@@ -77132,6 +77158,45 @@ app.put("/users/:email/status", authenticateToken, requireRole("Admin"), async (
     res.status(500).json({ message: e2.message });
   }
 });
+app.put("/users/profile", authenticateToken, async (req, res) => {
+  try {
+    const { name, email, avatar } = req.body || {};
+    const userId = req.user.id;
+    const current = await db.get("SELECT * FROM users WHERE id = ?", userId);
+    if (!current) return res.status(404).json({ message: "User not found" });
+    const updatedName = name && name.trim() ? name.trim() : current.name;
+    const updatedEmail = email && email.trim() ? email.trim().toLowerCase() : current.email;
+    const updatedAvatar = avatar !== void 0 ? avatar : current.avatar;
+    await db.run(
+      "UPDATE users SET name = ?, email = ?, avatar = ? WHERE id = ?",
+      updatedName,
+      updatedEmail,
+      updatedAvatar,
+      userId
+    );
+    if (current.role === "Teacher") {
+      await db.run(
+        "UPDATE classrooms SET instructor = ?, instructor_email = ? WHERE LOWER(instructor_email) = LOWER(?) OR instructor = ?",
+        updatedName,
+        updatedEmail,
+        current.email,
+        current.name
+      ).catch(() => {
+      });
+    }
+    const user = {
+      id: userId,
+      name: updatedName,
+      email: updatedEmail,
+      role: current.role,
+      avatar: updatedAvatar,
+      status: current.status
+    };
+    res.status(200).json({ message: "Profile updated successfully", user });
+  } catch (e2) {
+    res.status(500).json({ message: e2.message });
+  }
+});
 var getClassworkFromDb = async (classroomId) => {
   const rows = await db.all("SELECT * FROM classwork WHERE classroom_id = ?", classroomId);
   return rows.map((row) => {
@@ -77230,8 +77295,42 @@ app.put("/classwork/:classroomId", authenticateToken, requireRole("Teacher", "Ad
 });
 app.get("/classrooms", authenticateToken, async (req, res) => {
   try {
-    const classrooms = await db.all("SELECT * FROM classrooms");
-    res.status(200).json({ classrooms });
+    const classrooms = await db.all("SELECT * FROM classrooms ORDER BY id ASC");
+    const defaultTeacher = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(role) = 'teacher' ORDER BY id ASC LIMIT 1").catch(() => null);
+    const validClassrooms = classrooms.filter((c) => {
+      if (!c || !c.name) return false;
+      const isPhantom = /^Classroom \d+$/i.test(c.name.trim()) && (!c.section || !c.section.trim()) && (!c.subject || !c.subject.trim());
+      return !isPhantom;
+    });
+    const formatted = await Promise.all(validClassrooms.map(async (c) => {
+      let instName = c.instructor && c.instructor.trim() || "";
+      let instEmail = c.instructor_email && c.instructor_email.trim() || c.instructorEmail && c.instructorEmail.trim() || "";
+      let realTeacher = null;
+      if (instEmail) {
+        realTeacher = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(email) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", instEmail).catch(() => null);
+      }
+      if (!realTeacher && instName && instName !== "Instructor") {
+        realTeacher = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(name) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", instName).catch(() => null);
+      }
+      if (!realTeacher && defaultTeacher) {
+        realTeacher = defaultTeacher;
+      }
+      if (realTeacher) {
+        instName = realTeacher.name;
+        instEmail = realTeacher.email;
+        if (!c.instructor_email || c.instructor !== realTeacher.name) {
+          await db.run("UPDATE classrooms SET instructor = ?, instructor_email = ? WHERE id = ?", realTeacher.name, realTeacher.email, c.id).catch(() => {
+          });
+        }
+      }
+      return {
+        ...c,
+        instructor: instName || "Instructor",
+        instructorEmail: instEmail,
+        instructorAvatar: realTeacher?.avatar || null
+      };
+    }));
+    res.status(200).json({ classrooms: formatted });
   } catch (e2) {
     res.status(500).json({ message: e2.message });
   }
@@ -77241,26 +77340,50 @@ app.put("/classrooms", authenticateToken, requireRole("Teacher", "Admin"), async
   if (!Array.isArray(classrooms)) return res.status(400).json({ message: "classrooms must be an array" });
   try {
     for (const c of classrooms) {
+      if (c.name && /^Classroom \d+$/i.test(c.name.trim()) && (!c.section || !c.section.trim()) && (!c.subject || !c.subject.trim())) {
+        continue;
+      }
+      const instName = c.instructor || req.user.name || "Instructor";
+      const instEmail = c.instructorEmail || c.instructor_email || (req.user.role === "Teacher" ? req.user.email : "");
       await db.run(
         `
-                INSERT INTO classrooms (id, code, section, name, subject, instructor) 
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO classrooms (id, code, section, name, subject, instructor, instructor_email) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     code = excluded.code,
                     section = excluded.section,
                     name = excluded.name,
                     subject = excluded.subject,
-                    instructor = excluded.instructor
+                    instructor = excluded.instructor,
+                    instructor_email = excluded.instructor_email
             `,
         c.id || Date.now(),
         c.code || "",
         c.section || "",
         c.name || "",
         c.subject || "",
-        c.instructor || ""
+        instName,
+        instEmail
       );
     }
     res.status(200).json({ message: "Classrooms saved" });
+  } catch (e2) {
+    res.status(500).json({ message: e2.message });
+  }
+});
+app.delete("/classrooms/:id", authenticateToken, requireRole("Teacher", "Admin"), async (req, res) => {
+  try {
+    const id = req.params.id;
+    await db.run("DELETE FROM submissions WHERE assignment_id IN (SELECT id FROM classwork WHERE classroom_id = ?)", id).catch(() => {
+    });
+    await db.run("DELETE FROM grades WHERE assignment_id IN (SELECT id FROM classwork WHERE classroom_id = ?)", id).catch(() => {
+    });
+    await db.run("DELETE FROM classwork WHERE classroom_id = ?", id).catch(() => {
+    });
+    await db.run("DELETE FROM enrollments WHERE classroom_id = ?", id).catch(() => {
+    });
+    await db.run("DELETE FROM classrooms WHERE id = ?", id);
+    res.status(200).json({ message: "Classroom deleted successfully" });
   } catch (e2) {
     res.status(500).json({ message: e2.message });
   }
@@ -77400,14 +77523,150 @@ app.post("/grades/:assignmentId/bulk", authenticateToken, requireRole("Teacher",
 app.get("/classroom-students/:classroomId", authenticateToken, async (req, res) => {
   try {
     const { classroomId } = req.params;
-    const rows = await db.all(`
-            SELECT DISTINCT s.student_name as name, u.email
+    const classroom = await db.get("SELECT * FROM classrooms WHERE id = ?", classroomId);
+    let instructor = null;
+    let instUser = null;
+    if (classroom) {
+      if (classroom.instructor_email && classroom.instructor_email.trim()) {
+        instUser = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(email) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", classroom.instructor_email.trim());
+      }
+      if (!instUser && classroom.instructor && classroom.instructor.trim() && classroom.instructor !== "Instructor") {
+        instUser = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(name) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", classroom.instructor.trim());
+      }
+    }
+    if (!instUser) {
+      instUser = await db.get(`
+                SELECT u.id, u.name, u.email, u.avatar, u.role
+                FROM classwork c
+                JOIN users u ON (LOWER(u.role) = 'teacher' OR LOWER(u.role) = 'admin')
+                WHERE c.classroom_id = ?
+                LIMIT 1
+            `, classroomId).catch(() => null);
+    }
+    if (!instUser && (req.user.role === "Teacher" || req.user.role === "Admin")) {
+      instUser = await db.get("SELECT id, name, email, avatar, role FROM users WHERE id = ?", req.user.id).catch(() => null);
+    }
+    if (!instUser) {
+      instUser = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(role) = 'teacher' ORDER BY id ASC LIMIT 1").catch(() => null);
+    }
+    if (instUser) {
+      instructor = {
+        id: instUser.id,
+        name: instUser.name,
+        email: instUser.email,
+        avatar: instUser.avatar || null,
+        role: instUser.role
+      };
+      if (classroom && (!classroom.instructor_email || classroom.instructor !== instUser.name)) {
+        await db.run("UPDATE classrooms SET instructor = ?, instructor_email = ? WHERE id = ?", instUser.name, instUser.email, classroomId).catch(() => {
+        });
+      }
+    } else {
+      instructor = {
+        id: null,
+        name: classroom?.instructor || "Instructor",
+        email: classroom?.instructor_email || "",
+        avatar: null
+      };
+    }
+    const enrolledRows = await db.all(`
+            SELECT DISTINCT 
+                u.id as user_id,
+                COALESCE(u.name, e.student_name) as name, 
+                COALESCE(u.email, e.student_email) as email,
+                u.avatar
+            FROM enrollments e
+            LEFT JOIN users u ON (LOWER(u.email) = LOWER(e.student_email) OR u.id = e.student_id)
+            WHERE e.classroom_id = ?
+        `, classroomId).catch(() => []);
+    const subRows = await db.all(`
+            SELECT DISTINCT 
+                u.id as user_id,
+                COALESCE(u.name, s.student_name) as name, 
+                COALESCE(u.email, s.student_name) as email,
+                u.avatar
             FROM submissions s
             JOIN classwork c ON s.assignment_id = c.id
-            LEFT JOIN users u ON u.name = s.student_name OR u.email = s.student_name
+            LEFT JOIN users u ON (LOWER(u.name) = LOWER(s.student_name) OR LOWER(u.email) = LOWER(s.student_name))
             WHERE c.classroom_id = ?
-        `, classroomId);
-    res.status(200).json({ students: rows });
+        `, classroomId).catch(() => []);
+    const studentsMap = {};
+    for (const s2 of [...enrolledRows, ...subRows]) {
+      if (s2 && s2.name && s2.name.trim()) {
+        const key = s2.name.trim().toLowerCase();
+        if (instructor && (instructor.name && key === instructor.name.toLowerCase() || instructor.email && s2.email && s2.email.toLowerCase() === instructor.email.toLowerCase())) {
+          continue;
+        }
+        if (!studentsMap[key]) {
+          studentsMap[key] = {
+            id: s2.user_id || null,
+            name: s2.name.trim(),
+            email: s2.email && s2.email.includes("@") ? s2.email : `${s2.name.trim().toLowerCase().replace(/\s+/g, ".")}@student.verity.edu`,
+            avatar: s2.avatar || null
+          };
+        }
+      }
+    }
+    res.status(200).json({
+      students: Object.values(studentsMap),
+      instructor
+    });
+  } catch (e2) {
+    res.status(500).json({ message: e2.message });
+  }
+});
+app.post("/classrooms/:classroomId/enroll", authenticateToken, async (req, res) => {
+  try {
+    const { classroomId } = req.params;
+    const studentName = req.body?.studentName || req.user.name;
+    const studentEmail = req.body?.studentEmail || req.user.email;
+    const studentId = req.user.id || null;
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    if (!studentName || !studentEmail) {
+      return res.status(400).json({ message: "Student name and email are required" });
+    }
+    await db.run(`
+            INSERT INTO enrollments (classroom_id, student_id, student_name, student_email, enrolled_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(classroom_id, student_email) DO UPDATE SET
+                student_name = excluded.student_name,
+                enrolled_at = excluded.enrolled_at
+        `, classroomId, studentId, studentName, studentEmail, now);
+    res.status(200).json({ message: "Enrolled successfully" });
+  } catch (e2) {
+    res.status(500).json({ message: e2.message });
+  }
+});
+app.post("/classrooms/join", authenticateToken, async (req, res) => {
+  try {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ message: "Class code required" });
+    const trimmed = code.trim().toLowerCase();
+    const classroom = await db.get(`
+            SELECT * FROM classrooms 
+            WHERE LOWER(code) = ? OR LOWER(section) = ? OR LOWER(name) = ? OR CAST(id as TEXT) = ?
+        `, trimmed, trimmed, trimmed, trimmed);
+    if (!classroom) {
+      return res.status(404).json({ message: "No class found with that code" });
+    }
+    const studentName = req.user.name;
+    const studentEmail = req.user.email;
+    const studentId = req.user.id;
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    await db.run(`
+            INSERT INTO enrollments (classroom_id, student_id, student_name, student_email, enrolled_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(classroom_id, student_email) DO UPDATE SET
+                student_name = excluded.student_name,
+                enrolled_at = excluded.enrolled_at
+        `, classroom.id, studentId, studentName, studentEmail, now);
+    res.status(200).json({
+      classroom: {
+        ...classroom,
+        instructorEmail: classroom.instructor_email || ""
+      },
+      message: "Enrolled successfully"
+    });
   } catch (e2) {
     res.status(500).json({ message: e2.message });
   }

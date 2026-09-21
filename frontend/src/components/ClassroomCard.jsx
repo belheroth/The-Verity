@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { MoreVertical, Copy, Check, Trash2, Archive, RotateCcw, Settings } from 'lucide-react';
 import { useDarkMode } from '../hooks/useDarkMode';
@@ -34,7 +34,30 @@ export default function ClassroomCard({
   const { isDark } = useDarkMode();
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const theme = getClassroomCardTheme(classroom);
+
+  // Reactive banner theme: re-reads from localStorage when storage changes
+  const themeStorageKey = `verity_classroom_theme_${classroom?.id ?? 'default'}`;
+  const [theme, setTheme] = useState(() => getClassroomCardTheme(classroom));
+
+  useEffect(() => {
+    // Re-read when the classroom prop changes
+    setTheme(getClassroomCardTheme(classroom));
+  }, [classroom?.id, themeStorageKey]);
+
+  useEffect(() => {
+    const handleStorage = (e) => {
+      if (e.key === themeStorageKey) {
+        try {
+          const parsed = e.newValue ? JSON.parse(e.newValue) : null;
+          setTheme(parsed || getClassroomCardTheme(classroom));
+        } catch {
+          setTheme(getClassroomCardTheme(classroom));
+        }
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, [themeStorageKey]);
 
   const handleCopyCode = (e) => {
     e.stopPropagation();
