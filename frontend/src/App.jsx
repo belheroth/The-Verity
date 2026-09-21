@@ -13,6 +13,7 @@ import TeacherClasswork from './pages/TeacherClasswork';
 import TeacherGrading from './pages/TeacherGrading';
 import TeacherView from './pages/TeacherView';
 import AdminDashboard from './pages/AdminDashboard';
+import AdminLogin from './pages/admin/AdminLogin';
 import ProtectedRoute from './components/ProtectedRoute';
 import NotFound from './pages/NotFound';
 import syncService from './services/syncService';
@@ -57,9 +58,34 @@ if (CLOUD_SOCKET && CLOUD_SOCKET !== LOCAL_SOCKET) {
 export default function App() {
 
   // 1. INITIALIZE STATE FROM LOCAL STORAGE
-  // Instead of starting at 'login', it checks if a screen was saved previously.
   const [currentScreen, setCurrentScreen] = useState(() => {
-    return localStorage.getItem('currentScreen') || 'login';
+    const path = typeof window !== 'undefined' ? window.location.pathname : '';
+    const isAdminPath = path.startsWith('/admin') || (typeof window !== 'undefined' && Boolean(window.IS_ADMIN_APP));
+    
+    let savedUser = null;
+    try {
+      const savedUserStr = localStorage.getItem('currentUser');
+      savedUser = savedUserStr ? JSON.parse(savedUserStr) : null;
+    } catch (_) {}
+
+    if (isAdminPath) {
+      if (savedUser && savedUser.role === 'Admin') return 'admin_dashboard';
+      return 'admin_login';
+    }
+
+    // Standard path (e.g. / or /login)
+    if (!savedUser) {
+      return 'login';
+    }
+
+    const savedScreen = localStorage.getItem('currentScreen');
+    if (savedScreen && savedScreen !== 'admin_login' && savedScreen !== 'admin_dashboard') {
+      return savedScreen;
+    }
+
+    if (savedUser.role === 'Admin') return 'admin_dashboard';
+    if (savedUser.role === 'Teacher') return 'teacher_dashboard';
+    return 'student_dashboard';
   });
 
   const [currentUser, setCurrentUser] = useState(() => {
@@ -311,13 +337,14 @@ export default function App() {
   // 3. SECURE LOGOUT (Wipes the memory)
   const handleLogout = () => {
     releaseLockdown();
+    const wasAdmin = currentUser?.role === 'Admin' || (typeof window !== 'undefined' && (window.location.pathname.startsWith('/admin') || Boolean(window.IS_ADMIN_APP)));
     setCurrentUser(null);
     notifyUserListeners(null);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('verity:user-updated', { detail: null }));
     }
     setActiveClassroom(null);
-    setCurrentScreen('login');
+    setCurrentScreen(wasAdmin ? 'admin_login' : 'login');
     localStorage.removeItem('currentScreen');
     localStorage.removeItem('currentUser');
     localStorage.removeItem('activeClassroom');
@@ -342,6 +369,22 @@ export default function App() {
   return (
     <div style={{ height: '100%', width: '100%' }}>
       {/* --- AUTH ROUTES --- */}
+          {currentScreen === 'admin_login' && (
+            <AdminLogin
+              onLogin={(user, token) => {
+                localStorage.removeItem('verity_teacher_classrooms');
+                localStorage.removeItem('verity_classrooms');
+                setCurrentUser(user);
+                notifyUserListeners(user);
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('verity:user-updated', { detail: user }));
+                }
+                if (token) localStorage.setItem('verity_token', token);
+                setCurrentScreen('admin_dashboard');
+              }}
+            />
+          )}
+
           {currentScreen === 'login' && (
             <Login
               onLogin={(user, token) => {
@@ -356,7 +399,8 @@ export default function App() {
                 }
                 if (token) localStorage.setItem('verity_token', token);
                 if (user.role === 'Admin') {
-                  setCurrentScreen('admin_dashboard');
+                  setCurrentScreen('admin_login');
+                  return;
                 } else if (user.role === 'Teacher') {
                   setCurrentScreen('teacher_dashboard');
                 } else {
@@ -564,22 +608,34 @@ export default function App() {
       )}
 
       {/* Final fallback - if nothing matches, show login screen to prevent white screen */}
-      {!currentUser && !['login', 'register'].includes(currentScreen) && (
-        <Login
-          onLogin={(user, token) => {
-            setCurrentUser(user);
-            if (token) localStorage.setItem('verity_token', token);
-            if (user.role === 'Admin') {
+      {!currentUser && !['login', 'register', 'admin_login'].includes(currentScreen) && (
+        (typeof window !== 'undefined' && (window.location.pathname.startsWith('/admin') || Boolean(window.IS_ADMIN_APP))) ? (
+          <AdminLogin
+            onLogin={(user, token) => {
+              setCurrentUser(user);
+              notifyUserListeners(user);
+              if (token) localStorage.setItem('verity_token', token);
               setCurrentScreen('admin_dashboard');
-            } else if (user.role === 'Teacher') {
-              setCurrentScreen('teacher_dashboard');
-            } else {
-              lockDown(); // students only
-              setCurrentScreen('student_dashboard');
-            }
-          }}
-          onGoToRegister={() => setCurrentScreen('register')}
-        />
+            }}
+          />
+        ) : (
+          <Login
+            onLogin={(user, token) => {
+              setCurrentUser(user);
+              if (token) localStorage.setItem('verity_token', token);
+              if (user.role === 'Admin') {
+                setCurrentScreen('admin_login');
+                return;
+              } else if (user.role === 'Teacher') {
+                setCurrentScreen('teacher_dashboard');
+              } else {
+                lockDown(); // students only
+                setCurrentScreen('student_dashboard');
+              }
+            }}
+            onGoToRegister={() => setCurrentScreen('register')}
+          />
+        )
       )}
 
       {/* --- OFFLINE LOCAL FALLBACK BANNER --- */}

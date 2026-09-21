@@ -175,8 +175,24 @@ function initSqlite() {
             UNIQUE(assignment_id, student_id)
         );
 
-        INSERT OR IGNORE INTO users (name, email, password, role, status)
+        CREATE TABLE IF NOT EXISTS admin_users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            role TEXT DEFAULT 'Admin',
+            lastLogin TEXT,
+            status TEXT DEFAULT 'Active',
+            avatar TEXT
+        );
+
+        INSERT OR IGNORE INTO admin_users (name, email, password, role, status)
         VALUES ('System Admin', 'admin@verity.com', 'admin', 'Admin', 'Active');
+
+        INSERT OR IGNORE INTO admin_users (name, email, password, role, lastLogin, status, avatar)
+        SELECT name, email, password, role, lastLogin, status, avatar FROM users WHERE LOWER(role) = 'admin' OR LOWER(email) = 'admin@verity.com';
+
+        DELETE FROM users WHERE LOWER(role) = 'admin' OR LOWER(email) = 'admin@verity.com';
     `);
 
     try { sqliteDb.exec(`ALTER TABLE classrooms ADD COLUMN instructor_email TEXT;`); } catch (e) {}

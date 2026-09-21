@@ -990,7 +990,7 @@ export default function TeacherClasswork({
         {/* ═══ MAIN CONTENT AREA (Padded area containing the Big Box) ═══ */}
         <div style={styles.mainContent}>
 
-          {/* ═══ THE BIG BOX CONTAINING THE TABS & CLASSROOM VIEWS ═══ */}
+          {/* ═══ THE BIG BOX CONTAINING THE TABS & CLASSROOM VIEWS (Static box - no fade on container) ═══ */}
           <div style={styles.bigBoxContainer}>
 
             {/* CLASSROOM TOP NAV TABS INSIDE THE BIG BOX */}
@@ -1052,6 +1052,14 @@ export default function TeacherClasswork({
 
             {/* SCROLLABLE INNER BODY OF THE BIG BOX */}
             <div style={styles.bigBoxInnerScroll}>
+              <motion.div
+                key={`${classroom?.id || 'cls'}_${activeTab}`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
+                style={{ display: 'flex', flexDirection: 'column', flex: 1 }}
+              >
 
               {/* ═══ TAB 1: STREAM ═══ */}
               {activeTab === 'stream' && (
@@ -1671,7 +1679,7 @@ export default function TeacherClasswork({
                   )}
                 </div>
               )}
-
+              </motion.div>
             </div>
           </div>
         </div>
@@ -2201,7 +2209,7 @@ const getStyles = (isDark) => ({
   // MAIN CONTENT & BIG BOX CONTAINER
   mainContent: {
     flex: 1,
-    padding: '14px 24px 24px 24px',
+    padding: '20px 24px 24px',
     display: 'flex',
     flexDirection: 'column',
     minWidth: 0,

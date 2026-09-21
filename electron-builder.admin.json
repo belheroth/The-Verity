@@ -1,0 +1,48 @@
+{
+  "appId": "com.verity.admin.app",
+  "productName": "The Verity Admin",
+  "extraMetadata": {
+    "main": "electron/admin-main.cjs"
+  },
+  "files": [
+    "electron/**/*",
+    "dist/**/*",
+    "!dist/win-unpacked/**/*",
+    "!dist/*.exe",
+    "!dist/*.blockmap",
+    "!dist/*.yml",
+    "!dist/*.yaml"
+  ],
+  "extraResources": [
+    {
+      "from": "dist-server",
+      "to": "dist-server",
+      "filter": [
+        "server-bundle.cjs"
+      ]
+    },
+    {
+      "from": "server",
+      "to": ".",
+      "filter": [
+        "database.json"
+      ]
+    }
+  ],
+  "win": {
+    "target": "nsis",
+    "icon": "electron/assets/icon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": "always",
+    "createStartMenuShortcut": true,
+    "shortcutName": "The Verity Admin Portal",
+    "artifactName": "The Verity Admin Setup.${ext}",
+    "installerIcon": "electron/assets/icon.ico",
+    "uninstallerIcon": "electron/assets/icon.ico",
+    "runAfterFinish": true
+  }
+}

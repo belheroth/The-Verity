@@ -744,7 +744,7 @@ export default function ClassroomView({
         {/* ═══ MAIN CONTENT AREA ═══ */}
         <div style={styles.mainContent}>
 
-          {/* ═══ BIG BOX CONTAINER ═══ */}
+          {/* ═══ BIG BOX CONTAINER (Static box - no fade on container) ═══ */}
           <div style={styles.bigBoxContainer}>
 
             {/* CLASSROOM TOP NAV TABS (Stream, Classwork, People - strictly NO Grades, NO Settings) */}
@@ -785,6 +785,14 @@ export default function ClassroomView({
 
             {/* SCROLLABLE INNER BODY OF THE BIG BOX */}
             <div style={styles.bigBoxInnerScroll}>
+              <motion.div
+                key={`${classroom?.id || 'cls'}_${activeTab}`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
+                style={{ display: 'flex', flexDirection: 'column', flex: 1 }}
+              >
 
               {/* ═══ TAB 1: STREAM ═══ */}
               {activeTab === 'stream' && (
@@ -1208,7 +1216,7 @@ export default function ClassroomView({
                   </div>
                 </div>
               )}
-
+              </motion.div>
             </div>
           </div>
         </div>

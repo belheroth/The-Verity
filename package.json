@@ -14,7 +14,9 @@
     "build": "npm --prefix frontend run build",
     "build:server": "esbuild server/server.js --bundle --platform=node --outfile=dist-server/server-bundle.cjs --external:better-sqlite3 --external:pg",
     "electron": "electron .",
-    "package": "npm run build && npm run build:server && electron-builder"
+    "electron:admin": "electron electron/admin-main.cjs",
+    "package": "npm run build && npm run build:server && electron-builder",
+    "package:admin": "npm run build && npm run build:server && electron-builder --config electron-builder.admin.json"
   },
   "devDependencies": {
     "concurrently": "^10.0.3",

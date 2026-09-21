@@ -104,7 +104,22 @@ CREATE INDEX IF NOT EXISTS idx_submissions_assignment ON submissions(assignment_
 CREATE INDEX IF NOT EXISTS idx_submissions_student ON submissions(student_name);
 CREATE INDEX IF NOT EXISTS idx_grades_assignment_student ON grades(assignment_id, student_id);
 
--- Default Admin Account
-INSERT INTO users (name, email, password, role, status)
+CREATE TABLE IF NOT EXISTS admin_users (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    role VARCHAR(50) DEFAULT 'Admin',
+    lastlogin TEXT,
+    status VARCHAR(50) DEFAULT 'Active',
+    avatar TEXT
+);
+
+-- Default Admin Account in isolated admin_users table
+INSERT INTO admin_users (name, email, password, role, status)
 VALUES ('System Admin', 'admin@verity.com', 'admin', 'Admin', 'Active')
 ON CONFLICT (email) DO NOTHING;
+
+-- Ensure admin accounts do not exist in users table
+DELETE FROM users WHERE role = 'Admin';
+

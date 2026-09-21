@@ -618,118 +618,127 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
         {/* MAIN CONTENT AREA */}
         <div style={styles.mainContent}>
           {/* The Main White Card */}
-        <div style={styles.whiteCard}>
+          <div style={styles.whiteCard}>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeView}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: '100%' }}
+              >
+                {activeView === 'settings' && <SettingsPanel role="Student" />}
 
+                {activeView === 'calendar' && (
+                  <StudentCalendar classrooms={classrooms} />
+                )}
 
-          {activeView === 'settings' && <SettingsPanel role="Student" />}
+                {activeView === 'classroomSettings' && settingsClassroom && (
+                  <ClassroomSettings
+                    role="student"
+                    classroom={settingsClassroom}
+                    onClose={() => { setSettingsClassroom(null); handleSetView('classrooms'); }}
+                  />
+                )}
 
-          {activeView === 'calendar' && (
-            <StudentCalendar classrooms={classrooms} />
-          )}
-
-          {activeView === 'classroomSettings' && settingsClassroom && (
-            <ClassroomSettings
-              role="student"
-              classroom={settingsClassroom}
-              onClose={() => { setSettingsClassroom(null); handleSetView('classrooms'); }}
-            />
-          )}
-
-          {activeView === 'archived' && (
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-              {classrooms.filter(c => c.archived).length === 0 ? (
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
-                  <h3 style={{ margin: 0 }}>No Archived Classrooms</h3>
-                  <p style={{ marginTop: '10px' }}>Classrooms you archive will appear here.</p>
-                </div>
-              ) : (
-                <div style={styles.grid}>
-                  {classrooms.filter(c => c.archived).map(cls => (
-                    <ClassroomCard
-                      key={cls.id}
-                      classroom={cls}
-                      onEnter={onEnterClassroom}
-                      onUnarchive={handleUnarchiveClass}
-                      onDelete={handleDeleteClass}
-                      isArchived={true}
-                      role="Student"
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeView === 'classrooms' && (
-            <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={() => { setJoinError(''); setClassCode(''); setIsModalOpen(true); }}
-                  style={styles.addButton}
-                  className="btn-anim"
-                >
-                  <Plus size={18} style={{ marginRight: '6px' }} /> Add
-                </motion.button>
-              </div>
-
-              {/* Classroom Grid */}
-              <div style={styles.grid}>
-                {loadingClassrooms
-                  ? Array.from({ length: 4 }).map((_, i) => <Skeleton.Card key={i} />)
-                  : classrooms.filter(c => !c.archived).length === 0 ? (
-                    <div style={{
-                      gridColumn: '1 / -1',
-                      padding: '50px 20px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      textAlign: 'center',
-                      background: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)',
-                      borderRadius: '20px',
-                      border: isDark ? '1.5px dashed #404040' : '1.5px dashed #cbd5e1'
-                    }}>
-                      <div style={{
-                        width: '56px',
-                        height: '56px',
-                        borderRadius: '16px',
-                        backgroundColor: isDark ? '#262626' : '#f1f5f9',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        marginBottom: '14px'
-                      }}>
-                        <ClipboardList size={28} color={isDark ? '#10b981' : '#059669'} />
+                {activeView === 'archived' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                    {classrooms.filter(c => c.archived).length === 0 ? (
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>
+                        <h3 style={{ margin: 0 }}>No Archived Classrooms</h3>
+                        <p style={{ marginTop: '10px' }}>Classrooms you archive will appear here.</p>
                       </div>
-                      <h3 style={{ margin: '0 0 6px', fontSize: '1.15rem', fontWeight: '700', color: isDark ? '#f5f5f5' : '#1e293b' }}>
-                        No Enrolled Classrooms
-                      </h3>
-                      <p style={{ margin: '0 0 16px', maxWidth: '380px', fontSize: '0.88rem', color: isDark ? '#a3a3a3' : '#64748b' }}>
-                        You are not enrolled in any classes yet. Click <strong>+ Add</strong> above to enter a class code from your instructor.
-                      </p>
+                    ) : (
+                      <div style={styles.grid}>
+                        {classrooms.filter(c => c.archived).map(cls => (
+                          <ClassroomCard
+                            key={cls.id}
+                            classroom={cls}
+                            onEnter={onEnterClassroom}
+                            onUnarchive={handleUnarchiveClass}
+                            onDelete={handleDeleteClass}
+                            isArchived={true}
+                            role="Student"
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeView === 'classrooms' && (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => { setJoinError(''); setClassCode(''); setIsModalOpen(true); }}
+                        style={styles.addButton}
+                        className="btn-anim"
+                      >
+                        <Plus size={18} style={{ marginRight: '6px' }} /> Add
+                      </motion.button>
                     </div>
-                  ) : classrooms.filter(c => !c.archived).map(cls => (
-                    <ClassroomCard
-                      key={cls.id}
-                      classroom={cls}
-                      onEnter={onEnterClassroom}
-                      onArchive={handleArchiveClass}
-                      onSettings={(c) => {
-                        setSettingsClassroom(c);
-                        handleSetView('classroomSettings');
-                      }}
-                      onDelete={handleDeleteClass}
-                      role="Student"
-                    />
-                  ))
-                }
-              </div>
-            </>
-          )}
+
+                    {/* Classroom Grid */}
+                    <div style={styles.grid}>
+                      {loadingClassrooms
+                        ? Array.from({ length: 4 }).map((_, i) => <Skeleton.Card key={i} />)
+                        : classrooms.filter(c => !c.archived).length === 0 ? (
+                          <div style={{
+                            gridColumn: '1 / -1',
+                            padding: '50px 20px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            textAlign: 'center',
+                            background: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)',
+                            borderRadius: '20px',
+                            border: isDark ? '1.5px dashed #404040' : '1.5px dashed #cbd5e1'
+                          }}>
+                            <div style={{
+                              width: '56px',
+                              height: '56px',
+                              borderRadius: '16px',
+                              backgroundColor: isDark ? '#262626' : '#f1f5f9',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              marginBottom: '14px'
+                            }}>
+                              <ClipboardList size={28} color={isDark ? '#10b981' : '#059669'} />
+                            </div>
+                            <h3 style={{ margin: '0 0 6px', fontSize: '1.15rem', fontWeight: '700', color: isDark ? '#f5f5f5' : '#1e293b' }}>
+                              No Enrolled Classrooms
+                            </h3>
+                            <p style={{ margin: '0 0 16px', maxWidth: '380px', fontSize: '0.88rem', color: isDark ? '#a3a3a3' : '#64748b' }}>
+                              You are not enrolled in any classes yet. Click <strong>+ Add</strong> above to enter a class code from your instructor.
+                            </p>
+                          </div>
+                        ) : classrooms.filter(c => !c.archived).map(cls => (
+                          <ClassroomCard
+                            key={cls.id}
+                            classroom={cls}
+                            onEnter={onEnterClassroom}
+                            onArchive={handleArchiveClass}
+                            onSettings={(c) => {
+                              setSettingsClassroom(c);
+                              handleSetView('classroomSettings');
+                            }}
+                            onDelete={handleDeleteClass}
+                            role="Student"
+                          />
+                        ))
+                      }
+                    </div>
+                  </>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </div>
         </div>
-      </div>
     </div>
 
       {/* INPUT CLASS CODE MODAL */}

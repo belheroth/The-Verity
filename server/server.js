@@ -26,6 +26,65 @@ app.use(cors());
 app.use(express.json({ limit: '150mb' }));
 app.use(express.urlencoded({ limit: '150mb', extended: true }));
 
+// --- SECURITY: BLOCK SEARCH ENGINE CRAWLERS & INDEXING ---
+app.use((req, res, next) => {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet');
+    next();
+});
+
+app.get('/robots.txt', (req, res) => {
+    res.type('text/plain');
+    res.send('User-agent: *\nDisallow: /\n');
+});
+
+// --- SECURITY: ADMIN IP WHITELISTING & RATE LIMITING ---
+const adminLoginAttempts = new Map();
+
+const isIpWhitelisted = (ip) => {
+    if (!ip) return true;
+    const cleanIp = ip.replace(/^.*:/, ''); // strip IPv6 prefix if mapped
+    const allowedEnv = (process.env.ADMIN_ALLOWED_IPS || '').split(',').map(s => s.trim()).filter(Boolean);
+    const defaultAllowed = ['127.0.0.1', '::1', 'localhost'];
+    if (defaultAllowed.includes(cleanIp) || allowedEnv.includes(cleanIp) || allowedEnv.includes('*')) {
+        return true;
+    }
+    return false;
+};
+
+const adminIpWhitelist = (req, res, next) => {
+    const clientIp = req.ip || req.connection?.remoteAddress || req.headers['x-forwarded-for'];
+    if (!isIpWhitelisted(clientIp)) {
+        console.warn(`[SECURITY ALERT] Admin access blocked for non-whitelisted IP: ${clientIp}`);
+        return res.status(403).json({ message: 'Access denied. IP address not whitelisted for Admin access.' });
+    }
+    next();
+};
+
+const adminLoginRateLimiter = (req, res, next) => {
+    const clientIp = req.ip || req.connection?.remoteAddress || 'unknown';
+    const now = Date.now();
+    const windowMs = 15 * 60 * 1000; // 15 mins window
+    const maxAttempts = 5;
+
+    const record = adminLoginAttempts.get(clientIp) || { count: 0, resetTime: now + windowMs };
+
+    if (now > record.resetTime) {
+        record.count = 0;
+        record.resetTime = now + windowMs;
+    }
+
+    if (record.count >= maxAttempts) {
+        const remainingMinutes = Math.ceil((record.resetTime - now) / 60000);
+        return res.status(429).json({ 
+            message: `Too many failed admin login attempts. Account locked for ${remainingMinutes} minute(s).` 
+        });
+    }
+
+    req.adminRateRecord = record;
+    req.clientIp = clientIp;
+    next();
+};
+
 // --- MIDDLEWARE ---
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
@@ -202,9 +261,21 @@ app.post('/register', async (req, res) => {
             return res.status(400).json({ message: 'Name, email, and password are required' });
         }
 
-        const existing = await db.get('SELECT id FROM users WHERE email = ?', email);
-        if (existing) {
-            return res.status(400).json({ message: 'Email already exists' });
+        const cleanEmail = (email || '').trim().toLowerCase();
+        const cleanName = (name || '').trim().toLowerCase();
+
+        // 1. Check if email already exists in users or admin_users
+        const existingUserEmail = await db.get('SELECT id FROM users WHERE LOWER(email) = ?', cleanEmail);
+        const existingAdminEmail = await db.get('SELECT id FROM admin_users WHERE LOWER(email) = ?', cleanEmail);
+        if (existingUserEmail || existingAdminEmail) {
+            return res.status(400).json({ message: 'invalid email' });
+        }
+
+        // 2. Check if username (name) already exists in users or admin_users
+        const existingUserName = await db.get('SELECT id FROM users WHERE LOWER(name) = ?', cleanName);
+        const existingAdminName = await db.get('SELECT id FROM admin_users WHERE LOWER(name) = ?', cleanName);
+        if (existingUserName || existingAdminName) {
+            return res.status(400).json({ message: 'invalid email' });
         }
 
         // Check if an existing Admin is creating this account
@@ -250,8 +321,23 @@ app.post('/register', async (req, res) => {
 app.post('/login', async (req, res) => {
     try {
         const { email, password } = req.body;
-        const user = await db.get('SELECT * FROM users WHERE email = ? AND password = ?', email, password);
+        const cleanEmail = (email || '').trim().toLowerCase();
+
+        // 1. STRICT ISOLATION: Reject any admin account attempting standard login with generic error
+        const isAdminAcc = await db.get('SELECT id FROM admin_users WHERE LOWER(email) = ?', cleanEmail);
+        if (isAdminAcc) {
+            return res.status(401).json({ message: 'Invalid credentials' });
+        }
+
+        // Standard login queries users table (Teachers & Students) ONLY
+        const user = await db.get('SELECT * FROM users WHERE LOWER(email) = ? AND password = ?', cleanEmail, password);
+
         if (!user) {
+            return res.status(401).json({ message: 'Invalid credentials' });
+        }
+
+        if (user.role === 'Admin' || user.role === 'admin') {
+            try { await db.run('DELETE FROM users WHERE id = ?', user.id); } catch (_) {}
             return res.status(401).json({ message: 'Invalid credentials' });
         }
         if (user.status === 'Pending') {
@@ -266,6 +352,67 @@ app.post('/login', async (req, res) => {
     }
 });
 
+// --- ADMIN ISOLATED AUTH & PROFILE ENDPOINTS ---
+app.post('/admin/login', adminIpWhitelist, adminLoginRateLimiter, async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        if (!email || !password) {
+            return res.status(400).json({ message: 'Email and password are required' });
+        }
+
+        const cleanEmail = email.trim().toLowerCase();
+        const adminUser = await db.get('SELECT * FROM admin_users WHERE LOWER(email) = ? AND password = ?', cleanEmail, password);
+
+        if (!adminUser) {
+            if (req.adminRateRecord) {
+                req.adminRateRecord.count += 1;
+                adminLoginAttempts.set(req.clientIp, req.adminRateRecord);
+            }
+            return res.status(401).json({ message: 'Invalid admin credentials' });
+        }
+
+        if (adminUser.status === 'Suspended') {
+            return res.status(403).json({ message: 'Admin account is suspended' });
+        }
+
+        // Reset rate limiter on successful login
+        if (req.clientIp) adminLoginAttempts.delete(req.clientIp);
+
+        adminUser.lastLogin = new Date().toISOString();
+        await db.run('UPDATE admin_users SET lastLogin = ? WHERE id = ?', adminUser.lastLogin, adminUser.id);
+
+        const token = jwt.sign(
+            { id: adminUser.id, email: adminUser.email, role: 'Admin', name: adminUser.name, isAdmin: true },
+            JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+
+        const adminObj = {
+            id: adminUser.id,
+            name: adminUser.name,
+            email: adminUser.email,
+            role: 'Admin',
+            status: adminUser.status || 'Active',
+            lastLogin: adminUser.lastLogin,
+            avatar: adminUser.avatar || null
+        };
+
+        res.status(200).json({ message: 'Admin login successful', user: adminObj, token });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+app.get('/admin/profile', authenticateToken, adminIpWhitelist, requireRole('Admin'), async (req, res) => {
+    try {
+        const adminUser = await db.get('SELECT id, name, email, role, avatar, status, lastLogin FROM admin_users WHERE id = ?', req.user.id);
+        if (!adminUser) return res.status(404).json({ message: 'Admin profile not found' });
+        res.status(200).json({ user: adminUser });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
 app.post('/auth/google', async (req, res) => {
     const { token, role: userRole } = req.body;
     try {
@@ -275,8 +422,14 @@ app.post('/auth/google', async (req, res) => {
         });
         const payload = ticket.getPayload();
         const { email, name } = payload;
+        const cleanEmail = (email || '').trim().toLowerCase();
 
-        let user = await db.get('SELECT * FROM users WHERE email = ?', email);
+        const isAdminAcc = await db.get('SELECT id FROM admin_users WHERE LOWER(email) = ?', cleanEmail);
+        if (isAdminAcc) {
+            return res.status(401).json({ message: 'Invalid credentials' });
+        }
+
+        let user = await db.get('SELECT * FROM users WHERE LOWER(email) = ?', cleanEmail);
 
         if (user) {
             if (user.status === 'Pending') {
@@ -883,27 +1036,6 @@ app.get('/classroom-students/:classroomId', authenticateToken, async (req, res) 
             }
         }
 
-        // If not found yet, check if a teacher created assignments in this classroom
-        if (!instUser) {
-            instUser = await db.get(`
-                SELECT u.id, u.name, u.email, u.avatar, u.role
-                FROM classwork c
-                JOIN users u ON (LOWER(u.role) = 'teacher' OR LOWER(u.role) = 'admin')
-                WHERE c.classroom_id = ?
-                LIMIT 1
-            `, classroomId).catch(() => null);
-        }
-
-        // If the requesting user is a Teacher and this is their classroom, link them
-        if (!instUser && (req.user.role === 'Teacher' || req.user.role === 'Admin')) {
-            instUser = await db.get("SELECT id, name, email, avatar, role FROM users WHERE id = ?", req.user.id).catch(() => null);
-        }
-
-        // Fallback to primary real Teacher registered in the system
-        if (!instUser) {
-            instUser = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(role) = 'teacher' ORDER BY id ASC LIMIT 1").catch(() => null);
-        }
-
         if (instUser) {
             instructor = {
                 id: instUser.id,
@@ -912,11 +1044,6 @@ app.get('/classroom-students/:classroomId', authenticateToken, async (req, res) 
                 avatar: instUser.avatar || null,
                 role: instUser.role
             };
-
-            // Ensure classroom in DB is permanently updated with this real instructor account
-            if (classroom && (!classroom.instructor_email || classroom.instructor !== instUser.name)) {
-                await db.run('UPDATE classrooms SET instructor = ?, instructor_email = ? WHERE id = ?', instUser.name, instUser.email, classroomId).catch(() => {});
-            }
         } else {
             instructor = {
                 id: null,
@@ -985,24 +1112,40 @@ app.get('/classroom-students/:classroomId', authenticateToken, async (req, res) 
 app.post('/classrooms/:classroomId/enroll', authenticateToken, async (req, res) => {
     try {
         const { classroomId } = req.params;
-        const studentName = req.body?.studentName || req.user.name;
-        const studentEmail = req.body?.studentEmail || req.user.email;
-        const studentId = req.user.id || null;
         const now = new Date().toISOString();
 
-        if (!studentName || !studentEmail) {
-            return res.status(400).json({ message: 'Student name and email are required' });
+        // Support array of students or single student
+        const incomingStudents = Array.isArray(req.body?.students)
+            ? req.body.students
+            : [{
+                name: req.body?.studentName || req.user.name,
+                email: req.body?.studentEmail || req.user.email,
+                id: req.body?.studentId || (req.body?.studentName ? null : req.user.id)
+            }];
+
+        const enrolledList = [];
+
+        for (const st of incomingStudents) {
+            const studentName = (st.name || st.studentName || '').trim();
+            const studentEmail = (st.email || st.studentEmail || '').trim().toLowerCase();
+            const studentId = st.id || st.studentId || null;
+
+            if (!studentName || !studentEmail) continue;
+
+            await db.run(`
+                INSERT INTO enrollments (classroom_id, student_id, student_name, student_email, enrolled_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(classroom_id, student_email) DO UPDATE SET
+                    student_name = excluded.student_name,
+                    enrolled_at = excluded.enrolled_at
+            `, classroomId, studentId, studentName, studentEmail, now);
+
+            enrolledList.push({ name: studentName, email: studentEmail, id: studentId });
         }
 
-        await db.run(`
-            INSERT INTO enrollments (classroom_id, student_id, student_name, student_email, enrolled_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(classroom_id, student_email) DO UPDATE SET
-                student_name = excluded.student_name,
-                enrolled_at = excluded.enrolled_at
-        `, classroomId, studentId, studentName, studentEmail, now);
+        io.emit('classroom_students_changed', { classroomId });
 
-        res.status(200).json({ message: 'Enrolled successfully' });
+        res.status(200).json({ message: 'Enrolled successfully', enrolledCount: enrolledList.length, students: enrolledList });
     } catch (e) {
         res.status(500).json({ message: e.message });
     }
