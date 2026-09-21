@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import Skeleton from '../components/Skeleton';
+import { useDarkMode } from '../hooks/useDarkMode';
+import { isPhantomClassroom, mergeClassroomsPreservingOrder } from '../utils/classroomUtils';
 
 const EMPTY_FORM = { title: '', noDueDate: true, dueDate: '', instruction: '', points: '100', grading: 'On', attachments: [] };
 
@@ -83,12 +85,51 @@ export default function TeacherClasswork({
   onNavigateView,
   currentUser 
 }) {
+  const { isDark } = useDarkMode();
+  const styles = getStyles(isDark);
+  const isPhantom = isPhantomClassroom;
+
   const [classrooms, setClassrooms] = useState(() => {
     try {
-      const saved = localStorage.getItem('verity_teacher_classrooms');
-      return saved ? JSON.parse(saved) : [];
+      const id = currentUser?.email || currentUser?.id || 'default';
+      const key = `verity_teacher_classrooms_${id}`;
+      const raw = localStorage.getItem(key) || localStorage.getItem('verity_teacher_classrooms');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(c => !isPhantomClassroom(c));
+        }
+      }
+      return [];
     } catch { return []; }
   });
+
+  useEffect(() => {
+    apiFetch(`${import.meta.env.VITE_API_URL}/classrooms`)
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (!data) return;
+        const serverList = (Array.isArray(data) ? data : (data.classrooms || [])).filter(c => !isPhantomClassroom(c));
+        if (serverList.length > 0) {
+          const teacherClasses = serverList.filter(c => 
+            !c.instructor_email || 
+            (currentUser?.email && c.instructor_email.toLowerCase() === currentUser.email.toLowerCase()) || 
+            (currentUser?.name && c.instructor && c.instructor.toLowerCase() === currentUser.name.toLowerCase())
+          );
+          const classesToUse = teacherClasses.length > 0 ? teacherClasses : serverList;
+          setClassrooms(prev => {
+            const merged = mergeClassroomsPreservingOrder(prev, classesToUse);
+            try {
+              const id = currentUser?.email || currentUser?.id || 'default';
+              localStorage.setItem(`verity_teacher_classrooms_${id}`, JSON.stringify(merged));
+              localStorage.setItem('verity_teacher_classrooms', JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        }
+      })
+      .catch(() => {});
+  }, [currentUser]);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('verity_sidebar_collapsed') === 'true');
   const toggleSidebar = () => {
     const next = !collapsed;
@@ -143,7 +184,7 @@ export default function TeacherClasswork({
     update();
     const timer = setTimeout(update, 20);
     return () => clearTimeout(timer);
-  }, [classroom, collapsed]);
+  }, [classroom, collapsed, classrooms]);
 
   // Active classroom tab
   const [activeTab, setActiveTab] = useState('stream'); // 'stream' | 'classwork' | 'people' | 'grades'
@@ -234,9 +275,13 @@ export default function TeacherClasswork({
 
 
 
-  // Enrolled students for People tab
+  // Enrolled students and Instructor Info for People tab
   const [enrolledStudents, setEnrolledStudents] = useState([]);
   const [loadingStudents, setLoadingStudents] = useState(false);
+  const [instructorInfo, setInstructorInfo] = useState({
+    name: classroom?.instructor || (currentUser?.role === 'Teacher' ? currentUser.name : ''),
+    email: classroom?.instructorEmail || classroom?.instructor_email || (currentUser?.role === 'Teacher' ? currentUser.email : '')
+  });
 
   useEffect(() => {
     if (!classroom?.id) return;
@@ -272,21 +317,45 @@ export default function TeacherClasswork({
         const res = await apiFetch(`${import.meta.env.VITE_API_URL}/classroom-students/${classroom.id}`);
         if (res.ok) {
           const data = await res.json();
+          if (data.instructor && data.instructor.name) {
+            setInstructorInfo({
+              name: data.instructor.name,
+              email: data.instructor.email || '',
+              avatar: data.instructor.avatar || null
+            });
+          }
           if (Array.isArray(data.students)) {
             data.students.forEach(s => {
-              if (s.name) {
-                studentsMap[s.name] = { name: s.name, email: s.email || `${s.name.toLowerCase().replace(/\s+/g, '.')}@student.verity.edu` };
+              if (s && s.name) {
+                studentsMap[s.name.toLowerCase()] = { 
+                  name: s.name, 
+                  email: s.email || `${s.name.toLowerCase().replace(/\s+/g, '.')}@student.verity.edu`,
+                  avatar: s.avatar || null
+                };
               }
             });
           }
         }
       } catch {}
 
-      if (Object.keys(studentsMap).length === 0) {
-        studentsMap['Alex Johnson'] = { name: 'Alex Johnson', email: 'alex.johnson@student.verity.edu' };
-        studentsMap['Beatriz Santos'] = { name: 'Beatriz Santos', email: 'beatriz.santos@student.verity.edu' };
-        studentsMap['Carlos Rivera'] = { name: 'Carlos Rivera', email: 'carlos.rivera@student.verity.edu' };
-      }
+      // Check explicit local enrollments
+      try {
+        const localKey = `verity_classroom_enrollments_${classroom.id}`;
+        const rawLocal = localStorage.getItem(localKey);
+        if (rawLocal) {
+          const arr = JSON.parse(rawLocal);
+          if (Array.isArray(arr)) {
+            arr.forEach(s => {
+              if (s && s.name) {
+                studentsMap[s.name.toLowerCase()] = {
+                  name: s.name,
+                  email: s.email || `${s.name.toLowerCase().replace(/\s+/g, '.')}@student.verity.edu`
+                };
+              }
+            });
+          }
+        }
+      } catch {}
 
       setEnrolledStudents(Object.values(studentsMap));
       setLoadingStudents(false);
@@ -688,7 +757,7 @@ export default function TeacherClasswork({
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             className="icon-btn-anim"
           >
-            <Menu size={24} color="#64748b" />
+            <Menu size={24} color={isDark ? '#d4d4d4' : '#64748b'} />
           </button>
 
           <div
@@ -699,7 +768,7 @@ export default function TeacherClasswork({
             }}
           >
             <span style={{ color: '#10b981' }}>V</span>
-            <span style={{ color: '#1e293b' }}>erity</span>
+            <span style={{ color: isDark ? '#f5f5f5' : '#1e293b' }}>erity</span>
             <span style={styles.badge}>Instructor</span>
           </div>
         </div>
@@ -721,12 +790,12 @@ export default function TeacherClasswork({
               right: 0,
               top: indicatorStyle.top,
               height: indicatorStyle.height,
-              background: 'rgba(255,255,255,0.25)',
+              background: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.25)',
               backdropFilter: 'blur(8px)',
               WebkitBackdropFilter: 'blur(8px)',
               borderRadius: '14px',
-              boxShadow: '0 4px 16px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
-              border: '1px solid rgba(255,255,255,0.35)',
+              boxShadow: isDark ? '0 4px 16px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08)' : '0 4px 16px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
+              border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(255,255,255,0.35)',
               transition: indicatorStyle.transition || 'none',
               opacity: indicatorStyle.opacity,
               pointerEvents: 'none',
@@ -742,7 +811,7 @@ export default function TeacherClasswork({
               style={styles.sidebarBtn(collapsed)}
               title={collapsed ? 'Home' : ''}
             >
-              <Home size={20} color="#475569" style={{ flexShrink: 0 }} />
+              <Home size={20} color={isDark ? '#a3a3a3' : '#475569'} style={{ flexShrink: 0 }} />
               {!collapsed && <span style={styles.sidebarBtnText}>Home</span>}
             </button>
 
@@ -755,7 +824,7 @@ export default function TeacherClasswork({
               style={styles.sidebarBtn(collapsed)}
               title={collapsed ? 'Calendar' : ''}
             >
-              <Calendar size={20} color="#475569" style={{ flexShrink: 0 }} />
+              <Calendar size={20} color={isDark ? '#a3a3a3' : '#475569'} style={{ flexShrink: 0 }} />
               {!collapsed && <span style={styles.sidebarBtnText}>Calendar</span>}
             </button>
 
@@ -768,7 +837,7 @@ export default function TeacherClasswork({
               style={styles.sidebarBtn(collapsed)}
               title={collapsed ? 'Archived' : ''}
             >
-              <Archive size={20} color="#475569" style={{ flexShrink: 0 }} />
+              <Archive size={20} color={isDark ? '#a3a3a3' : '#475569'} style={{ flexShrink: 0 }} />
               {!collapsed && <span style={styles.sidebarBtnText}>Archived</span>}
             </button>
 
@@ -779,7 +848,7 @@ export default function TeacherClasswork({
                     padding: '0 18px',
                     fontSize: '0.75rem',
                     fontWeight: 'bold',
-                    color: '#9ca3af',
+                    color: isDark ? '#10b981' : '#9ca3af',
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em',
                     marginBottom: '4px'
@@ -816,7 +885,7 @@ export default function TeacherClasswork({
                         {cls.name.charAt(0).toUpperCase()}
                       </div>
                       {!collapsed && (
-                        <span style={{ fontSize: '0.85rem', fontWeight: active ? '700' : '600', color: active ? '#10b981' : '#334155', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: active ? '700' : '600', color: active ? '#10b981' : (isDark ? '#E8EAED' : '#334155'), overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {cls.name}
                         </span>
                       )}
@@ -836,7 +905,7 @@ export default function TeacherClasswork({
                 style={styles.sidebarBtn(collapsed)}
                 title={collapsed ? 'Settings' : ''}
               >
-                <Settings size={20} color="#475569" style={{ flexShrink: 0 }} />
+                <Settings size={20} color={isDark ? '#a3a3a3' : '#475569'} style={{ flexShrink: 0 }} />
                 {!collapsed && <span style={styles.sidebarBtnText}>Settings</span>}
               </button>
             </div>
@@ -856,8 +925,8 @@ export default function TeacherClasswork({
                   onClick={() => setActiveTab('stream')}
                   style={{
                     ...styles.classroomTabBtn,
-                    color: activeTab === 'stream' ? '#1a73e8' : '#5f6368',
-                    borderBottom: activeTab === 'stream' ? '3px solid #1a73e8' : '3px solid transparent'
+                    color: activeTab === 'stream' ? '#10b981' : (isDark ? '#a3a3a3' : '#5f6368'),
+                    borderBottom: activeTab === 'stream' ? '3px solid #10b981' : '3px solid transparent'
                   }}
                 >
                   Stream
@@ -866,8 +935,8 @@ export default function TeacherClasswork({
                   onClick={() => setActiveTab('classwork')}
                   style={{
                     ...styles.classroomTabBtn,
-                    color: activeTab === 'classwork' ? '#1a73e8' : '#5f6368',
-                    borderBottom: activeTab === 'classwork' ? '3px solid #1a73e8' : '3px solid transparent'
+                    color: activeTab === 'classwork' ? '#10b981' : (isDark ? '#a3a3a3' : '#5f6368'),
+                    borderBottom: activeTab === 'classwork' ? '3px solid #10b981' : '3px solid transparent'
                   }}
                 >
                   Classwork
@@ -876,8 +945,8 @@ export default function TeacherClasswork({
                   onClick={() => setActiveTab('people')}
                   style={{
                     ...styles.classroomTabBtn,
-                    color: activeTab === 'people' ? '#1a73e8' : '#5f6368',
-                    borderBottom: activeTab === 'people' ? '3px solid #1a73e8' : '3px solid transparent'
+                    color: activeTab === 'people' ? '#10b981' : (isDark ? '#a3a3a3' : '#5f6368'),
+                    borderBottom: activeTab === 'people' ? '3px solid #10b981' : '3px solid transparent'
                   }}
                 >
                   People
@@ -886,8 +955,8 @@ export default function TeacherClasswork({
                   onClick={() => setActiveTab('grades')}
                   style={{
                     ...styles.classroomTabBtn,
-                    color: activeTab === 'grades' ? '#1a73e8' : '#5f6368',
-                    borderBottom: activeTab === 'grades' ? '3px solid #1a73e8' : '3px solid transparent'
+                    color: activeTab === 'grades' ? '#10b981' : (isDark ? '#a3a3a3' : '#5f6368'),
+                    borderBottom: activeTab === 'grades' ? '3px solid #10b981' : '3px solid transparent'
                   }}
                 >
                   Grades
@@ -901,7 +970,7 @@ export default function TeacherClasswork({
                   style={styles.iconActionBtn}
                   title="Classroom settings"
                 >
-                  <Settings size={22} color="#5f6368" />
+                  <Settings size={22} color={isDark ? '#a3a3a3' : '#5f6368'} />
                 </button>
               </div>
             </div>
@@ -939,7 +1008,7 @@ export default function TeacherClasswork({
                       style={styles.customizeBtn}
                       title="Customize class theme and background"
                     >
-                      <Edit3 size={16} color="#1e293b" />
+                      <Edit3 size={16} color={isDark ? '#E8EAED' : '#1e293b'} />
                       <span>Customize</span>
                     </button>
 
@@ -968,14 +1037,14 @@ export default function TeacherClasswork({
                               style={styles.cardTinyActionBtn}
                               title="Copy class code"
                             >
-                              {codeCopied ? <Check size={16} color="#10b981" /> : <Copy size={16} color="#64748b" />}
+                              {codeCopied ? <Check size={16} color="#10b981" /> : <Copy size={16} color={isDark ? '#a3a3a3' : '#64748b'} />}
                             </button>
                             <button
                               onClick={() => setIsClassCodeModalOpen(true)}
                               style={styles.cardTinyActionBtn}
                               title="Display large class code"
                             >
-                              <Maximize2 size={16} color="#1a73e8" />
+                              <Maximize2 size={16} color="#10b981" />
                             </button>
                           </div>
                         </div>
@@ -1027,41 +1096,46 @@ export default function TeacherClasswork({
                     <div style={styles.streamRightCol}>
                       {/* Feed of Assignments */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                        {/* Posted Assignment Feed Items (Matching Screenshot) */}
-                        {visibleClasswork.map((item) => (
-                          <div
-                            key={item.id}
-                            onClick={() => {
-                              setActiveTab('classwork');
-                              setExpandedId(item.id);
-                            }}
-                            style={styles.assignmentStreamCard}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                              <div style={styles.assignmentIconBadge}>
-                                <ClipboardList size={22} color="#137333" />
-                              </div>
-                              <div>
-                                <div style={styles.assignmentStreamTitle}>
-                                  {(currentUser?.name || classroom?.instructor || 'Instructor')} posted a new assignment: {item.title}
-                                </div>
-                                <div style={styles.assignmentStreamDate}>
-                                  {formatShortDate(item.posted || item.id)}
-                                </div>
-                              </div>
-                            </div>
-                            <div style={styles.streamCardDots}>
-                              <MoreVertical size={20} color="#64748b" />
-                            </div>
-                          </div>
-                        ))}
-
-                        {visibleClasswork.length === 0 && (
+                        {loadingClasswork ? (
+                          <>
+                            <Skeleton.StreamCard />
+                            <Skeleton.StreamCard />
+                            <Skeleton.StreamCard />
+                          </>
+                        ) : visibleClasswork.length === 0 ? (
                           <div style={styles.emptyFeedBox}>
-                            <p style={{ margin: 0, color: '#64748b' }}>
+                            <p style={{ margin: 0, color: isDark ? '#a3a3a3' : '#64748b' }}>
                               This is where you'll see classwork posted for your students.
                             </p>
                           </div>
+                        ) : (
+                          visibleClasswork.map((item) => (
+                            <div
+                              key={item.id}
+                              onClick={() => {
+                                setActiveTab('classwork');
+                                setExpandedId(item.id);
+                              }}
+                              style={styles.assignmentStreamCard}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                <div style={styles.assignmentIconBadge}>
+                                  <ClipboardList size={22} color="#10b981" />
+                                </div>
+                                <div>
+                                  <div style={styles.assignmentStreamTitle}>
+                                    {(currentUser?.name || classroom?.instructor || 'Instructor')} posted a new assignment: {item.title}
+                                  </div>
+                                  <div style={styles.assignmentStreamDate}>
+                                    {formatShortDate(item.posted || item.id)}
+                                  </div>
+                                </div>
+                              </div>
+                              <div style={styles.streamCardDots}>
+                                <MoreVertical size={20} color={isDark ? '#a3a3a3' : '#64748b'} />
+                              </div>
+                            </div>
+                          ))
                         )}
                       </div>
                     </div>
@@ -1076,10 +1150,10 @@ export default function TeacherClasswork({
                 <div style={{ maxWidth: '1000px', margin: '0 auto', width: '100%' }}>
                   <div style={styles.headerRow}>
                     <div>
-                      <h2 style={{ color: '#1e293b', fontWeight: '700', fontSize: '1.4rem', margin: 0 }}>
+                      <h2 style={{ color: isDark ? '#E8EAED' : '#1e293b', fontWeight: '700', fontSize: '1.4rem', margin: 0 }}>
                         {classroom ? classroom.name : "Classwork"}
                       </h2>
-                      <p style={{ margin: '4px 0 0 0', color: '#64748b', fontSize: '0.85rem' }}>
+                      <p style={{ margin: '4px 0 0 0', color: isDark ? '#a3a3a3' : '#64748b', fontSize: '0.85rem' }}>
                         Create and organize assignments, questions, and learning activities for this class.
                       </p>
                     </div>
@@ -1093,11 +1167,10 @@ export default function TeacherClasswork({
                     {loadingClasswork ? (
                       Array.from({ length: 3 }).map((_, i) => <Skeleton.AssignmentRow key={i} />)
                     ) : visibleClasswork.length === 0 ? (
-                      <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
-                        <BookOpen size={48} color="#cbd5e1" style={{ margin: '0 auto 12px auto', display: 'block' }} />
+                      <div style={{ textAlign: 'center', padding: '40px 20px', color: isDark ? '#a3a3a3' : '#94a3b8' }}>
+                        <BookOpen size={48} color={isDark ? '#4A4A4A' : '#cbd5e1'} style={{ margin: '0 auto 12px auto', display: 'block' }} />
                         <p style={{ margin: 0, fontSize: '1rem', fontWeight: '600' }}>No classwork yet</p>
-                        <p style={{ margin: '6px 0 16px 0', fontSize: '0.85rem' }}>Click "Create" to assign new work to your students.</p>
-                        <button onClick={openCreate} style={styles.addButton}>Create Assignment</button>
+                        <p style={{ margin: '6px 0 0 0', fontSize: '0.85rem' }}>Click "Create" to assign new work to your students.</p>
                       </div>
                     ) : (
                       visibleClasswork.map((item) => {
@@ -1113,7 +1186,7 @@ export default function TeacherClasswork({
                                 {due && <span style={styles.itemDuePill}>Due {due}</span>}
                               </div>
                               <div style={styles.threeDots} onClick={(e) => toggleMenu(e, item.id)}>
-                                <MoreVertical size={20} />
+                                <MoreVertical size={20} color={isDark ? '#a3a3a3' : '#9ca3af'} />
                                 {activeMenu === item.id && (
                                   <div style={styles.dropdownMenu}>
                                     <div style={styles.dropdownItem} onClick={(e) => openModify(e, item)}>Modify</div>
@@ -1128,7 +1201,7 @@ export default function TeacherClasswork({
                             {isOpen && (
                               <div style={styles.detailCard}>
                                 <div style={styles.detailHeaderBar}>
-                                  <ClipboardList size={30} color="#4b5563" />
+                                  <ClipboardList size={30} color={isDark ? '#10b981' : '#4b5563'} />
                                   <div>
                                     <div style={styles.detailTitle}>{item.title}</div>
                                     <div style={styles.detailDue}>{due ? `Due ${due}` : 'No Due Date'} • {item.points || 100} points</div>
@@ -1215,16 +1288,33 @@ export default function TeacherClasswork({
                     </div>
                     <div style={styles.peopleList}>
                       <div style={styles.peopleRow}>
-                        <div style={styles.peopleAvatarGreen}>
-                          {(classroom?.instructor || currentUser?.name || 'I').charAt(0).toUpperCase()}
-                        </div>
+                        {instructorInfo?.avatar ? (
+                          <img
+                            src={instructorInfo.avatar}
+                            alt={instructorInfo?.name || 'Instructor'}
+                            style={{
+                              width: '40px',
+                              height: '40px',
+                              borderRadius: '50%',
+                              objectFit: 'cover',
+                              flexShrink: 0,
+                              boxShadow: '0 2px 6px rgba(0,0,0,0.15)'
+                            }}
+                          />
+                        ) : (
+                          <div style={styles.peopleAvatarGreen}>
+                            {(instructorInfo?.name || classroom?.instructor || currentUser?.name || 'I').charAt(0).toUpperCase()}
+                          </div>
+                        )}
                         <div>
-                          <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '0.95rem' }}>
-                            {classroom?.instructor || currentUser?.name || 'Instructor'}
+                          <div style={{ fontWeight: '700', color: isDark ? '#E8EAED' : '#1e293b', fontSize: '0.95rem' }}>
+                            {instructorInfo?.name || classroom?.instructor || currentUser?.name || 'Instructor'}
                           </div>
-                          <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                            {currentUser?.email || 'instructor@verity.edu'}
-                          </div>
+                          {(instructorInfo?.email || classroom?.instructorEmail || (currentUser?.role === 'Teacher' ? currentUser?.email : '')) && (
+                            <div style={{ fontSize: '0.8rem', color: isDark ? '#a3a3a3' : '#64748b' }}>
+                              {instructorInfo?.email || classroom?.instructorEmail || (currentUser?.role === 'Teacher' ? currentUser?.email : '')}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1232,34 +1322,54 @@ export default function TeacherClasswork({
 
                   <div>
                     <div style={styles.peopleSectionHeader}>
-                      <h2 style={styles.peopleSectionTitle}>Classmates</h2>
-                      <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: '600' }}>
+                      <h2 style={styles.peopleSectionTitle}>Students</h2>
+                      <span style={{ fontSize: '0.85rem', color: isDark ? '#a3a3a3' : '#64748b', fontWeight: '600' }}>
                         {enrolledStudents.length} student{enrolledStudents.length === 1 ? '' : 's'}
                       </span>
                     </div>
 
                     <div style={styles.peopleList}>
                       {loadingStudents ? (
-                        <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Loading classmates…</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <Skeleton.Row />
+                          <Skeleton.Row />
+                          <Skeleton.Row />
+                          <Skeleton.Row />
+                        </div>
                       ) : enrolledStudents.length === 0 ? (
-                        <div style={{ padding: '30px 10px', textAlign: 'center', color: '#64748b' }}>
-                          <Users size={40} color="#cbd5e1" style={{ margin: '0 auto 10px auto', display: 'block' }} />
-                          <p style={{ fontWeight: '600', margin: 0 }}>No students enrolled yet</p>
-                          <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: '4px 0 0 0' }}>
-                            Give students the class code <strong style={{ color: '#1a73e8' }}>{classCode}</strong> to join.
+                        <div style={{ padding: '30px 10px', textAlign: 'center', color: isDark ? '#a3a3a3' : '#64748b' }}>
+                          <Users size={40} color={isDark ? '#4A4A4A' : '#cbd5e1'} style={{ margin: '0 auto 10px auto', display: 'block' }} />
+                          <p style={{ fontWeight: '600', margin: 0, color: isDark ? '#E8EAED' : '#1e293b' }}>No students enrolled yet</p>
+                          <p style={{ fontSize: '0.85rem', color: isDark ? '#a3a3a3' : '#94a3b8', margin: '4px 0 0 0' }}>
+                            Give students the class code <strong style={{ color: '#10b981' }}>{classCode}</strong> to join.
                           </p>
                         </div>
                       ) : (
                         enrolledStudents.map((student, idx) => (
                           <div key={idx} style={styles.peopleRow}>
-                            <div style={styles.peopleAvatarBlue}>
-                              {student.name.charAt(0).toUpperCase()}
-                            </div>
+                            {student.avatar ? (
+                              <img
+                                src={student.avatar}
+                                alt={student.name}
+                                style={{
+                                  width: '40px',
+                                  height: '40px',
+                                  borderRadius: '50%',
+                                  objectFit: 'cover',
+                                  flexShrink: 0,
+                                  boxShadow: '0 2px 6px rgba(0,0,0,0.15)'
+                                }}
+                              />
+                            ) : (
+                              <div style={styles.peopleAvatarBlue}>
+                                {student.name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
                             <div>
-                              <div style={{ fontWeight: '600', color: '#1e293b', fontSize: '0.95rem' }}>
+                              <div style={{ fontWeight: '600', color: isDark ? '#E8EAED' : '#1e293b', fontSize: '0.95rem' }}>
                                 {student.name}
                               </div>
-                              <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                              <div style={{ fontSize: '0.8rem', color: isDark ? '#a3a3a3' : '#64748b' }}>
                                 {student.email}
                               </div>
                             </div>
@@ -1274,19 +1384,19 @@ export default function TeacherClasswork({
               {/* ═══ TAB 4: GRADES ═══ */}
               {activeTab === 'grades' && (
                 <div style={{ maxWidth: '1000px', margin: '0 auto', width: '100%' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #e2e8f0', paddingBottom: '18px', marginBottom: '20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0', paddingBottom: '18px', marginBottom: '20px' }}>
                     <div>
-                      <h2 style={{ margin: 0, color: '#1e293b', fontWeight: '700', fontSize: '1.4rem' }}>
+                      <h2 style={{ margin: 0, color: isDark ? '#E8EAED' : '#1e293b', fontWeight: '700', fontSize: '1.4rem' }}>
                         Classroom Grades
                       </h2>
-                      <p style={{ margin: '4px 0 0 0', color: '#64748b', fontSize: '0.85rem' }}>
+                      <p style={{ margin: '4px 0 0 0', color: isDark ? '#a3a3a3' : '#64748b', fontSize: '0.85rem' }}>
                         Review and evaluate submissions for {classroom?.name || 'this class'}.
                       </p>
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       {bulkToastMsg && (
-                        <span style={{ padding: '6px 12px', backgroundColor: '#ecfdf5', color: '#059669', fontSize: '0.8rem', borderRadius: '8px', fontWeight: '700' }}>
+                        <span style={{ padding: '6px 12px', backgroundColor: isDark ? '#133527' : '#ecfdf5', color: isDark ? '#34d399' : '#059669', fontSize: '0.8rem', borderRadius: '8px', fontWeight: '700' }}>
                           {bulkToastMsg}
                         </span>
                       )}
@@ -1304,13 +1414,13 @@ export default function TeacherClasswork({
                   </div>
 
                   {visibleClasswork.length === 0 ? (
-                    <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+                    <div style={{ padding: '40px', textAlign: 'center', color: isDark ? '#a3a3a3' : '#94a3b8' }}>
                       No assignments created yet in this classroom.
                     </div>
                   ) : (
                     <>
                       <div style={styles.activitySelectionRow}>
-                        <span style={{ fontSize: '0.85rem', fontWeight: '700', color: '#475569', marginRight: '8px' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: '700', color: isDark ? '#E8EAED' : '#475569', marginRight: '8px' }}>
                           Activity:
                         </span>
                         {visibleClasswork.map(act => (
@@ -1319,8 +1429,8 @@ export default function TeacherClasswork({
                             onClick={() => setSelectedGradingActivityId(act.id)}
                             style={{
                               ...styles.activityChipBtn,
-                              backgroundColor: selectedGradingActivityId === act.id ? '#10b981' : '#f1f5f9',
-                              color: selectedGradingActivityId === act.id ? 'white' : '#475569',
+                              backgroundColor: selectedGradingActivityId === act.id ? '#10b981' : (isDark ? '#3A3A3A' : '#f1f5f9'),
+                              color: selectedGradingActivityId === act.id ? 'white' : (isDark ? '#E8EAED' : '#475569'),
                               fontWeight: selectedGradingActivityId === act.id ? '700' : '600'
                             }}
                           >
@@ -1332,17 +1442,17 @@ export default function TeacherClasswork({
                       <div style={styles.gradingColumnsLayout}>
                         <div style={styles.gradingRosterCol}>
                           <div style={styles.rosterHeaderBox}>
-                            <h4 style={{ margin: 0, fontSize: '0.92rem', color: '#1e293b', fontWeight: '700' }}>
+                            <h4 style={{ margin: 0, fontSize: '0.92rem', color: isDark ? '#E8EAED' : '#1e293b', fontWeight: '700' }}>
                               Turned In ({gradingStudents.length})
                             </h4>
-                            <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                            <span style={{ fontSize: '0.75rem', color: isDark ? '#a3a3a3' : '#64748b' }}>
                               Max: {maxPoints} pts
                             </span>
                           </div>
 
                           <div style={styles.gradingStudentList}>
                             {gradingStudents.length === 0 ? (
-                              <div style={{ padding: '30px 12px', textAlign: 'center', color: '#94a3b8', fontStyle: 'italic', fontSize: '0.88rem' }}>
+                              <div style={{ padding: '30px 12px', textAlign: 'center', color: isDark ? '#a3a3a3' : '#94a3b8', fontStyle: 'italic', fontSize: '0.88rem' }}>
                                 No students have submitted this activity yet.
                               </div>
                             ) : (
@@ -1355,8 +1465,8 @@ export default function TeacherClasswork({
                                     onClick={() => setSelectedStudentId(s.id)}
                                     style={{
                                       ...styles.gradingStudentRow,
-                                      backgroundColor: isSelected ? '#ecfdf5' : '#ffffff',
-                                      borderColor: isSelected ? '#10b981' : '#e2e8f0',
+                                      backgroundColor: isSelected ? (isDark ? '#193326' : '#ecfdf5') : (isDark ? '#383838' : '#ffffff'),
+                                      borderColor: isSelected ? '#10b981' : (isDark ? '#4A4A4A' : '#e2e8f0'),
                                     }}
                                   >
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden' }}>
@@ -1375,7 +1485,7 @@ export default function TeacherClasswork({
                                       }}>
                                         {s.name.charAt(0).toUpperCase()}
                                       </div>
-                                      <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      <span style={{ fontWeight: '600', color: isDark ? '#E8EAED' : '#1e293b', fontSize: '0.88rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                         {s.name}
                                       </span>
                                     </div>
@@ -1404,12 +1514,12 @@ export default function TeacherClasswork({
                               const curStudent = gradingStudents.find(s => s.id === selectedStudentId);
                               return (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '14px' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: isDark ? '1px solid #4A4A4A' : '1px solid #f1f5f9', paddingBottom: '14px' }}>
                                     <div>
-                                      <h3 style={{ margin: 0, color: '#1e293b', fontSize: '1.2rem', fontWeight: '700' }}>
+                                      <h3 style={{ margin: 0, color: isDark ? '#E8EAED' : '#1e293b', fontSize: '1.2rem', fontWeight: '700' }}>
                                         {curStudent.name}
                                       </h3>
-                                      <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '4px' }}>
+                                      <div style={{ fontSize: '0.8rem', color: isDark ? '#a3a3a3' : '#64748b', marginTop: '4px' }}>
                                         Submitted {formatShortDate(curStudent.submittedAt) || 'recently'}
                                       </div>
                                     </div>
@@ -1491,8 +1601,8 @@ export default function TeacherClasswork({
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <div>
-                <h2 style={{ margin: 0, color: '#1e293b', fontSize: '1.3rem' }}>Customize Appearance</h2>
-                <p style={{ margin: '4px 0 0 0', color: '#64748b', fontSize: '0.85rem' }}>
+                <h2 style={{ margin: 0, color: isDark ? '#E8EAED' : '#1e293b', fontSize: '1.3rem' }}>Customize Appearance</h2>
+                <p style={{ margin: '4px 0 0 0', color: isDark ? '#a3a3a3' : '#64748b', fontSize: '0.85rem' }}>
                   Choose a theme color, background graphic, or image for this class banner.
                 </p>
               </div>
@@ -1515,12 +1625,12 @@ export default function TeacherClasswork({
                     style={{
                       borderRadius: '12px',
                       padding: '10px',
-                      border: bannerTheme.id === preset.id ? '2px solid #10b981' : '2px solid #e2e8f0',
+                      border: bannerTheme.id === preset.id ? '2px solid #10b981' : (isDark ? '2px solid #4A4A4A' : '2px solid #e2e8f0'),
                       cursor: 'pointer',
                       display: 'flex',
                       flexDirection: 'column',
                       gap: '8px',
-                      backgroundColor: bannerTheme.id === preset.id ? '#f0fdf4' : 'white',
+                      backgroundColor: bannerTheme.id === preset.id ? (isDark ? '#193326' : '#f0fdf4') : (isDark ? '#383838' : 'white'),
                       transition: 'all 0.2s ease'
                     }}
                   >
@@ -1535,7 +1645,7 @@ export default function TeacherClasswork({
                     }}>
                       {bannerTheme.id === preset.id && <Check size={18} />}
                     </div>
-                    <span style={{ fontSize: '0.85rem', fontWeight: '700', color: '#1e293b' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: '700', color: isDark ? '#E8EAED' : '#1e293b' }}>
                       {preset.name}
                     </span>
                   </div>
@@ -1563,7 +1673,7 @@ export default function TeacherClasswork({
                         setBannerTheme(updated);
                         localStorage.setItem(themeStorageKey, JSON.stringify(updated));
                       }}
-                      style={{ padding: '0 12px', border: '1px solid #cbd5e1', borderRadius: '8px', background: 'white', color: '#64748b', cursor: 'pointer' }}
+                      style={{ padding: '0 12px', border: isDark ? '1px solid #4A4A4A' : '1px solid #cbd5e1', borderRadius: '8px', background: isDark ? '#3A3A3A' : 'white', color: isDark ? '#a3a3a3' : '#64748b', cursor: 'pointer' }}
                     >
                       Clear
                     </button>
@@ -1589,7 +1699,7 @@ export default function TeacherClasswork({
         <div style={styles.modalOverlay} onClick={() => setIsClassCodeModalOpen(false)}>
           <div style={{ ...styles.modalCard, maxWidth: '440px', textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <span style={{ fontSize: '1rem', fontWeight: '700', color: '#1e293b' }}>Class code</span>
+              <span style={{ fontSize: '1rem', fontWeight: '700', color: isDark ? '#E8EAED' : '#1e293b' }}>Class code</span>
               <button onClick={() => setIsClassCodeModalOpen(false)} style={styles.closeModalBtn}>
                 <X size={20} />
               </button>
@@ -1599,7 +1709,7 @@ export default function TeacherClasswork({
               fontSize: '3.5rem',
               fontWeight: '900',
               letterSpacing: '0.08em',
-              color: '#1a73e8',
+              color: '#10b981',
               padding: '24px 0',
               fontFamily: 'monospace',
               userSelect: 'all'
@@ -1607,7 +1717,7 @@ export default function TeacherClasswork({
               {classCode}
             </div>
 
-            <p style={{ color: '#64748b', fontSize: '0.9rem', margin: '0 0 24px 0' }}>
+            <p style={{ color: isDark ? '#a3a3a3' : '#64748b', fontSize: '0.9rem', margin: '0 0 24px 0' }}>
               Share this code with your students so they can join this class from their student dashboard.
             </p>
 
@@ -1635,7 +1745,7 @@ export default function TeacherClasswork({
         <div style={styles.modalOverlay} onClick={() => setIsClassInfoModalOpen(false)}>
           <div style={{ ...styles.modalCard, maxWidth: '440px' }} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
-              <h3 style={{ margin: 0, color: '#1e293b', fontSize: '1.2rem' }}>About Class</h3>
+              <h3 style={{ margin: 0, color: isDark ? '#E8EAED' : '#1e293b', fontSize: '1.2rem' }}>About Class</h3>
               <button onClick={() => setIsClassInfoModalOpen(false)} style={styles.closeModalBtn}>
                 <X size={20} />
               </button>
@@ -1656,7 +1766,7 @@ export default function TeacherClasswork({
               </div>
               <div style={styles.infoFieldRow}>
                 <span style={styles.infoFieldLabel}>Class Code</span>
-                <span style={{ ...styles.infoFieldValue, color: '#1a73e8', fontWeight: '700' }}>{classCode}</span>
+                <span style={{ ...styles.infoFieldValue, color: '#10b981', fontWeight: '700' }}>{classCode}</span>
               </div>
               <div style={styles.infoFieldRow}>
                 <span style={styles.infoFieldLabel}>Instructor</span>
@@ -1680,7 +1790,7 @@ export default function TeacherClasswork({
             <div style={styles.modalHeader}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Settings size={22} color="#10b981" />
-                <h3 style={{ margin: 0, color: '#1e293b', fontSize: '1.2rem' }}>Classroom Settings</h3>
+                <h3 style={{ margin: 0, color: isDark ? '#E8EAED' : '#1e293b', fontSize: '1.2rem' }}>Classroom Settings</h3>
               </div>
               <button onClick={() => setIsSettingsModalOpen(false)} style={styles.closeModalBtn}>
                 <X size={20} />
@@ -1690,22 +1800,22 @@ export default function TeacherClasswork({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '16px' }}>
               <div>
                 <label style={styles.fieldLabel}>Class details</label>
-                <div style={{ padding: '12px', backgroundColor: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0', marginTop: '6px' }}>
-                  <div style={{ fontWeight: '700', color: '#1e293b' }}>{classroom?.name || 'Classroom'}</div>
-                  <div style={{ fontSize: '0.85rem', color: '#64748b' }}>Section: {classroom?.section || 'None'} • Subject: {classroom?.subject || 'General'}</div>
+                <div style={{ padding: '12px', backgroundColor: isDark ? '#383838' : '#f8fafc', borderRadius: '10px', border: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0', marginTop: '6px' }}>
+                  <div style={{ fontWeight: '700', color: isDark ? '#E8EAED' : '#1e293b' }}>{classroom?.name || 'Classroom'}</div>
+                  <div style={{ fontSize: '0.85rem', color: isDark ? '#a3a3a3' : '#64748b' }}>Section: {classroom?.section || 'None'} • Subject: {classroom?.subject || 'General'}</div>
                 </div>
               </div>
 
               <div>
                 <label style={styles.fieldLabel}>Invite code</label>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', backgroundColor: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0', marginTop: '6px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px', backgroundColor: isDark ? '#383838' : '#f8fafc', borderRadius: '10px', border: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0', marginTop: '6px' }}>
                   <div>
-                    <span style={{ fontSize: '0.78rem', color: '#64748b', display: 'block' }}>Class code</span>
-                    <strong style={{ fontSize: '1.1rem', color: '#1a73e8', letterSpacing: '0.05em' }}>{classCode}</strong>
+                    <span style={{ fontSize: '0.78rem', color: isDark ? '#a3a3a3' : '#64748b', display: 'block' }}>Class code</span>
+                    <strong style={{ fontSize: '1.1rem', color: '#10b981', letterSpacing: '0.05em' }}>{classCode}</strong>
                   </div>
                   <button
                     onClick={() => copyToClipboard(classCode)}
-                    style={{ padding: '6px 12px', backgroundColor: 'white', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.8rem', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    style={{ padding: '6px 12px', backgroundColor: isDark ? '#323232' : 'white', border: isDark ? '1px solid #4A4A4A' : '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.8rem', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', color: isDark ? '#E8EAED' : '#1e293b' }}
                   >
                     {codeCopied ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
                     {codeCopied ? 'Copied' : 'Copy'}
@@ -1729,8 +1839,8 @@ export default function TeacherClasswork({
           <div style={{ ...styles.modalCard, maxWidth: '450px' }} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>
               <div>
-                <h3 style={{ margin: 0, color: '#1e293b', fontSize: '1.2rem' }}>Bulk Grade All Submitted</h3>
-                <p style={{ margin: '4px 0 0 0', color: '#64748b', fontSize: '0.85rem' }}>
+                <h3 style={{ margin: 0, color: isDark ? '#E8EAED' : '#1e293b', fontSize: '1.2rem' }}>Bulk Grade All Submitted</h3>
+                <p style={{ margin: '4px 0 0 0', color: isDark ? '#a3a3a3' : '#64748b', fontSize: '0.85rem' }}>
                   Assign grades to all {gradingStudents.length} student(s) who turned in this activity.
                 </p>
               </div>
@@ -1788,7 +1898,7 @@ export default function TeacherClasswork({
         <div style={styles.modalOverlay}>
           <div style={styles.modalCard}>
             <div style={styles.modalHeader}>
-              <h2 style={{ margin: 0, color: '#1f2937' }}>{editingId ? 'Modify Assignment' : 'Create Assignment'}</h2>
+              <h2 style={{ margin: 0, color: isDark ? '#E8EAED' : '#1f2937' }}>{editingId ? 'Modify Assignment' : 'Create Assignment'}</h2>
               <button onClick={() => setIsModalOpen(false)} style={styles.closeModalBtn}>
                 <X size={24} />
               </button>
@@ -1902,8 +2012,19 @@ export default function TeacherClasswork({
 }
 
 // STYLES
-const styles = {
-  container: { height: '100vh', minHeight: '100vh', width: '100%', display: 'flex', flexDirection: 'column', backgroundColor: '#EEF0F3', fontFamily: 'Arial, Helvetica, sans-serif', position: 'relative', overflow: 'hidden' },
+const getStyles = (isDark) => ({
+  container: {
+    height: '100vh',
+    minHeight: '100vh',
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    backgroundColor: isDark ? '#3C3C3C' : '#EEF0F3',
+    fontFamily: 'Arial, Helvetica, sans-serif',
+    position: 'relative',
+    overflow: 'hidden',
+    transition: 'background-color 0.25s ease'
+  },
   header: {
     height: '72px',
     flexShrink: 0,
@@ -1911,8 +2032,9 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: '0 24px',
-    backgroundColor: '#EEF0F3',
-    zIndex: 50
+    backgroundColor: isDark ? '#3C3C3C' : '#EEF0F3',
+    zIndex: 50,
+    transition: 'background-color 0.25s ease'
   },
   sidebar: (collapsed) => ({
     width: collapsed ? '84px' : '240px',
@@ -1946,11 +2068,21 @@ const styles = {
   sidebarBtnText: {
     fontSize: '0.85rem',
     fontWeight: '600',
-    color: '#334155',
+    color: isDark ? '#E8EAED' : '#334155',
     overflow: 'hidden',
     textOverflow: 'ellipsis'
   },
-  badge: { fontSize: '0.7rem', backgroundColor: '#EEF0F3', color: '#475569', padding: '3px 8px', borderRadius: '10px', marginLeft: '6px', fontStyle: 'normal', transform: 'translateY(-5px)', border: '1px solid #cbd5e1' },
+  badge: {
+    fontSize: '0.7rem',
+    backgroundColor: isDark ? '#4A4A4A' : '#EEF0F3',
+    color: isDark ? '#E8EAED' : '#475569',
+    padding: '3px 8px',
+    borderRadius: '10px',
+    marginLeft: '6px',
+    fontStyle: 'normal',
+    transform: 'translateY(-5px)',
+    border: isDark ? '1px solid #5A5A5A' : '1px solid #cbd5e1'
+  },
   
   // MAIN CONTENT & BIG BOX CONTAINER
   mainContent: {
@@ -1962,14 +2094,16 @@ const styles = {
     overflow: 'hidden'
   },
   bigBoxContainer: {
-    backgroundColor: '#ffffff',
+    backgroundColor: isDark ? '#323232' : '#ffffff',
     flex: 1,
     borderRadius: '24px',
-    boxShadow: '0 10px 25px rgba(0,0,0,0.05)',
+    boxShadow: isDark ? '0 10px 30px rgba(0,0,0,0.25)' : '0 10px 25px rgba(0,0,0,0.05)',
+    border: isDark ? '1px solid #4A4A4A' : 'none',
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
-    minWidth: 0
+    minWidth: 0,
+    transition: 'background-color 0.25s ease'
   },
 
   // TOP NAVIGATION BAR INSIDE THE BIG BOX
@@ -1979,10 +2113,11 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#ffffff',
-    borderBottom: '1px solid #e2e8f0',
+    backgroundColor: isDark ? '#323232' : '#ffffff',
+    borderBottom: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0',
     flexShrink: 0,
-    zIndex: 10
+    zIndex: 10,
+    transition: 'background-color 0.25s ease'
   },
   classroomTabsGroup: {
     display: 'flex',
@@ -2065,8 +2200,8 @@ const styles = {
     position: 'absolute',
     top: '20px',
     right: '20px',
-    backgroundColor: '#ffffff',
-    border: 'none',
+    backgroundColor: isDark ? '#3A3A3A' : '#ffffff',
+    border: isDark ? '1px solid #4A4A4A' : 'none',
     borderRadius: '50px',
     padding: '8px 18px',
     display: 'flex',
@@ -2074,7 +2209,7 @@ const styles = {
     gap: '8px',
     fontSize: '0.85rem',
     fontWeight: '700',
-    color: '#1e293b',
+    color: isDark ? '#E8EAED' : '#1e293b',
     cursor: 'pointer',
     boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
     zIndex: 10,
@@ -2117,11 +2252,11 @@ const styles = {
   },
 
   streamSideCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: isDark ? '#383838' : '#ffffff',
     borderRadius: '12px',
-    border: '1px solid #e2e8f0',
+    border: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0',
     padding: '16px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
+    boxShadow: isDark ? '0 4px 12px rgba(0,0,0,0.3)' : '0 1px 3px rgba(0,0,0,0.02)'
   },
   sideCardHeaderRow: {
     display: 'flex',
@@ -2131,7 +2266,7 @@ const styles = {
   sideCardLabel: {
     fontSize: '0.85rem',
     fontWeight: '700',
-    color: '#1e293b'
+    color: isDark ? '#E8EAED' : '#1e293b'
   },
   cardTinyActionBtn: {
     background: 'none',
@@ -2145,14 +2280,14 @@ const styles = {
   classCodeDisplay: {
     fontSize: '1.25rem',
     fontWeight: '800',
-    color: '#1a73e8',
+    color: '#10b981',
     marginTop: '10px',
     letterSpacing: '0.04em',
     cursor: 'pointer'
   },
   noWorkText: {
     fontSize: '0.82rem',
-    color: '#64748b'
+    color: isDark ? '#a3a3a3' : '#64748b'
   },
   upcomingItemRow: {
     display: 'flex',
@@ -2166,7 +2301,7 @@ const styles = {
   },
   upcomingItemTitle: {
     fontSize: '0.82rem',
-    color: '#1e293b',
+    color: isDark ? '#E8EAED' : '#1e293b',
     fontWeight: '600',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -2175,16 +2310,16 @@ const styles = {
   viewAllLink: {
     fontSize: '0.82rem',
     fontWeight: '700',
-    color: '#1a73e8',
+    color: '#10b981',
     cursor: 'pointer'
   },
 
   announceCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: isDark ? '#383838' : '#ffffff',
     borderRadius: '12px',
-    border: '1px solid #e2e8f0',
+    border: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0',
     padding: '16px',
-    boxShadow: '0 1px 4px rgba(0,0,0,0.02)'
+    boxShadow: isDark ? '0 4px 12px rgba(0,0,0,0.2)' : '0 1px 4px rgba(0,0,0,0.02)'
   },
   announceCollapsed: {
     display: 'flex',
@@ -2207,13 +2342,15 @@ const styles = {
   },
   announcePlaceholder: {
     fontSize: '0.9rem',
-    color: '#64748b',
+    color: isDark ? '#a3a3a3' : '#64748b',
     fontWeight: '500'
   },
   announceTextarea: {
     width: '100%',
     borderRadius: '8px',
-    border: '1px solid #cbd5e1',
+    border: isDark ? '1px solid #4A4A4A' : '1px solid #cbd5e1',
+    backgroundColor: isDark ? '#323232' : '#ffffff',
+    color: isDark ? '#E8EAED' : '#1e293b',
     padding: '10px',
     fontSize: '0.9rem',
     fontFamily: 'inherit',
@@ -2224,8 +2361,8 @@ const styles = {
     padding: '8px 16px',
     borderRadius: '8px',
     border: 'none',
-    background: '#f1f5f9',
-    color: '#475569',
+    background: isDark ? '#464646' : '#f1f5f9',
+    color: isDark ? '#E8EAED' : '#475569',
     fontWeight: '700',
     cursor: 'pointer'
   },
@@ -2240,36 +2377,36 @@ const styles = {
   },
 
   streamFeedCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: isDark ? '#383838' : '#ffffff',
     borderRadius: '12px',
-    border: '1px solid #e2e8f0',
+    border: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0',
     padding: '18px 20px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
+    boxShadow: isDark ? '0 4px 12px rgba(0,0,0,0.3)' : '0 1px 3px rgba(0,0,0,0.02)'
   },
   announcementBodyText: {
     margin: '12px 0 0 0',
-    color: '#334155',
+    color: isDark ? '#E8EAED' : '#334155',
     fontSize: '0.92rem',
     lineHeight: 1.5
   },
 
   assignmentStreamCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: isDark ? '#383838' : '#ffffff',
     borderRadius: '12px',
-    border: '1px solid #e2e8f0',
+    border: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0',
     padding: '16px 20px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
     cursor: 'pointer',
     transition: 'all 0.15s ease',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
+    boxShadow: isDark ? '0 4px 12px rgba(0,0,0,0.3)' : '0 1px 3px rgba(0,0,0,0.02)'
   },
   assignmentIconBadge: {
     width: '42px',
     height: '42px',
     borderRadius: '50%',
-    backgroundColor: '#e6f4ea',
+    backgroundColor: isDark ? '#1c2d24' : '#e6f4ea',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -2278,11 +2415,11 @@ const styles = {
   assignmentStreamTitle: {
     fontSize: '0.92rem',
     fontWeight: '700',
-    color: '#1f2937'
+    color: isDark ? '#E8EAED' : '#1f2937'
   },
   assignmentStreamDate: {
     fontSize: '0.78rem',
-    color: '#64748b',
+    color: isDark ? '#a3a3a3' : '#64748b',
     marginTop: '3px'
   },
   streamCardDots: {
@@ -2293,7 +2430,7 @@ const styles = {
   emptyFeedBox: {
     padding: '32px 20px',
     borderRadius: '12px',
-    border: '1px dashed #cbd5e1',
+    border: isDark ? '1px dashed #4A4A4A' : '1px dashed #cbd5e1',
     textAlign: 'center'
   },
 
@@ -2303,35 +2440,35 @@ const styles = {
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: '0 0 20px 0',
-    borderBottom: '1px solid #e2e8f0',
+    borderBottom: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0',
     marginBottom: '24px'
   },
   addButton: { display: 'flex', alignItems: 'center', padding: '10px 24px', backgroundColor: '#10b981', border: 'none', borderRadius: '50px', color: 'white', fontWeight: 'bold', fontSize: '0.95rem', cursor: 'pointer', boxShadow: '0 4px 6px rgba(16, 185, 129, 0.2)' },
   list: { display: 'flex', flexDirection: 'column', gap: '20px' },
   itemWrapper: { display: 'flex', flexDirection: 'column', gap: '10px' },
   itemHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  titlePill: { display: 'flex', alignItems: 'center', backgroundColor: '#f1f5f9', padding: '10px 20px', borderRadius: '50px', color: '#1e293b', fontWeight: '700', cursor: 'pointer', userSelect: 'none', transition: 'background 0.15s' },
-  itemDuePill: { marginLeft: '12px', fontSize: '0.75rem', color: '#64748b', fontWeight: '600' },
-  threeDots: { color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', position: 'relative' },
-  dropdownMenu: { position: 'absolute', top: '28px', right: '0', backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 30, minWidth: '130px' },
-  dropdownItem: { padding: '8px 14px', color: '#1e293b', fontSize: '0.85rem', fontWeight: '600', cursor: 'pointer', textAlign: 'left', borderRadius: '6px' },
+  titlePill: { display: 'flex', alignItems: 'center', backgroundColor: isDark ? '#383838' : '#f1f5f9', padding: '10px 20px', borderRadius: '50px', color: isDark ? '#E8EAED' : '#1e293b', fontWeight: '700', cursor: 'pointer', userSelect: 'none', transition: 'background 0.15s', border: isDark ? '1px solid #4A4A4A' : 'none' },
+  itemDuePill: { marginLeft: '12px', fontSize: '0.75rem', color: isDark ? '#a3a3a3' : '#64748b', fontWeight: '600' },
+  threeDots: { color: isDark ? '#a3a3a3' : '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', position: 'relative' },
+  dropdownMenu: { position: 'absolute', top: '28px', right: '0', backgroundColor: isDark ? '#323232' : '#ffffff', border: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0', borderRadius: '12px', padding: '8px', display: 'flex', flexDirection: 'column', gap: '4px', boxShadow: isDark ? '0 8px 24px rgba(0,0,0,0.4)' : '0 8px 24px rgba(0,0,0,0.12)', zIndex: 30, minWidth: '130px' },
+  dropdownItem: { padding: '8px 14px', color: isDark ? '#E8EAED' : '#1e293b', fontSize: '0.85rem', fontWeight: '600', cursor: 'pointer', textAlign: 'left', borderRadius: '6px' },
 
-  detailCard: { backgroundColor: 'white', borderRadius: '16px', padding: '0', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.04)', overflow: 'hidden' },
-  detailHeaderBar: { display: 'flex', alignItems: 'center', gap: '18px', backgroundColor: '#f8fafc', padding: '18px 24px', borderRadius: '12px', margin: '12px', border: '1px solid #e2e8f0' },
-  detailTitle: { fontSize: '1.25rem', fontWeight: 'bold', color: '#1e293b' },
-  detailDue: { fontSize: '0.85rem', color: '#64748b', marginTop: '2px' },
+  detailCard: { backgroundColor: isDark ? '#323232' : 'white', borderRadius: '16px', padding: '0', border: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0', boxShadow: isDark ? '0 4px 12px rgba(0,0,0,0.2)' : '0 4px 12px rgba(0,0,0,0.04)', overflow: 'hidden' },
+  detailHeaderBar: { display: 'flex', alignItems: 'center', gap: '18px', backgroundColor: isDark ? '#383838' : '#f8fafc', padding: '18px 24px', borderRadius: '12px', margin: '12px', border: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0' },
+  detailTitle: { fontSize: '1.25rem', fontWeight: 'bold', color: isDark ? '#E8EAED' : '#1e293b' },
+  detailDue: { fontSize: '0.85rem', color: isDark ? '#a3a3a3' : '#64748b', marginTop: '2px' },
   detailBody: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '20px', padding: '5px 28px 20px 28px' },
   detailLeft: { flex: 1 },
-  postedText: { fontSize: '0.8rem', color: '#94a3b8', marginBottom: '8px' },
-  detailInstruction: { margin: 0, color: '#334155', fontSize: '0.98rem', lineHeight: 1.5 },
+  postedText: { fontSize: '0.8rem', color: isDark ? '#a3a3a3' : '#94a3b8', marginBottom: '8px' },
+  detailInstruction: { margin: 0, color: isDark ? '#E8EAED' : '#334155', fontSize: '0.98rem', lineHeight: 1.5 },
   detailStats: { display: 'flex', alignItems: 'stretch', gap: '0', paddingLeft: '20px' },
   statCol: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', padding: '0 20px', minWidth: '70px' },
-  statColDivider: { width: '1px', backgroundColor: '#e2e8f0', alignSelf: 'stretch' },
-  statNum: { fontSize: '1.4rem', fontWeight: 'bold', color: '#1e293b' },
-  statLabel: { fontSize: '0.85rem', color: '#64748b', marginTop: '4px' },
-  detailDivider: { height: '1px', backgroundColor: '#e2e8f0', margin: '0 28px' },
+  statColDivider: { width: '1px', backgroundColor: isDark ? '#4A4A4A' : '#e2e8f0', alignSelf: 'stretch' },
+  statNum: { fontSize: '1.4rem', fontWeight: 'bold', color: isDark ? '#E8EAED' : '#1e293b' },
+  statLabel: { fontSize: '0.85rem', color: isDark ? '#a3a3a3' : '#64748b', marginTop: '4px' },
+  detailDivider: { height: '1px', backgroundColor: isDark ? '#4A4A4A' : '#e2e8f0', margin: '0 28px' },
   detailFooter: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 28px' },
-  viewActivityLink: { color: '#1a73e8', fontSize: '0.95rem', cursor: 'pointer', fontWeight: '700' },
+  viewActivityLink: { color: '#10b981', fontSize: '0.95rem', cursor: 'pointer', fontWeight: '700' },
   liveMonitorBtn: { display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 20px', backgroundColor: '#10b981', border: 'none', borderRadius: '50px', color: 'white', fontWeight: 'bold', fontSize: '0.88rem', cursor: 'pointer', boxShadow: '0 4px 6px rgba(16,185,129,0.2)' },
 
   // People Tab
@@ -2347,7 +2484,7 @@ const styles = {
     margin: 0,
     fontSize: '1.5rem',
     fontWeight: '800',
-    color: '#1e293b'
+    color: isDark ? '#E8EAED' : '#1e293b'
   },
   peopleList: {
     display: 'flex',
@@ -2358,7 +2495,7 @@ const styles = {
     alignItems: 'center',
     gap: '16px',
     padding: '12px 14px',
-    borderBottom: '1px solid #f1f5f9'
+    borderBottom: isDark ? '1px solid #4A4A4A' : '1px solid #f1f5f9'
   },
   peopleAvatarGreen: {
     width: '38px',
@@ -2426,17 +2563,17 @@ const styles = {
     width: '280px',
     flexShrink: 0,
     borderRadius: '12px',
-    border: '1px solid #e2e8f0',
+    border: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0',
     overflow: 'hidden',
-    backgroundColor: '#f8fafc'
+    backgroundColor: isDark ? '#383838' : '#f8fafc'
   },
   rosterHeaderBox: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: '12px 16px',
-    borderBottom: '1px solid #e2e8f0',
-    backgroundColor: '#ffffff'
+    borderBottom: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0',
+    backgroundColor: isDark ? '#323232' : '#ffffff'
   },
   gradingStudentList: {
     display: 'flex',
@@ -2449,7 +2586,7 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: '10px 14px',
-    borderBottom: '1px solid #f1f5f9',
+    borderBottom: isDark ? '1px solid #4A4A4A' : '1px solid #f1f5f9',
     cursor: 'pointer',
     borderLeftWidth: '3px',
     borderLeftStyle: 'solid',
@@ -2457,17 +2594,17 @@ const styles = {
   },
   gradeBadgeGraded: {
     fontSize: '0.75rem',
-    color: '#059669',
+    color: isDark ? '#34d399' : '#059669',
     fontWeight: '700',
-    backgroundColor: '#ecfdf5',
+    backgroundColor: isDark ? '#133527' : '#ecfdf5',
     padding: '3px 8px',
     borderRadius: '6px'
   },
   gradeBadgeTurnedIn: {
     fontSize: '0.72rem',
-    color: '#2563eb',
+    color: isDark ? '#60a5fa' : '#2563eb',
     fontWeight: '700',
-    backgroundColor: '#eff6ff',
+    backgroundColor: isDark ? '#1e2d42' : '#eff6ff',
     padding: '3px 8px',
     borderRadius: '6px'
   },
@@ -2475,9 +2612,9 @@ const styles = {
     flex: 1,
     minWidth: 0,
     borderRadius: '12px',
-    border: '1px solid #e2e8f0',
+    border: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0',
     padding: '24px',
-    backgroundColor: '#ffffff'
+    backgroundColor: isDark ? '#323232' : '#ffffff'
   },
   codePreviewPre: {
     backgroundColor: '#0f172a',
@@ -2496,9 +2633,9 @@ const styles = {
     gap: '6px',
     padding: '6px 14px',
     borderRadius: '6px',
-    border: '1px solid #cbd5e1',
-    background: 'white',
-    color: '#334155',
+    border: isDark ? '1px solid #4A4A4A' : '1px solid #cbd5e1',
+    background: isDark ? '#3A3A3A' : 'white',
+    color: isDark ? '#E8EAED' : '#334155',
     fontWeight: '700',
     fontSize: '0.8rem',
     cursor: 'pointer'
@@ -2517,28 +2654,28 @@ const styles = {
 
   // Modal Common Styles
   modalOverlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 100, backdropFilter: 'blur(3px)' },
-  modalCard: { backgroundColor: 'white', padding: '32px', borderRadius: '20px', width: '90%', maxWidth: '520px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' },
+  modalCard: { backgroundColor: isDark ? '#323232' : 'white', padding: '32px', borderRadius: '20px', width: '90%', maxWidth: '520px', boxShadow: isDark ? '0 20px 40px rgba(0,0,0,0.5)' : '0 20px 40px rgba(0,0,0,0.2)', border: isDark ? '1px solid #4A4A4A' : 'none' },
   modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
-  closeModalBtn: { background: 'transparent', border: 'none', cursor: 'pointer', color: '#9ca3af', padding: '4px' },
+  closeModalBtn: { background: 'transparent', border: 'none', cursor: 'pointer', color: isDark ? '#a3a3a3' : '#9ca3af', padding: '4px' },
   form: { display: 'flex', flexDirection: 'column', gap: '8px' },
-  input: { width: '100%', padding: '10px 14px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', color: '#1e293b', fontSize: '0.95rem', boxSizing: 'border-box' },
-  fieldLabel: { fontSize: '0.85rem', fontWeight: 'bold', color: '#475569', marginTop: '6px' },
+  input: { width: '100%', padding: '10px 14px', borderRadius: '8px', border: isDark ? '1px solid #4A4A4A' : '1px solid #d1d5db', backgroundColor: isDark ? '#3A3A3A' : 'white', color: isDark ? '#E8EAED' : '#1e293b', fontSize: '0.95rem', boxSizing: 'border-box' },
+  fieldLabel: { fontSize: '0.85rem', fontWeight: 'bold', color: isDark ? '#E8EAED' : '#475569', marginTop: '6px' },
   labelRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '6px' },
-  checkboxLabel: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', color: '#4b5563', cursor: 'pointer' },
-  attachIcons: { display: 'flex', gap: '12px', color: '#6b7280' },
+  checkboxLabel: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', color: isDark ? '#E8EAED' : '#4b5563', cursor: 'pointer' },
+  attachIcons: { display: 'flex', gap: '12px', color: isDark ? '#a3a3a3' : '#6b7280' },
   attachIcon: { cursor: 'pointer' },
   attachmentList: { display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' },
-  attachmentChip: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: '8px', padding: '6px 10px', fontSize: '0.85rem', color: '#4b5563' },
+  attachmentChip: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: isDark ? '#3A3A3A' : '#f3f4f6', border: isDark ? '1px solid #4A4A4A' : '1px solid #d1d5db', borderRadius: '8px', padding: '6px 10px', fontSize: '0.85rem', color: isDark ? '#E8EAED' : '#4b5563' },
   attachmentName: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   cardAttachments: { display: 'flex', flexWrap: 'wrap', gap: '12px', marginTop: '15px', alignItems: 'flex-start' },
   attachThumb: { maxWidth: '140px', maxHeight: '100px', borderRadius: '8px', objectFit: 'cover', display: 'block' },
   attachVideo: { maxWidth: '220px', maxHeight: '140px', borderRadius: '8px', backgroundColor: '#000' },
-  attachLink: { display: 'inline-flex', alignItems: 'center', color: '#2563eb', textDecoration: 'none', fontSize: '0.9rem', wordBreak: 'break-all' },
+  attachLink: { display: 'inline-flex', alignItems: 'center', color: '#10b981', textDecoration: 'none', fontSize: '0.9rem', wordBreak: 'break-all' },
   bottomRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px' },
   gradingGroup: { display: 'flex', alignItems: 'center', gap: '15px' },
-  radioLabel: { display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.9rem', color: '#4b5563', cursor: 'pointer' },
+  radioLabel: { display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.9rem', color: isDark ? '#E8EAED' : '#4b5563', cursor: 'pointer' },
   assignBtn: { padding: '10px 32px', backgroundColor: '#10b981', border: 'none', borderRadius: '50px', color: 'white', fontWeight: 'bold', fontSize: '0.95rem', cursor: 'pointer', boxShadow: '0 4px 6px rgba(16,185,129,0.2)' },
-  infoFieldRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f1f5f9' },
-  infoFieldLabel: { fontSize: '0.85rem', color: '#64748b' },
-  infoFieldValue: { fontSize: '0.92rem', color: '#1e293b', fontWeight: '600' }
-};
+  infoFieldRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: isDark ? '1px solid #4A4A4A' : '1px solid #f1f5f9' },
+  infoFieldLabel: { fontSize: '0.85rem', color: isDark ? '#a3a3a3' : '#64748b' },
+  infoFieldValue: { fontSize: '0.92rem', color: isDark ? '#E8EAED' : '#1e293b', fontWeight: '600' }
+});

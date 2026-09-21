@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { MoreVertical, Copy, Check, Trash2, Archive, RotateCcw, Settings } from 'lucide-react';
+import { useDarkMode } from '../hooks/useDarkMode';
 
 export const getClassroomCardTheme = (cls) => {
   try {
@@ -30,6 +31,7 @@ export default function ClassroomCard({
   isArchived = false,
   role = 'Teacher'
 }) {
+  const { isDark } = useDarkMode();
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const theme = getClassroomCardTheme(classroom);
@@ -47,14 +49,14 @@ export default function ClassroomCard({
 
   return (
     <motion.div
-      whileHover={{ y: -3, boxShadow: '0 8px 24px rgba(0,0,0,0.08)' }}
+      whileHover={{ y: -3, boxShadow: isDark ? '0 8px 24px rgba(0,0,0,0.35)' : '0 8px 24px rgba(0,0,0,0.08)' }}
       transition={{ duration: 0.2 }}
       style={{
-        backgroundColor: '#ffffff',
+        backgroundColor: isDark ? '#242424' : '#ffffff',
         borderRadius: '16px',
-        border: '1px solid #dadce0',
+        border: isDark ? '1px solid #383838' : '1px solid #dadce0',
         overflow: 'hidden',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+        boxShadow: isDark ? '0 4px 14px rgba(0,0,0,0.4)' : '0 1px 3px rgba(0,0,0,0.04)',
         cursor: 'pointer',
         display: 'flex',
         flexDirection: 'column',
@@ -176,16 +178,16 @@ export default function ClassroomCard({
       </div>
 
       {/* ═══ MIDDLE WHITE BODY ═══ */}
-      <div style={{ flex: 1, backgroundColor: '#ffffff', padding: '14px 20px' }}>
-        {/* Clean white area matching the user's screenshot */}
+      <div style={{ flex: 1, backgroundColor: isDark ? '#242424' : '#ffffff', padding: '14px 20px' }}>
+        {/* Clean middle area */}
       </div>
 
       {/* ═══ BOTTOM FOOTER ACTION BAR ═══ */}
       <div
         style={{
           height: '52px',
-          borderTop: '1px solid #e2e8f0',
-          backgroundColor: '#ffffff',
+          borderTop: isDark ? '1px solid #333333' : '1px solid #e2e8f0',
+          backgroundColor: isDark ? '#202020' : '#ffffff',
           padding: '0 16px',
           display: 'flex',
           alignItems: 'center',
@@ -204,7 +206,7 @@ export default function ClassroomCard({
           }}
           title="More options"
         >
-          <MoreVertical size={20} color="#5f6368" />
+          <MoreVertical size={20} color={isDark ? '#a3a3a3' : '#5f6368'} />
         </button>
 
         {/* Dropdown Menu */}
@@ -214,14 +216,14 @@ export default function ClassroomCard({
               position: 'absolute',
               bottom: '48px',
               right: '12px',
-              backgroundColor: '#ffffff',
+              backgroundColor: isDark ? '#222222' : '#ffffff',
               borderRadius: '12px',
               padding: '6px',
               display: 'flex',
               flexDirection: 'column',
               gap: '4px',
-              boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
-              border: '1px solid #e2e8f0',
+              boxShadow: isDark ? '0 8px 24px rgba(0,0,0,0.5)' : '0 8px 24px rgba(0,0,0,0.15)',
+              border: isDark ? '1px solid #383838' : '1px solid #e2e8f0',
               zIndex: 60,
               minWidth: '140px'
             }}
@@ -229,7 +231,7 @@ export default function ClassroomCard({
           >
             {isArchived ? (
               <div
-                style={dropdownItemStyle}
+                style={{ ...dropdownItemStyle, color: isDark ? '#E8EAED' : '#334155' }}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (onUnarchive) onUnarchive(e, classroom.id);
@@ -241,7 +243,7 @@ export default function ClassroomCard({
             ) : (
               <>
                 <div
-                  style={dropdownItemStyle}
+                  style={{ ...dropdownItemStyle, color: isDark ? '#E8EAED' : '#334155' }}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (onArchive) onArchive(e, classroom.id);
@@ -252,7 +254,7 @@ export default function ClassroomCard({
                 </div>
                 {role === 'Teacher' && onSettings && (
                   <div
-                    style={dropdownItemStyle}
+                    style={{ ...dropdownItemStyle, color: isDark ? '#E8EAED' : '#334155' }}
                     onClick={(e) => {
                       e.stopPropagation();
                       onSettings(classroom);
@@ -263,7 +265,7 @@ export default function ClassroomCard({
                   </div>
                 )}
                 <div
-                  style={dropdownItemStyle}
+                  style={{ ...dropdownItemStyle, color: isDark ? '#f5f5f5' : '#334155' }}
                   onClick={handleCopyCode}
                 >
                   {copied ? <Check size={15} color="#10b981" style={{ marginRight: '8px' }} /> : <Copy size={15} style={{ marginRight: '8px' }} />}

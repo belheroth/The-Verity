@@ -9,15 +9,23 @@ import UITransitionsShowcase from '../components/UITransitionsShowcase';
 import ClassroomCard from '../components/ClassroomCard';
 import { apiFetch } from '../utils/api';
 import Skeleton from '../components/Skeleton';
+import { useDarkMode } from '../hooks/useDarkMode';
 
-const STORAGE_KEY = 'verity_teacher_classrooms';
+const getStorageKey = (user) => {
+  const id = user?.email || user?.id || 'default';
+  return `verity_teacher_classrooms_${id}`;
+};
 
 const DEFAULT_CLASSROOMS = [
-  { id: 1, section: "CS101", name: "C# Programming", subject: "Computer Science" },
-  { id: 2, section: "IT202", name: "Data Structures", subject: "Information Tech" }
+  { id: 1, section: "CS101", name: "C# Programming", subject: "Computer Science", instructor: "kim fabie", instructorEmail: "kimfabie@gmail.com" },
+  { id: 2, section: "IT202", name: "Data Structures", subject: "Information Tech", instructor: "kim fabie", instructorEmail: "kimfabie@gmail.com" }
 ];
 
-export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
+import { isPhantomClassroom, mergeClassroomsPreservingOrder } from '../utils/classroomUtils';
+export { isPhantomClassroom, mergeClassroomsPreservingOrder };
+
+export default function TeacherDashboard({ currentUser, onLogout, onEnterClassroom }) {
+  const { isDark } = useDarkMode();
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('verity_sidebar_collapsed') === 'true');
   const toggleSidebar = () => {
     const next = !collapsed;
@@ -25,7 +33,18 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
     localStorage.setItem('verity_sidebar_collapsed', next);
   };
   const styles = {
-    container: { height: '100vh', minHeight: '100vh', width: '100%', display: 'flex', flexDirection: 'column', backgroundColor: '#EEF0F3', fontFamily: 'Arial, Helvetica, sans-serif', position: 'relative', overflow: 'hidden' },
+    container: {
+      height: '100vh',
+      minHeight: '100vh',
+      width: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      backgroundColor: isDark ? '#3C3C3C' : '#EEF0F3',
+      fontFamily: 'Arial, Helvetica, sans-serif',
+      position: 'relative',
+      overflow: 'hidden',
+      transition: 'background-color 0.25s ease'
+    },
     header: {
       height: '72px',
       flexShrink: 0,
@@ -33,8 +52,10 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
       alignItems: 'center',
       justifyContent: 'space-between',
       padding: '0 24px',
-      backgroundColor: '#EEF0F3',
-      zIndex: 50
+      backgroundColor: isDark ? '#3C3C3C' : '#EEF0F3',
+      borderBottom: 'none',
+      zIndex: 50,
+      transition: 'background-color 0.25s ease'
     },
     sidebar: (collapsed) => ({
       width: collapsed ? '84px' : '240px',
@@ -68,7 +89,17 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
     logoContainer: { fontSize: '2.5rem', fontWeight: '900', fontStyle: 'italic', textShadow: '2px 2px 4px rgba(0,0,0,0.1)' },
     logoV: { color: '#10b981' },
     logoText: { color: 'white' },
-    badge: { fontSize: '0.7rem', backgroundColor: '#EEF0F3', color: '#475569', padding: '3px 8px', borderRadius: '10px', marginLeft: '6px', fontStyle: 'normal', transform: 'translateY(-5px)', border: '1px solid #cbd5e1' },
+    badge: {
+      fontSize: '0.7rem',
+      backgroundColor: isDark ? '#4A4A4A' : '#EEF0F3',
+      color: isDark ? '#E8EAED' : '#475569',
+      padding: '3px 8px',
+      borderRadius: '10px',
+      marginLeft: '6px',
+      fontStyle: 'normal',
+      transform: 'translateY(-5px)',
+      border: isDark ? '1px solid #5A5A5A' : '1px solid #cbd5e1'
+    },
     navGroup: { display: 'flex', flexDirection: 'column', gap: '15px' },
     navItem: { position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', padding: '12px 20px', color: '#6b7280', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s ease', borderRadius: '14px', background: 'transparent', boxShadow: 'none', whiteSpace: 'nowrap' },
     activeNavItem: { color: '#10b981', fontWeight: '700' },
@@ -77,7 +108,17 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
     topBar: { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '15px', marginBottom: '20px' },
     logoutButton: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 15px', backgroundColor: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' },
     profileCircle: { width: '50px', height: '50px', backgroundColor: '#d1d5db', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '2px 2px 5px rgba(0,0,0,0.1)' },
-    whiteCard: { backgroundColor: 'white', flex: 1, borderRadius: '24px', padding: 'clamp(20px, 4vw, 40px)', boxShadow: '0 10px 25px rgba(0,0,0,0.05)', overflowY: 'auto' },
+    whiteCard: {
+      backgroundColor: isDark ? '#323232' : 'white',
+      flex: 1,
+      borderRadius: '24px',
+      padding: 'clamp(20px, 4vw, 40px)',
+      boxShadow: isDark ? '0 10px 30px rgba(0,0,0,0.25)' : '0 10px 25px rgba(0,0,0,0.05)',
+      overflowY: 'auto',
+      border: isDark ? '1px solid #4A4A4A' : 'none',
+      color: isDark ? '#E8EAED' : 'inherit',
+      transition: 'background-color 0.25s ease, border-color 0.25s ease'
+    },
 
     // The Green Create Button
     createButton: { display: 'flex', alignItems: 'center', padding: '10px 30px', backgroundColor: '#10b981', border: 'none', borderRadius: '50px', color: 'white', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', boxShadow: '0 4px 6px rgba(16, 185, 129, 0.2)' },
@@ -85,13 +126,32 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
     grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '24px' },
 
     // Modal Styles
-    modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 100 },
-    modalCard: { backgroundColor: 'white', padding: '40px', borderRadius: '24px', width: '90%', maxWidth: '500px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' },
+    modalOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.7)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 100, backdropFilter: 'blur(5px)' },
+    modalCard: {
+      backgroundColor: isDark ? '#323232' : 'white',
+      padding: '40px',
+      borderRadius: '24px',
+      width: '90%',
+      maxWidth: '500px',
+      boxShadow: '0 20px 40px rgba(0,0,0,0.4)',
+      border: isDark ? '1px solid #4A4A4A' : 'none',
+      color: isDark ? '#E8EAED' : 'inherit'
+    },
     modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' },
-    closeModalBtn: { background: 'transparent', border: 'none', cursor: 'pointer', color: '#9ca3af' },
+    closeModalBtn: { background: 'transparent', border: 'none', cursor: 'pointer', color: isDark ? '#a3a3a3' : '#9ca3af' },
     form: { display: 'flex', flexDirection: 'column', gap: '15px' },
-    input: { width: '100%', padding: '15px', borderRadius: '12px', border: '1px solid #e5e7eb', backgroundColor: 'white', color: '#4b5563', fontSize: '1rem', boxSizing: 'border-box', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)' },
-    submitModalBtn: { padding: '10px 40px', backgroundColor: '#d1d5db', border: 'none', borderRadius: '50px', color: '#4b5563', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer' }
+    input: {
+      width: '100%',
+      padding: '15px',
+      borderRadius: '12px',
+      border: isDark ? '1px solid #4A4A4A' : '1px solid #e5e7eb',
+      backgroundColor: isDark ? '#282828' : 'white',
+      color: isDark ? '#E8EAED' : '#4b5563',
+      fontSize: '1rem',
+      boxSizing: 'border-box',
+      boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
+    },
+    submitModalBtn: { padding: '10px 40px', backgroundColor: '#10b981', border: 'none', borderRadius: '50px', color: 'white', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer' }
   };
 
   const navRefs = useRef({});
@@ -111,11 +171,22 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
     return { top: 0, height: 42, opacity: 0, transition: false };
   });
 
-  // Load saved classrooms from localStorage so they survive a refresh.
+// Load saved classrooms from localStorage so they survive a refresh.
   const [classrooms, setClassrooms] = useState(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      return saved ? JSON.parse(saved) : DEFAULT_CLASSROOMS;
+      const key = getStorageKey(currentUser);
+      const raw = localStorage.getItem(key) || localStorage.getItem('verity_teacher_classrooms');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.filter(c => !isPhantomClassroom(c));
+          // Overwrite dirty cache
+          localStorage.setItem(key, JSON.stringify(cleaned));
+          localStorage.setItem('verity_teacher_classrooms', JSON.stringify(cleaned));
+          return cleaned.length > 0 ? cleaned : DEFAULT_CLASSROOMS;
+        }
+      }
+      return DEFAULT_CLASSROOMS;
     } catch {
       return DEFAULT_CLASSROOMS;
     }
@@ -123,8 +194,33 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
 
   // Show skeleton only when there's no cached data yet.
   const [loadingClassrooms, setLoadingClassrooms] = useState(
-    () => !localStorage.getItem(STORAGE_KEY)
+    () => !localStorage.getItem(getStorageKey(currentUser)) && !localStorage.getItem('verity_teacher_classrooms')
   );
+
+  // Fetch real classrooms from backend server
+  useEffect(() => {
+    const fetchClassrooms = async () => {
+      try {
+        const res = await apiFetch(`${import.meta.env.VITE_API_URL}/classrooms`);
+        if (res.ok) {
+          const data = await res.json();
+          const serverList = (Array.isArray(data) ? data : (data.classrooms || [])).filter(c => !isPhantomClassroom(c));
+          if (serverList.length > 0) {
+            // Find classrooms created by or belonging to this teacher
+            const teacherClasses = serverList.filter(c => 
+              !c.instructor_email || 
+              (currentUser?.email && c.instructor_email.toLowerCase() === currentUser.email.toLowerCase()) || 
+              (currentUser?.name && c.instructor && c.instructor.toLowerCase() === currentUser.name.toLowerCase())
+            );
+            const classesToUse = teacherClasses.length > 0 ? teacherClasses : serverList;
+            setClassrooms(prev => mergeClassroomsPreservingOrder(prev, classesToUse));
+            setLoadingClassrooms(false);
+          }
+        }
+      } catch {}
+    };
+    fetchClassrooms();
+  }, [currentUser]);
 
   useEffect(() => {
     if (!loadingClassrooms) return;
@@ -135,13 +231,19 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
   // Persist classrooms whenever they change — locally (survives refresh) and to
   // the backend (so the Admin dashboard can count them server-wide).
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(classrooms));
+    const key = getStorageKey(currentUser);
+    localStorage.setItem(key, JSON.stringify(classrooms));
+    const withInstructor = classrooms.map(c => ({
+      ...c,
+      instructor: c.instructor || currentUser?.name || 'Instructor',
+      instructorEmail: c.instructorEmail || c.instructor_email || currentUser?.email || ''
+    }));
     apiFetch(`${import.meta.env.VITE_API_URL}/classrooms`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ classrooms })
+      body: JSON.stringify({ classrooms: withInstructor })
     }).catch(() => { /* offline — localStorage copy still holds */ });
-  }, [classrooms]);
+  }, [classrooms, currentUser]);
 
   const [activeMenu, setActiveMenu] = useState(null);
   const [settingsClassroom, setSettingsClassroom] = useState(null);
@@ -223,6 +325,9 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
     e.stopPropagation();
     if (window.confirm("Are you sure you want to delete this classroom?")) {
       setClassrooms(classrooms.filter(c => c.id !== id));
+      apiFetch(`${import.meta.env.VITE_API_URL}/classrooms/${id}`, {
+        method: 'DELETE'
+      }).catch(() => {});
     }
     setActiveMenu(null);
   };
@@ -234,7 +339,9 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
       id: Date.now(),
       section: newClass.section || "N/A",
       name: newClass.name,
-      subject: newClass.subject
+      subject: newClass.subject,
+      instructor: currentUser?.name || 'Instructor',
+      instructorEmail: currentUser?.email || ''
     };
 
     setClassrooms([newClassroom, ...classrooms]);
@@ -261,14 +368,14 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#64748b',
+              color: isDark ? '#d4d4d4' : '#64748b',
               flexShrink: 0,
               marginRight: '16px'
             }}
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             className="icon-btn-anim"
           >
-            <Menu size={24} color="#64748b" />
+            <Menu size={24} color={isDark ? '#d4d4d4' : '#64748b'} />
           </button>
 
           <div
@@ -276,7 +383,7 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
             onClick={() => handleSetView('classrooms')}
           >
             <span style={{ color: '#10b981' }}>V</span>
-            <span style={{ color: '#1e293b' }}>erity</span>
+            <span style={{ color: isDark ? '#f5f5f5' : '#1e293b' }}>erity</span>
             <span style={styles.badge}>Instructor</span>
           </div>
         </div>
@@ -298,12 +405,12 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
               right: 0,
               top: indicatorStyle.top,
               height: indicatorStyle.height,
-              background: 'rgba(255,255,255,0.25)',
+              background: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.25)',
               backdropFilter: 'blur(8px)',
               WebkitBackdropFilter: 'blur(8px)',
               borderRadius: '14px',
-              boxShadow: '0 4px 16px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
-              border: '1px solid rgba(255,255,255,0.35)',
+              boxShadow: isDark ? '0 4px 16px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08)' : '0 4px 16px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
+              border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(255,255,255,0.35)',
               transition: indicatorStyle.transition || 'none',
               opacity: indicatorStyle.opacity,
               pointerEvents: 'none',
@@ -320,9 +427,9 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
                   style={styles.sidebarBtn(collapsed)}
                   title={collapsed ? label : ''}
                 >
-                  <Icon size={20} color={active ? '#10b981' : '#475569'} style={{ flexShrink: 0 }} />
+                  <Icon size={20} color={active ? '#10b981' : (isDark ? '#a3a3a3' : '#475569')} style={{ flexShrink: 0 }} />
                   {!collapsed && (
-                    <span style={{ fontSize: '0.85rem', fontWeight: active ? '700' : '600', color: active ? '#10b981' : '#334155', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: active ? '700' : '600', color: active ? '#10b981' : (isDark ? '#e5e5e5' : '#334155'), overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {label}
                     </span>
                   )}
@@ -338,7 +445,7 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
                     padding: '0 18px',
                     fontSize: '0.75rem',
                     fontWeight: 'bold',
-                    color: '#9ca3af',
+                    color: isDark ? '#737373' : '#9ca3af',
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em',
                     marginBottom: '4px'
@@ -373,7 +480,7 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
                         {cls.name.charAt(0).toUpperCase()}
                       </div>
                       {!collapsed && (
-                        <span style={{ fontSize: '0.85rem', fontWeight: '600', color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: '600', color: isDark ? '#E8EAED' : '#334155', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {cls.name}
                         </span>
                       )}
@@ -391,9 +498,9 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
                 style={styles.sidebarBtn(collapsed)}
                 title={collapsed ? 'Settings' : ''}
               >
-                <Settings size={20} color={activeView === 'settings' ? '#10b981' : '#475569'} style={{ flexShrink: 0 }} />
+                <Settings size={20} color={activeView === 'settings' ? '#10b981' : (isDark ? '#a3a3a3' : '#475569')} style={{ flexShrink: 0 }} />
                 {!collapsed && (
-                  <span style={{ fontSize: '0.85rem', fontWeight: activeView === 'settings' ? '700' : '600', color: activeView === 'settings' ? '#10b981' : '#334155', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: activeView === 'settings' ? '700' : '600', color: activeView === 'settings' ? '#10b981' : (isDark ? '#E8EAED' : '#334155'), overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     Settings
                   </span>
                 )}
@@ -507,9 +614,9 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
           <div style={styles.modalCard}>
 
             <div style={styles.modalHeader}>
-              <h2 style={{ margin: 0, color: '#1f2937' }}>Create Class</h2>
+              <h2 style={{ margin: 0, color: isDark ? '#f8fafc' : '#1f2937' }}>Create Class</h2>
               <button onClick={() => setIsModalOpen(false)} style={styles.closeModalBtn}>
-                <X size={24} />
+                <X size={24} color={isDark ? '#cbd5e1' : '#475569'} />
               </button>
             </div>
 
@@ -524,12 +631,12 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
                   width: '100%',
                   padding: '15px',
                   borderRadius: '12px',
-                  border: nameFocused ? '2px solid #007bff' : '1px solid #e5e7eb',
-                  backgroundColor: 'white',
-                  color: '#4b5563',
+                  border: nameFocused ? '2px solid #007bff' : (isDark ? '1px solid #334155' : '1px solid #e5e7eb'),
+                  backgroundColor: isDark ? '#0f172a' : 'white',
+                  color: isDark ? '#f8fafc' : '#4b5563',
                   fontSize: '1rem',
                   boxSizing: 'border-box',
-                  boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)',
+                  boxShadow: isDark ? 'none' : 'inset 0 2px 4px rgba(0,0,0,0.02)',
                   transition: 'border-color 0.3s'
                 }}
                 onFocus={() => setNameFocused(true)}
@@ -544,12 +651,12 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
                   width: '100%',
                   padding: '15px',
                   borderRadius: '12px',
-                  border: sectionFocused ? '2px solid #007bff' : '1px solid #e5e7eb',
-                  backgroundColor: 'white',
-                  color: '#4b5563',
+                  border: sectionFocused ? '2px solid #007bff' : (isDark ? '1px solid #334155' : '1px solid #e5e7eb'),
+                  backgroundColor: isDark ? '#0f172a' : 'white',
+                  color: isDark ? '#f8fafc' : '#4b5563',
                   fontSize: '1rem',
                   boxSizing: 'border-box',
-                  boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)',
+                  boxShadow: isDark ? 'none' : 'inset 0 2px 4px rgba(0,0,0,0.02)',
                   transition: 'border-color 0.3s'
                 }}
                 onFocus={() => setSectionFocused(true)}
@@ -564,12 +671,12 @@ export default function TeacherDashboard({ onLogout, onEnterClassroom }) {
                   width: '100%',
                   padding: '15px',
                   borderRadius: '12px',
-                  border: subjectFocused ? '2px solid #007bff' : '1px solid #e5e7eb',
-                  backgroundColor: 'white',
-                  color: '#4b5563',
+                  border: subjectFocused ? '2px solid #007bff' : (isDark ? '1px solid #334155' : '1px solid #e5e7eb'),
+                  backgroundColor: isDark ? '#0f172a' : 'white',
+                  color: isDark ? '#f8fafc' : '#4b5563',
                   fontSize: '1rem',
                   boxSizing: 'border-box',
-                  boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)',
+                  boxShadow: isDark ? 'none' : 'inset 0 2px 4px rgba(0,0,0,0.02)',
                   transition: 'border-color 0.3s'
                 }}
                 onFocus={() => setSubjectFocused(true)}

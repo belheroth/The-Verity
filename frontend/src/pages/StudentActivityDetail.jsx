@@ -3,6 +3,8 @@ import { Home, Calendar, ClipboardList, Settings, Menu, Archive, ArrowLeft, Chec
 import ProfileMenu from './ProfileMenu';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
+import { useDarkMode } from '../hooks/useDarkMode';
+import Skeleton from '../components/Skeleton';
 
 const getStorageKey = (user) => {
   const identifier = user?.email || user?.id || user?.name || 'default';
@@ -20,10 +22,21 @@ export default function StudentActivityDetail({
   onEnterClassroom,
   onLogout
 }) {
+  const { isDark } = useDarkMode();
+  const styles = getStyles(isDark);
   const safeUsername = currentUser?.name || currentUser?.email || 'Student';
   const studentId = currentUser?.email || currentUser?.name || 'student';
   const assignmentId = assignment?.id ?? 'default';
   const classroomId = classroom?.id ?? 'default';
+  const [loading, setLoading] = useState(!assignment);
+
+  useEffect(() => {
+    if (!assignment) {
+      setLoading(true);
+    } else {
+      setLoading(false);
+    }
+  }, [assignment]);
 
   // Local storage keys
   const submissionKey = `verity_sub_${classroomId}_${assignmentId}_${studentId}`;
@@ -341,7 +354,7 @@ export default function StudentActivityDetail({
             style={styles.menuButton}
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
-            <Menu size={24} color="#64748b" />
+            <Menu size={24} color={isDark ? "#a3a3a3" : "#64748b"} />
           </button>
 
           <div
@@ -352,7 +365,7 @@ export default function StudentActivityDetail({
             }}
           >
             <span style={{ color: '#10b981' }}>V</span>
-            <span style={{ color: '#1e293b' }}>erity</span>
+            <span style={{ color: isDark ? '#f5f5f5' : '#1e293b' }}>erity</span>
             <span style={styles.badge}>Student</span>
           </div>
         </div>
@@ -374,12 +387,12 @@ export default function StudentActivityDetail({
               right: 0,
               top: indicatorStyle.top,
               height: indicatorStyle.height,
-              background: 'rgba(255,255,255,0.25)',
+              background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.25)',
               backdropFilter: 'blur(8px)',
               WebkitBackdropFilter: 'blur(8px)',
               borderRadius: '14px',
-              boxShadow: '0 4px 16px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
-              border: '1px solid rgba(255,255,255,0.35)',
+              boxShadow: isDark ? '0 4px 16px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)' : '0 4px 16px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
+              border: isDark ? '1px solid rgba(255,255,255,0.12)' : '1px solid rgba(255,255,255,0.35)',
               transition: indicatorStyle.transition || 'none',
               opacity: indicatorStyle.opacity,
               pointerEvents: 'none',
@@ -395,7 +408,7 @@ export default function StudentActivityDetail({
               style={styles.navButton(collapsed)}
               title={collapsed ? 'Home' : ''}
             >
-              <Home size={20} color="#475569" style={{ flexShrink: 0 }} />
+              <Home size={20} color={isDark ? "#a3a3a3" : "#475569"} style={{ flexShrink: 0 }} />
               {!collapsed && (
                 <span style={styles.navLabel}>Home</span>
               )}
@@ -410,7 +423,7 @@ export default function StudentActivityDetail({
               style={styles.navButton(collapsed)}
               title={collapsed ? 'Calendar' : ''}
             >
-              <Calendar size={20} color="#475569" style={{ flexShrink: 0 }} />
+              <Calendar size={20} color={isDark ? "#a3a3a3" : "#475569"} style={{ flexShrink: 0 }} />
               {!collapsed && (
                 <span style={styles.navLabel}>Calendar</span>
               )}
@@ -425,7 +438,7 @@ export default function StudentActivityDetail({
               style={styles.navButton(collapsed)}
               title={collapsed ? 'Archived' : ''}
             >
-              <Archive size={20} color="#475569" style={{ flexShrink: 0 }} />
+              <Archive size={20} color={isDark ? "#a3a3a3" : "#475569"} style={{ flexShrink: 0 }} />
               {!collapsed && (
                 <span style={styles.navLabel}>Archived</span>
               )}
@@ -470,7 +483,7 @@ export default function StudentActivityDetail({
                         {cls.name.charAt(0).toUpperCase()}
                       </div>
                       {!collapsed && (
-                        <span style={{ fontSize: '0.85rem', fontWeight: active ? '700' : '600', color: active ? '#10b981' : '#334155', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: active ? '700' : '600', color: active ? '#10b981' : (isDark ? '#E8EAED' : '#334155'), overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {cls.name}
                         </span>
                       )}
@@ -491,7 +504,7 @@ export default function StudentActivityDetail({
                 style={styles.navButton(collapsed)}
                 title={collapsed ? 'Settings' : ''}
               >
-                <Settings size={20} color="#475569" style={{ flexShrink: 0 }} />
+                <Settings size={20} color={isDark ? "#a3a3a3" : "#475569"} style={{ flexShrink: 0 }} />
                 {!collapsed && (
                   <span style={styles.navLabel}>Settings</span>
                 )}
@@ -503,15 +516,19 @@ export default function StudentActivityDetail({
         {/* ═══ MAIN CONTENT AREA (PHOTO 1 / PHOTO 2) ═══ */}
         <div style={styles.mainContent}>
           <div style={styles.whiteCard}>
-            {/* Top Back Navigation Row */}
-            <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center' }}>
-              <button
-                onClick={onBack}
-                style={styles.backBtn}
-              >
-                <ArrowLeft size={16} style={{ marginRight: '6px' }} /> Back to Activities
-              </button>
-            </div>
+            {loading || !assignment ? (
+              <Skeleton.ActivityDetail />
+            ) : (
+              <>
+                {/* Top Back Navigation Row */}
+                <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center' }}>
+                  <button
+                    onClick={onBack}
+                    style={styles.backBtn}
+                  >
+                    <ArrowLeft size={16} style={{ marginRight: '6px' }} /> Back to Activities
+                  </button>
+                </div>
 
             {/* Activity Title Pill (matching wireframe grey pill) */}
             <div style={styles.titlePill}>
@@ -601,10 +618,10 @@ export default function StudentActivityDetail({
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <CheckCircle2 size={22} color="#15803d" />
                     <div>
-                      <span style={{ fontWeight: '700', color: '#1e293b', fontSize: '0.95rem' }}>
+                      <span style={{ fontWeight: '700', color: isDark ? '#E8EAED' : '#1e293b', fontSize: '0.95rem' }}>
                         Main.cs • Code Submitted
                       </span>
-                      <span style={{ fontSize: '0.8rem', color: '#64748b', marginLeft: '10px' }}>
+                      <span style={{ fontSize: '0.8rem', color: isDark ? '#9AA0A6' : '#64748b', marginLeft: '10px' }}>
                         {submission?.submittedAt ? `Turned in on ${submission.submittedAt}` : 'Turned in'}
                       </span>
                     </div>
@@ -625,7 +642,7 @@ export default function StudentActivityDetail({
 
                 {/* Instructor Feedback Container Box */}
                 <div style={styles.feedbackBox}>
-                  <p style={{ margin: 0, color: '#334155', fontSize: '0.95rem', lineHeight: '1.5' }}>
+                  <p style={{ margin: 0, color: isDark ? '#E8EAED' : '#334155', fontSize: '0.95rem', lineHeight: '1.5' }}>
                     {feedbackText}
                   </p>
                 </div>
@@ -643,6 +660,8 @@ export default function StudentActivityDetail({
                 </div>
               </div>
             )}
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -654,7 +673,7 @@ export default function StudentActivityDetail({
             <div style={styles.modalHeader}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Code2 size={20} color="#10b981" />
-                <h3 style={{ margin: 0, color: '#1e293b', fontSize: '1.1rem' }}>Submitted C# Code</h3>
+                <h3 style={{ margin: 0, color: isDark ? '#E8EAED' : '#1e293b', fontSize: '1.1rem' }}>Submitted C# Code</h3>
               </div>
               <button
                 onClick={() => setShowCodePreview(false)}
@@ -673,14 +692,15 @@ export default function StudentActivityDetail({
   );
 }
 
-const styles = {
+const getStyles = (isDark) => ({
   container: {
     height: '100vh',
     minHeight: '100vh',
     width: '100%',
     display: 'flex',
     flexDirection: 'column',
-    backgroundColor: '#EEF0F3',
+    backgroundColor: isDark ? '#3C3C3C' : '#EEF0F3',
+    color: isDark ? '#E8EAED' : 'inherit',
     fontFamily: 'Arial, Helvetica, sans-serif',
     position: 'relative',
     overflow: 'hidden'
@@ -692,7 +712,8 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: '0 24px',
-    backgroundColor: '#EEF0F3',
+    backgroundColor: isDark ? '#3C3C3C' : '#EEF0F3',
+    borderBottom: 'none',
     zIndex: 50
   },
   menuButton: {
@@ -704,7 +725,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    color: '#64748b',
+    color: isDark ? '#ffffff' : '#64748b',
     flexShrink: 0,
     marginRight: '16px'
   },
@@ -718,14 +739,14 @@ const styles = {
   },
   badge: { 
     fontSize: '0.7rem', 
-    backgroundColor: '#EEF0F3', 
-    color: '#475569', 
+    backgroundColor: isDark ? '#2c2f38' : '#EEF0F3', 
+    color: isDark ? '#E8EAED' : '#475569', 
     padding: '3px 8px', 
     borderRadius: '10px', 
     marginLeft: '6px', 
     fontStyle: 'normal', 
     transform: 'translateY(-5px)', 
-    border: '1px solid #cbd5e1' 
+    border: isDark ? '1px solid #3d424f' : '1px solid #cbd5e1' 
   },
   sidebar: (collapsed) => ({
     width: collapsed ? '84px' : '240px',
@@ -759,7 +780,7 @@ const styles = {
   navLabel: {
     fontSize: '0.85rem',
     fontWeight: '600',
-    color: '#334155',
+    color: isDark ? '#E8EAED' : '#334155',
     overflow: 'hidden',
     textOverflow: 'ellipsis'
   },
@@ -767,7 +788,7 @@ const styles = {
     padding: '0 18px',
     fontSize: '0.75rem',
     fontWeight: 'bold',
-    color: '#9ca3af',
+    color: isDark ? '#10b981' : '#9ca3af',
     textTransform: 'uppercase',
     letterSpacing: '0.05em',
     marginBottom: '4px'
@@ -781,11 +802,12 @@ const styles = {
     overflowY: 'auto'
   },
   whiteCard: {
-    backgroundColor: 'white',
+    backgroundColor: isDark ? '#323232' : 'white',
     flex: 1,
     borderRadius: '28px',
     padding: '32px 48px 40px',
-    boxShadow: '0 10px 30px rgba(0, 0, 0, 0.04)',
+    boxShadow: isDark ? '0 10px 30px rgba(0, 0, 0, 0.25)' : '0 10px 30px rgba(0, 0, 0, 0.04)',
+    border: isDark ? '1px solid #4A4A4A' : 'none',
     display: 'flex',
     flexDirection: 'column',
     maxWidth: '1200px',
@@ -796,7 +818,7 @@ const styles = {
   backBtn: {
     background: 'transparent',
     border: 'none',
-    color: '#64748b',
+    color: isDark ? '#E8EAED' : '#64748b',
     fontSize: '0.9rem',
     fontWeight: '600',
     cursor: 'pointer',
@@ -806,8 +828,9 @@ const styles = {
     transition: 'color 0.15s'
   },
   titlePill: {
-    backgroundColor: '#bcbfc5',
-    color: '#334155',
+    backgroundColor: isDark ? '#3E3E3E' : '#bcbfc5',
+    color: isDark ? '#E8EAED' : '#334155',
+    border: isDark ? '1px solid #4E4E4E' : 'none',
     fontWeight: '700',
     fontSize: '1rem',
     padding: '10px 28px',
@@ -822,7 +845,7 @@ const styles = {
   },
   divider: {
     height: '1px',
-    backgroundColor: '#cbd5e1',
+    backgroundColor: isDark ? '#4A4A4A' : '#cbd5e1',
     margin: '18px 0',
     width: '100%'
   },
@@ -834,23 +857,23 @@ const styles = {
   },
   pointsText: {
     fontSize: '0.92rem',
-    color: '#1e293b',
-    fontWeight: '600',
-    marginBottom: '4px'
+    color: isDark ? '#E8EAED' : '#1e293b',
+    fontWeight: '700'
   },
   dueText: {
     fontSize: '0.88rem',
-    color: '#475569',
+    color: isDark ? '#9AA0A6' : '#475569',
     fontWeight: '500'
   },
   scoreText: {
     fontSize: '0.95rem',
-    color: '#1e293b',
+    color: isDark ? '#E8EAED' : '#1e293b',
     fontWeight: '700',
     letterSpacing: '0.01em'
   },
   detailsBox: {
-    backgroundColor: '#c4c8cd',
+    backgroundColor: isDark ? '#282828' : '#c4c8cd',
+    border: isDark ? '1px solid #3E3E3E' : 'none',
     borderRadius: '24px',
     padding: '28px 32px',
     minHeight: '220px',
@@ -860,7 +883,7 @@ const styles = {
   },
   instructionText: {
     margin: 0,
-    color: '#1f2937',
+    color: isDark ? '#E8EAED' : '#1f2937',
     fontSize: '1rem',
     lineHeight: 1.65,
     whiteSpace: 'pre-wrap'
@@ -888,11 +911,11 @@ const styles = {
   attachLink: {
     display: 'inline-flex',
     alignItems: 'center',
-    color: '#1d4ed8',
+    color: isDark ? '#60a5fa' : '#1d4ed8',
     textDecoration: 'none',
     fontSize: '0.9rem',
     wordBreak: 'break-all',
-    backgroundColor: 'rgba(255,255,255,0.7)',
+    backgroundColor: isDark ? '#262932' : 'rgba(255,255,255,0.7)',
     padding: '6px 12px',
     borderRadius: '8px'
   },
@@ -904,9 +927,9 @@ const styles = {
     marginTop: '36px'
   },
   submitBtn: {
-    backgroundColor: '#374151',
+    backgroundColor: isDark ? '#2a2d36' : '#374151',
     color: '#ffffff',
-    border: 'none',
+    border: isDark ? '1px solid #3c404d' : 'none',
     borderRadius: '50px',
     padding: '12px 46px',
     fontSize: '1rem',
@@ -928,7 +951,8 @@ const styles = {
     transition: 'all 0.15s ease'
   },
   submissionBox: {
-    backgroundColor: '#c4c8cd',
+    backgroundColor: isDark ? '#15171c' : '#c4c8cd',
+    border: isDark ? '1px solid #262932' : 'none',
     borderRadius: '24px',
     padding: '18px 28px',
     display: 'flex',
@@ -939,9 +963,9 @@ const styles = {
   viewCodeBtn: {
     display: 'flex',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    color: '#1e293b',
-    border: 'none',
+    backgroundColor: isDark ? '#262932' : 'rgba(255,255,255,0.85)',
+    color: isDark ? '#E8EAED' : '#1e293b',
+    border: isDark ? '1px solid #3c404d' : 'none',
     borderRadius: '8px',
     padding: '6px 14px',
     fontSize: '0.85rem',
@@ -952,13 +976,14 @@ const styles = {
   feedbackHeading: {
     fontSize: '0.95rem',
     fontWeight: '700',
-    color: '#1e293b',
+    color: isDark ? '#E8EAED' : '#1e293b',
     marginTop: '22px',
     marginBottom: '10px',
     paddingLeft: '4px'
   },
   feedbackBox: {
-    backgroundColor: '#c4c8cd',
+    backgroundColor: isDark ? '#282828' : '#c4c8cd',
+    border: isDark ? '1px solid #3E3E3E' : 'none',
     borderRadius: '24px',
     padding: '22px 28px',
     minHeight: '60px',
@@ -966,9 +991,9 @@ const styles = {
     alignItems: 'center'
   },
   unsubmitBtn: {
-    backgroundColor: '#374151',
+    backgroundColor: isDark ? '#4A4A4A' : '#374151',
     color: '#ffffff',
-    border: 'none',
+    border: isDark ? '1px solid #5A5A5A' : 'none',
     borderRadius: '50px',
     padding: '12px 52px',
     fontSize: '1rem',
@@ -983,7 +1008,7 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: isDark ? 'rgba(0,0,0,0.65)' : 'rgba(0,0,0,0.5)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -991,14 +1016,15 @@ const styles = {
     backdropFilter: 'blur(4px)'
   },
   modalCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: isDark ? '#323232' : '#ffffff',
+    border: isDark ? '1px solid #4A4A4A' : 'none',
     borderRadius: '16px',
     width: '90%',
     maxWidth: '750px',
     maxHeight: '80vh',
     display: 'flex',
     flexDirection: 'column',
-    boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+    boxShadow: isDark ? '0 20px 40px rgba(0,0,0,0.4)' : '0 20px 40px rgba(0,0,0,0.2)',
     overflow: 'hidden'
   },
   modalHeader: {
@@ -1006,20 +1032,20 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderBottom: '1px solid #e2e8f0'
+    borderBottom: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0'
   },
   closeModalBtn: {
     background: 'transparent',
     border: 'none',
     cursor: 'pointer',
-    color: '#64748b',
+    color: isDark ? '#a3a3a3' : '#64748b',
     display: 'flex',
     alignItems: 'center'
   },
   modalCodeBody: {
     margin: 0,
     padding: '20px',
-    backgroundColor: '#1e1e1e',
+    backgroundColor: isDark ? '#141414' : '#1e1e1e',
     color: '#d4d4d4',
     fontFamily: 'monospace',
     fontSize: '0.9rem',
@@ -1027,4 +1053,4 @@ const styles = {
     overflowY: 'auto',
     flex: 1
   }
-};
+});

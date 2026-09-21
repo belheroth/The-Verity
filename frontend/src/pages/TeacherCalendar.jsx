@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
+import Skeleton from '../components/Skeleton';
 
 const MOCK_ACTIVITIES = [
   {
@@ -29,6 +30,7 @@ export default function TeacherCalendar({ classrooms }) {
   const [currentDate, setCurrentDate] = useState(new Date(2026, 8, 2));
   const [filterClass, setFilterClass] = useState('all');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const getStartOfWeek = (date) => {
     const start = new Date(date);
@@ -47,15 +49,19 @@ export default function TeacherCalendar({ classrooms }) {
   });
 
   const goPrevWeek = () => {
+    setLoading(true);
     const newDate = new Date(currentDate);
     newDate.setDate(newDate.getDate() - 7);
     setCurrentDate(newDate);
+    setTimeout(() => setLoading(false), 180);
   };
 
   const goNextWeek = () => {
+    setLoading(true);
     const newDate = new Date(currentDate);
     newDate.setDate(newDate.getDate() + 7);
     setCurrentDate(newDate);
+    setTimeout(() => setLoading(false), 180);
   };
 
   const getWeekString = () => {
@@ -131,7 +137,10 @@ export default function TeacherCalendar({ classrooms }) {
           </div>
         </div>
       </div>
-      <div style={{ display: 'flex', flex: 1, border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+      {loading ? (
+        <Skeleton.Calendar />
+      ) : (
+        <div style={{ display: 'flex', flex: 1, border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
         {weekDays.map((day, idx) => {
           const today = isToday(day);
           const daysActivities = filteredActivities.filter(a => 
@@ -170,6 +179,7 @@ export default function TeacherCalendar({ classrooms }) {
           );
         })}
       </div>
+      )}
     </div>
   );
 }

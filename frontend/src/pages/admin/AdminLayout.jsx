@@ -2,9 +2,10 @@ import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { BarChart3, Users, Home, Shield, Settings, Search, Bell, Plus, X, Trash2, User, Menu, X as XIcon, Filter, CheckCircle, AlertCircle } from 'lucide-react';
 import ProfileMenu from '../ProfileMenu';
+import { useDarkMode } from '../../hooks/useDarkMode';
 
 // Shared styles (moved from original file for layout concerns)
-const layoutStyles = {
+const getLayoutStyles = (isDark) => ({
   header: {
     height: '72px',
     flexShrink: 0,
@@ -12,8 +13,10 @@ const layoutStyles = {
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: '0 24px',
-    backgroundColor: '#EEF0F3',
-    zIndex: 50
+    backgroundColor: isDark ? '#3C3C3C' : '#EEF0F3',
+    borderBottom: 'none',
+    zIndex: 50,
+    transition: 'background-color 0.25s ease'
   },
   sidebar: (collapsed) => ({
     width: collapsed ? '84px' : '240px',
@@ -46,14 +49,14 @@ const layoutStyles = {
   }),
   badge: {
     fontSize: '0.7rem',
-    backgroundColor: '#EEF0F3',
-    color: '#475569',
+    backgroundColor: isDark ? '#2c2f38' : '#EEF0F3',
+    color: isDark ? '#f5f5f5' : '#475569',
     padding: '3px 8px',
     borderRadius: '10px',
     marginLeft: '6px',
     fontStyle: 'normal',
     transform: 'translateY(-5px)',
-    border: '1px solid #cbd5e1'
+    border: isDark ? '1px solid #3d424f' : '1px solid #cbd5e1'
   },
   mainContent: {
     flex: 1,
@@ -75,7 +78,7 @@ const layoutStyles = {
       display: 'none'
     }
   }
-};
+});
 
 export default function AdminLayout({
   children,
@@ -100,6 +103,8 @@ export default function AdminLayout({
   showSelectUsersPopup,
   setShowSelectUsersPopup
 }) {
+  const { isDark } = useDarkMode();
+  const layoutStyles = getLayoutStyles(isDark);
   const [localActiveTab, setLocalActiveTab] = useState(activeTab || 'dashboard');
   const [localSidebarCollapsed, setLocalSidebarCollapsed] = useState(sidebarCollapsed || false);
   const [localQuery, setLocalQuery] = useState(query || '');
@@ -196,7 +201,17 @@ export default function AdminLayout({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', minHeight: '100vh', backgroundColor: '#EEF0F3', fontFamily: 'Arial, Helvetica, sans-serif', position: 'relative', overflow: 'hidden' }}>
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100vh',
+      minHeight: '100vh',
+      backgroundColor: isDark ? '#3C3C3C' : '#EEF0F3',
+      fontFamily: 'Arial, Helvetica, sans-serif',
+      position: 'relative',
+      overflow: 'hidden',
+      transition: 'background-color 0.25s ease'
+    }}>
       {/* ═══ GLOBAL TOP HEADER (Matched with Instructor/Student) ═══ */}
       <header style={layoutStyles.header}>
         <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -211,14 +226,14 @@ export default function AdminLayout({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#64748b',
+              color: isDark ? '#d4d4d4' : '#64748b',
               flexShrink: 0,
               marginRight: '16px'
             }}
             title={currentSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             className="icon-btn-anim"
           >
-            <Menu size={24} color="#64748b" />
+            <Menu size={24} color={isDark ? '#d4d4d4' : '#64748b'} />
           </button>
 
           <div
@@ -233,7 +248,7 @@ export default function AdminLayout({
             onClick={() => finalSetActiveTab('dashboard')}
           >
             <span style={{ color: '#10b981' }}>V</span>
-            <span style={{ color: '#1e293b' }}>erity</span>
+            <span style={{ color: isDark ? '#f5f5f5' : '#1e293b' }}>erity</span>
             <span style={layoutStyles.badge}>Admin</span>
           </div>
         </div>
@@ -380,12 +395,14 @@ export default function AdminLayout({
               right: 0,
               top: indicatorStyle.top,
               height: indicatorStyle.height,
-              background: 'rgba(255,255,255,0.25)',
+              background: isDark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(255,255,255,0.25)',
               backdropFilter: 'blur(8px)',
               WebkitBackdropFilter: 'blur(8px)',
               borderRadius: '14px',
-              boxShadow: '0 4px 16px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
-              border: '1px solid rgba(255,255,255,0.35)',
+              boxShadow: isDark
+                ? '0 4px 16px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08)'
+                : '0 4px 16px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
+              border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(255,255,255,0.35)',
               transition: indicatorStyle.transition || 'none',
               opacity: indicatorStyle.opacity,
               pointerEvents: 'none',
@@ -402,9 +419,9 @@ export default function AdminLayout({
                   style={layoutStyles.sidebarBtn(currentSidebarCollapsed)}
                   title={currentSidebarCollapsed ? label : ''}
                 >
-                  <Icon size={20} color={active ? '#10b981' : '#475569'} style={{ flexShrink: 0 }} />
+                  <Icon size={20} color={active ? '#10b981' : (isDark ? '#a3a3a3' : '#475569')} style={{ flexShrink: 0 }} />
                   {!currentSidebarCollapsed && (
-                    <span style={{ fontSize: '0.85rem', fontWeight: active ? '700' : '600', color: active ? '#10b981' : '#334155', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: active ? '700' : '600', color: active ? '#10b981' : (isDark ? '#e5e5e5' : '#334155'), overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {label}
                     </span>
                   )}

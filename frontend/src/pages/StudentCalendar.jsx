@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
+import { useDarkMode } from '../hooks/useDarkMode';
+import Skeleton from '../components/Skeleton';
 
 const MOCK_ACTIVITIES = [
   {
@@ -26,9 +28,11 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export default function StudentCalendar({ classrooms }) {
+  const { isDark } = useDarkMode();
   const [currentDate, setCurrentDate] = useState(new Date(2026, 8, 2));
   const [filterClass, setFilterClass] = useState('all');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const getStartOfWeek = (date) => {
     const start = new Date(date);
@@ -47,15 +51,19 @@ export default function StudentCalendar({ classrooms }) {
   });
 
   const goPrevWeek = () => {
+    setLoading(true);
     const newDate = new Date(currentDate);
     newDate.setDate(newDate.getDate() - 7);
     setCurrentDate(newDate);
+    setTimeout(() => setLoading(false), 180);
   };
 
   const goNextWeek = () => {
+    setLoading(true);
     const newDate = new Date(currentDate);
     newDate.setDate(newDate.getDate() + 7);
     setCurrentDate(newDate);
+    setTimeout(() => setLoading(false), 180);
   };
 
   const getWeekString = () => {
@@ -84,22 +92,24 @@ export default function StudentCalendar({ classrooms }) {
             onClick={() => setIsDropdownOpen(!isDropdownOpen)}
             style={{ 
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '10px 15px', width: '220px', border: '1.5px solid #2563eb', 
-              borderRadius: '6px', color: '#1f2937', fontWeight: '500', cursor: 'pointer', userSelect: 'none'
+              padding: '10px 15px', width: '220px', border: isDark ? '1.5px solid #444444' : '1.5px solid #2563eb', 
+              borderRadius: '6px', color: isDark ? '#E8EAED' : '#1f2937', fontWeight: '500', cursor: 'pointer', userSelect: 'none',
+              backgroundColor: isDark ? '#242424' : 'white'
             }}
           >
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedClassName}</span>
-            <ChevronDown size={18} color="#2563eb" />
+            <ChevronDown size={18} color={isDark ? '#a3a3a3' : '#2563eb'} />
           </div>
           {isDropdownOpen && (
             <div style={{ 
               position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '5px',
-              backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '6px',
-              boxShadow: '0 10px 15px rgba(0,0,0,0.1)', zIndex: 50, overflow: 'hidden'
+              backgroundColor: isDark ? '#323232' : 'white', border: isDark ? '1px solid #4A4A4A' : '1px solid #e5e7eb', borderRadius: '6px',
+              boxShadow: isDark ? '0 10px 20px rgba(0,0,0,0.5)' : '0 10px 15px rgba(0,0,0,0.1)', zIndex: 50, overflow: 'hidden',
+              color: isDark ? '#E8EAED' : '#1f2937'
             }}>
               <div 
                 onClick={() => { setFilterClass('all'); setIsDropdownOpen(false); }}
-                style={{ padding: '10px 15px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6', backgroundColor: filterClass === 'all' ? '#f3f4f6' : 'white' }}
+                style={{ padding: '10px 15px', cursor: 'pointer', borderBottom: isDark ? '1px solid #4A4A4A' : '1px solid #f3f4f6', backgroundColor: filterClass === 'all' ? (isDark ? '#3C3C3C' : '#f3f4f6') : (isDark ? '#323232' : 'white') }}
               >
                 All classes
               </div>
@@ -108,8 +118,8 @@ export default function StudentCalendar({ classrooms }) {
                   key={cls.id}
                   onClick={() => { setFilterClass(cls.id.toString()); setIsDropdownOpen(false); }}
                   style={{ 
-                    padding: '10px 15px', cursor: 'pointer', borderBottom: '1px solid #f3f4f6',
-                    backgroundColor: filterClass === cls.id.toString() ? '#f3f4f6' : 'white',
+                    padding: '10px 15px', cursor: 'pointer', borderBottom: isDark ? '1px solid #4A4A4A' : '1px solid #f3f4f6',
+                    backgroundColor: filterClass === cls.id.toString() ? (isDark ? '#3C3C3C' : '#f3f4f6') : (isDark ? '#323232' : 'white'),
                     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
                   }}
                 >
@@ -121,33 +131,36 @@ export default function StudentCalendar({ classrooms }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flex: 1, justifyContent: 'center', paddingRight: '220px' }}>
           <div onClick={goPrevWeek} style={{ cursor: 'pointer', padding: '5px' }}>
-            <ChevronLeft size={20} color="#4b5563" />
+            <ChevronLeft size={20} color={isDark ? '#d4d4d4' : '#4b5563'} />
           </div>
-          <span style={{ fontSize: '1rem', fontWeight: '600', color: '#1f2937', minWidth: '180px', textAlign: 'center' }}>
+          <span style={{ fontSize: '1rem', fontWeight: '600', color: isDark ? '#E8EAED' : '#1f2937', minWidth: '180px', textAlign: 'center' }}>
             {getWeekString()}
           </span>
           <div onClick={goNextWeek} style={{ cursor: 'pointer', padding: '5px' }}>
-            <ChevronRight size={20} color="#4b5563" />
+            <ChevronRight size={20} color={isDark ? '#d4d4d4' : '#4b5563'} />
           </div>
         </div>
       </div>
-      <div style={{ display: 'flex', flex: 1, border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+      {loading ? (
+        <Skeleton.Calendar />
+      ) : (
+        <div style={{ display: 'flex', flex: 1, border: isDark ? '1px solid #383838' : '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
         {weekDays.map((day, idx) => {
           const today = isToday(day);
           const daysActivities = filteredActivities.filter(a => 
             a.date.getFullYear() === day.getFullYear() && a.date.getMonth() === day.getMonth() && a.date.getDate() === day.getDate()
           );
           return (
-            <div key={idx} style={{ flex: 1, borderRight: idx < 6 ? '1px solid #e5e7eb' : 'none', display: 'flex', flexDirection: 'column' }}>
+            <div key={idx} style={{ flex: 1, borderRight: idx < 6 ? (isDark ? '1px solid #383838' : '1px solid #e5e7eb') : 'none', display: 'flex', flexDirection: 'column' }}>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '15px 0', borderBottom: '1px solid transparent' }}>
-                <span style={{ fontSize: '0.8rem', color: today ? '#2563eb' : '#6b7280', fontWeight: '600', marginBottom: '5px' }}>
+                <span style={{ fontSize: '0.8rem', color: today ? '#10b981' : (isDark ? '#a3a3a3' : '#6b7280'), fontWeight: '600', marginBottom: '5px' }}>
                   {WEEKDAYS[day.getDay()]}
                 </span>
                 <div style={{ 
                   width: '36px', height: '36px', borderRadius: '50%', 
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  backgroundColor: today ? '#2563eb' : 'transparent',
-                  color: today ? 'white' : '#1f2937',
+                  backgroundColor: today ? '#10b981' : 'transparent',
+                  color: today ? 'white' : (isDark ? '#E8EAED' : '#1f2937'),
                   fontSize: '1.4rem', fontWeight: '500'
                 }}>
                   {day.getDate()}
@@ -170,6 +183,7 @@ export default function StudentCalendar({ classrooms }) {
           );
         })}
       </div>
+      )}
     </div>
   );
 }

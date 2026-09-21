@@ -7,6 +7,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import Skeleton from '../components/Skeleton';
+import { useDarkMode } from '../hooks/useDarkMode';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const formatShortDate = (value) => {
@@ -79,10 +80,14 @@ export default function ClassroomView({
   onNavigateView,
   onLogout
 }) {
+  const { isDark } = useDarkMode();
+  const styles = getStyles(isDark);
+  const isPhantom = (c) => !c || !c.name || (/^Classroom \d+$/i.test(String(c.name).trim()) && (!c.section || !String(c.section).trim()) && (!c.subject || !String(c.subject).trim()));
+
   const [classrooms, setClassrooms] = useState(() => {
     try {
       const saved = localStorage.getItem(getStorageKey(currentUser));
-      return saved ? JSON.parse(saved) : [];
+      return saved ? JSON.parse(saved).filter(c => !isPhantom(c)) : [];
     } catch { return []; }
   });
 
@@ -91,7 +96,7 @@ export default function ClassroomView({
     const sync = () => {
       try {
         const saved = localStorage.getItem(key);
-        setClassrooms(saved ? JSON.parse(saved) : []);
+        setClassrooms(saved ? JSON.parse(saved).filter(c => !isPhantom(c)) : []);
       } catch {
         setClassrooms([]);
       }
@@ -337,9 +342,13 @@ export default function ClassroomView({
     return () => window.removeEventListener('storage', handleStorage);
   }, [announcementKey]);
 
-  // People Tab: Enrolled students
+  // People Tab: Enrolled students & Instructor info
   const [enrolledStudents, setEnrolledStudents] = useState([]);
   const [loadingStudents, setLoadingStudents] = useState(false);
+  const [instructorInfo, setInstructorInfo] = useState({
+    name: classroom?.instructor || '',
+    email: classroom?.instructorEmail || ''
+  });
 
   useEffect(() => {
     if (!classroom?.id) return;
@@ -349,40 +358,23 @@ export default function ClassroomView({
       const studentsMap = {};
 
       try {
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
-          if (k && k.startsWith('verity_student_classrooms_')) {
-            const raw = localStorage.getItem(k);
-            if (raw) {
-              const list = JSON.parse(raw);
-              if (Array.isArray(list)) {
-                const match = list.some(c => 
-                  c.id === classroom.id || 
-                  (c.section && c.section.toLowerCase() === (classroom.section || '').toLowerCase())
-                );
-                if (match) {
-                  const studentName = k.replace('verity_student_classrooms_', '');
-                  studentsMap[studentName] = { 
-                    name: studentName, 
-                    email: `${studentName.toLowerCase().replace(/\s+/g, '.')}@student.verity.edu` 
-                  };
-                }
-              }
-            }
-          }
-        }
-      } catch {}
-
-      try {
         const res = await apiFetch(`${import.meta.env.VITE_API_URL}/classroom-students/${classroom.id}`);
         if (res.ok) {
           const data = await res.json();
+          if (data.instructor) {
+            setInstructorInfo({
+              name: data.instructor.name || classroom?.instructor || 'Instructor',
+              email: data.instructor.email || classroom?.instructorEmail || '',
+              avatar: data.instructor.avatar || null
+            });
+          }
           if (Array.isArray(data.students)) {
             data.students.forEach(s => {
-              if (s.name) {
-                studentsMap[s.name] = { 
+              if (s && s.name) {
+                studentsMap[s.name.toLowerCase()] = { 
                   name: s.name, 
-                  email: s.email || `${s.name.toLowerCase().replace(/\s+/g, '.')}@student.verity.edu` 
+                  email: s.email || `${s.name.toLowerCase().replace(/\s+/g, '.')}@student.verity.edu`,
+                  avatar: s.avatar || null
                 };
               }
             });
@@ -390,10 +382,41 @@ export default function ClassroomView({
         }
       } catch {}
 
-      if (Object.keys(studentsMap).length === 0) {
-        studentsMap['Alex Johnson'] = { name: 'Alex Johnson', email: 'alex.johnson@student.verity.edu' };
-        studentsMap['Beatriz Santos'] = { name: 'Beatriz Santos', email: 'beatriz.santos@student.verity.edu' };
-        studentsMap['Carlos Rivera'] = { name: 'Carlos Rivera', email: 'carlos.rivera@student.verity.edu' };
+      // Local explicit enrollments fallback/sync
+      try {
+        const localKey = `verity_classroom_enrollments_${classroom.id}`;
+        const rawLocal = localStorage.getItem(localKey);
+        if (rawLocal) {
+          const arr = JSON.parse(rawLocal);
+          if (Array.isArray(arr)) {
+            arr.forEach(s => {
+              if (s && s.name) {
+                studentsMap[s.name.toLowerCase()] = {
+                  name: s.name,
+                  email: s.email || `${s.name.toLowerCase().replace(/\s+/g, '.')}@student.verity.edu`,
+                  avatar: s.avatar || studentsMap[s.name.toLowerCase()]?.avatar || null
+                };
+              }
+            });
+          }
+        }
+      } catch {}
+
+      // If current user is a Student in this classroom, ensure they appear in the roster and server enrollments
+      if (currentUser?.role === 'Student' && currentUser?.name) {
+        studentsMap[currentUser.name.toLowerCase()] = {
+          name: currentUser.name,
+          email: currentUser.email || `${currentUser.name.toLowerCase().replace(/\s+/g, '.')}@student.verity.edu`,
+          avatar: currentUser.avatar || currentUser.profilePicture || null
+        };
+        apiFetch(`${import.meta.env.VITE_API_URL}/classrooms/${classroom.id}/enroll`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            studentName: currentUser.name,
+            studentEmail: currentUser.email || ''
+          })
+        }).catch(() => {});
       }
 
       setEnrolledStudents(Object.values(studentsMap));
@@ -401,7 +424,7 @@ export default function ClassroomView({
     };
 
     loadStudents();
-  }, [classroom?.id, classroom?.section]);
+  }, [classroom?.id, classroom?.section, classroom?.instructor, classroom?.instructorEmail, currentUser]);
 
   // Upcoming items for left column in Stream
   const upcomingItems = assignments
@@ -525,7 +548,7 @@ export default function ClassroomView({
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             className="icon-btn-anim"
           >
-            <Menu size={24} color="#64748b" />
+            <Menu size={24} color={isDark ? '#d4d4d4' : '#64748b'} />
           </button>
 
           <div
@@ -536,7 +559,7 @@ export default function ClassroomView({
             }}
           >
             <span style={{ color: '#10b981' }}>V</span>
-            <span style={{ color: '#1e293b' }}>erity</span>
+            <span style={{ color: isDark ? '#f5f5f5' : '#1e293b' }}>erity</span>
             <span style={styles.badge}>Student</span>
           </div>
         </div>
@@ -558,12 +581,12 @@ export default function ClassroomView({
               right: 0,
               top: indicatorStyle.top,
               height: indicatorStyle.height,
-              background: 'rgba(255,255,255,0.25)',
+              background: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.25)',
               backdropFilter: 'blur(8px)',
               WebkitBackdropFilter: 'blur(8px)',
               borderRadius: '14px',
-              boxShadow: '0 4px 16px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
-              border: '1px solid rgba(255,255,255,0.35)',
+              boxShadow: isDark ? '0 4px 16px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08)' : '0 4px 16px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
+              border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(255,255,255,0.35)',
               transition: indicatorStyle.transition || 'none',
               opacity: indicatorStyle.opacity,
               pointerEvents: 'none',
@@ -579,7 +602,7 @@ export default function ClassroomView({
               style={styles.sidebarBtn(collapsed)}
               title={collapsed ? 'Home' : ''}
             >
-              <Home size={20} color="#475569" style={{ flexShrink: 0 }} />
+              <Home size={20} color={isDark ? '#a3a3a3' : '#475569'} style={{ flexShrink: 0 }} />
               {!collapsed && <span style={styles.sidebarBtnText}>Home</span>}
             </button>
 
@@ -592,7 +615,7 @@ export default function ClassroomView({
               style={styles.sidebarBtn(collapsed)}
               title={collapsed ? 'Calendar' : ''}
             >
-              <Calendar size={20} color="#475569" style={{ flexShrink: 0 }} />
+              <Calendar size={20} color={isDark ? '#a3a3a3' : '#475569'} style={{ flexShrink: 0 }} />
               {!collapsed && <span style={styles.sidebarBtnText}>Calendar</span>}
             </button>
 
@@ -605,7 +628,7 @@ export default function ClassroomView({
               style={styles.sidebarBtn(collapsed)}
               title={collapsed ? 'Archived' : ''}
             >
-              <Archive size={20} color="#475569" style={{ flexShrink: 0 }} />
+              <Archive size={20} color={isDark ? '#a3a3a3' : '#475569'} style={{ flexShrink: 0 }} />
               {!collapsed && <span style={styles.sidebarBtnText}>Archived</span>}
             </button>
 
@@ -616,7 +639,7 @@ export default function ClassroomView({
                     padding: '0 18px',
                     fontSize: '0.75rem',
                     fontWeight: 'bold',
-                    color: '#9ca3af',
+                    color: isDark ? '#10b981' : '#9ca3af',
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em',
                     marginBottom: '4px'
@@ -653,7 +676,7 @@ export default function ClassroomView({
                         {cls.name.charAt(0).toUpperCase()}
                       </div>
                       {!collapsed && (
-                        <span style={{ fontSize: '0.85rem', fontWeight: active ? '700' : '600', color: active ? '#10b981' : '#334155', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: active ? '700' : '600', color: active ? '#10b981' : (isDark ? '#E8EAED' : '#334155'), overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {cls.name}
                         </span>
                       )}
@@ -673,7 +696,7 @@ export default function ClassroomView({
                 style={styles.sidebarBtn(collapsed)}
                 title={collapsed ? 'Settings' : ''}
               >
-                <Settings size={20} color="#475569" style={{ flexShrink: 0 }} />
+                <Settings size={20} color={isDark ? '#a3a3a3' : '#475569'} style={{ flexShrink: 0 }} />
                 {!collapsed && <span style={styles.sidebarBtnText}>Settings</span>}
               </button>
             </div>
@@ -693,8 +716,8 @@ export default function ClassroomView({
                   onClick={() => setActiveTab('stream')}
                   style={{
                     ...styles.classroomTabBtn,
-                    color: activeTab === 'stream' ? '#1a73e8' : '#5f6368',
-                    borderBottom: activeTab === 'stream' ? '3px solid #1a73e8' : '3px solid transparent'
+                    color: activeTab === 'stream' ? '#10b981' : (isDark ? '#a3a3a3' : '#5f6368'),
+                    borderBottom: activeTab === 'stream' ? '3px solid #10b981' : '3px solid transparent'
                   }}
                 >
                   Stream
@@ -703,8 +726,8 @@ export default function ClassroomView({
                   onClick={() => setActiveTab('classwork')}
                   style={{
                     ...styles.classroomTabBtn,
-                    color: activeTab === 'classwork' ? '#1a73e8' : '#5f6368',
-                    borderBottom: activeTab === 'classwork' ? '3px solid #1a73e8' : '3px solid transparent'
+                    color: activeTab === 'classwork' ? '#10b981' : (isDark ? '#a3a3a3' : '#5f6368'),
+                    borderBottom: activeTab === 'classwork' ? '3px solid #10b981' : '3px solid transparent'
                   }}
                 >
                   Classwork
@@ -713,8 +736,8 @@ export default function ClassroomView({
                   onClick={() => setActiveTab('people')}
                   style={{
                     ...styles.classroomTabBtn,
-                    color: activeTab === 'people' ? '#1a73e8' : '#5f6368',
-                    borderBottom: activeTab === 'people' ? '3px solid #1a73e8' : '3px solid transparent'
+                    color: activeTab === 'people' ? '#10b981' : (isDark ? '#a3a3a3' : '#5f6368'),
+                    borderBottom: activeTab === 'people' ? '3px solid #10b981' : '3px solid transparent'
                   }}
                 >
                   People
@@ -768,7 +791,14 @@ export default function ClassroomView({
                       <div style={styles.streamSideCard}>
                         <span style={styles.sideCardLabel}>Upcoming</span>
                         <div style={{ marginTop: '12px' }}>
-                          {upcomingItems.length === 0 ? (
+                          {loadingAssignments ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                              <Skeleton width="60%" height={12} />
+                              <Skeleton width="90%" height={14} />
+                              <Skeleton width="50%" height={12} style={{ marginTop: 4 }} />
+                              <Skeleton width="85%" height={14} />
+                            </div>
+                          ) : upcomingItems.length === 0 ? (
                             <div style={styles.noWorkText}>Woohoo, no work due soon!</div>
                           ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -804,27 +834,31 @@ export default function ClassroomView({
 
                       {/* Feed of Announcements & Assignments */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                        {/* Instructor Announcements (Read-only for student) */}
-                        {announcements.map((post) => (
-                          <div key={post.id} style={styles.streamFeedCard}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                              <div style={styles.teacherAvatarSmall}>
-                                {post.author ? post.author.charAt(0).toUpperCase() : 'I'}
-                              </div>
-                              <div>
-                                <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '0.92rem' }}>
-                                  {post.author}
+                        {loadingAssignments ? (
+                          Array.from({ length: 3 }).map((_, i) => <Skeleton.StreamCard key={i} />)
+                        ) : (
+                          <>
+                            {/* Instructor Announcements (Read-only for student) */}
+                            {announcements.map((post) => (
+                              <div key={post.id} style={styles.streamFeedCard}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                  <div style={styles.teacherAvatarSmall}>
+                                    {post.author ? post.author.charAt(0).toUpperCase() : 'I'}
+                                  </div>
+                                  <div>
+                                    <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '0.92rem' }}>
+                                      {post.author}
+                                    </div>
+                                    <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                                      {formatShortDate(post.date)}
+                                    </div>
+                                  </div>
                                 </div>
-                                <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
-                                  {formatShortDate(post.date)}
-                                </div>
+                                <p style={styles.announcementBodyText}>
+                                  {post.text}
+                                </p>
                               </div>
-                            </div>
-                            <p style={styles.announcementBodyText}>
-                              {post.text}
-                            </p>
-                          </div>
-                        ))}
+                            ))}
 
                         {/* Posted Assignment Feed Items */}
                         {assignments.map((item) => (
@@ -865,6 +899,8 @@ export default function ClassroomView({
                             </p>
                           </div>
                         )}
+                          </>
+                        )}
                       </div>
 
                     </div>
@@ -878,10 +914,10 @@ export default function ClassroomView({
                 <div style={{ maxWidth: '1000px', margin: '0 auto', width: '100%' }}>
                   <div style={styles.headerRow}>
                     <div>
-                      <h2 style={{ color: '#1e293b', fontWeight: '700', fontSize: '1.4rem', margin: 0 }}>
+                      <h2 style={{ color: isDark ? '#f5f5f5' : '#1e293b', fontWeight: '700', fontSize: '1.4rem', margin: 0 }}>
                         {classroom ? classroom.name : "Classwork"}
                       </h2>
-                      <p style={{ margin: '4px 0 0 0', color: '#64748b', fontSize: '0.85rem' }}>
+                      <p style={{ margin: '4px 0 0 0', color: isDark ? '#a3a3a3' : '#64748b', fontSize: '0.85rem' }}>
                         Access assignments, instructions, and learning activities for this class.
                       </p>
                     </div>
@@ -892,10 +928,10 @@ export default function ClassroomView({
                     {loadingAssignments ? (
                       Array.from({ length: 3 }).map((_, i) => <Skeleton.AssignmentRow key={i} />)
                     ) : assignments.length === 0 ? (
-                      <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
-                        <BookOpen size={48} color="#cbd5e1" style={{ margin: '0 auto 12px auto', display: 'block' }} />
-                        <p style={{ margin: 0, fontSize: '1rem', fontWeight: '600' }}>No classwork assigned yet</p>
-                        <p style={{ margin: '6px 0 0 0', fontSize: '0.85rem' }}>Check back later once your instructor assigns new activities.</p>
+                      <div style={{ textAlign: 'center', padding: '40px 20px', color: isDark ? '#a3a3a3' : '#94a3b8' }}>
+                        <BookOpen size={48} color={isDark ? '#404040' : '#cbd5e1'} style={{ margin: '0 auto 12px auto', display: 'block' }} />
+                        <p style={{ margin: 0, fontSize: '1rem', fontWeight: '600', color: isDark ? '#f5f5f5' : 'inherit' }}>No classwork assigned yet</p>
+                        <p style={{ margin: '6px 0 0 0', fontSize: '0.85rem', color: isDark ? '#737373' : 'inherit' }}>Check back later once your instructor assigns new activities.</p>
                       </div>
                     ) : (
                       assignments.map((item) => {
@@ -911,14 +947,15 @@ export default function ClassroomView({
                               <div
                                 style={{
                                   ...styles.titlePill,
-                                  backgroundColor: isOpen ? '#f1f5f9' : '#f8fafc',
-                                  border: isOpen ? '1px solid #cbd5e1' : '1px solid #e2e8f0'
+                                  backgroundColor: isDark ? (isOpen ? '#3E3E3E' : '#363636') : (isOpen ? '#f1f5f9' : '#f8fafc'),
+                                  border: isDark ? (isOpen ? '1px solid #555555' : '1px solid #4A4A4A') : (isOpen ? '1px solid #cbd5e1' : '1px solid #e2e8f0'),
+                                  color: isDark ? '#f5f5f5' : '#1e293b'
                                 }}
                                 onClick={() => setExpandedId(prev => (prev === item.id ? null : item.id))}
                               >
                                 <div style={{ display: 'flex', alignItems: 'center' }}>
                                   <ClipboardList size={18} color="#10b981" style={{ marginRight: '12px', flexShrink: 0 }} />
-                                  <span>{item.title}</span>
+                                  <span style={{ color: isDark ? '#f5f5f5' : '#1e293b' }}>{item.title}</span>
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                   {isSubmitted && (
@@ -1043,16 +1080,33 @@ export default function ClassroomView({
                     </div>
                     <div style={styles.peopleList}>
                       <div style={styles.peopleRow}>
-                        <div style={styles.peopleAvatarGreen}>
-                          {(classroom?.instructor || 'I').charAt(0).toUpperCase()}
-                        </div>
+                        {instructorInfo?.avatar ? (
+                          <img
+                            src={instructorInfo.avatar}
+                            alt={instructorInfo?.name || 'Instructor'}
+                            style={{
+                              width: '40px',
+                              height: '40px',
+                              borderRadius: '50%',
+                              objectFit: 'cover',
+                              flexShrink: 0,
+                              boxShadow: '0 2px 6px rgba(0,0,0,0.15)'
+                            }}
+                          />
+                        ) : (
+                          <div style={styles.peopleAvatarGreen}>
+                            {(instructorInfo?.name || classroom?.instructor || 'I').charAt(0).toUpperCase()}
+                          </div>
+                        )}
                         <div>
-                          <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '0.95rem' }}>
-                            {classroom?.instructor || 'Instructor'}
+                          <div style={{ fontWeight: '700', color: isDark ? '#f5f5f5' : '#1e293b', fontSize: '0.95rem' }}>
+                            {instructorInfo?.name || classroom?.instructor || 'Instructor'}
                           </div>
-                          <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                            {classroom?.instructorEmail || 'instructor@verity.edu'}
-                          </div>
+                          {(instructorInfo?.email || classroom?.instructorEmail) && (
+                            <div style={{ fontSize: '0.8rem', color: isDark ? '#a3a3a3' : '#64748b' }}>
+                              {instructorInfo?.email || classroom?.instructorEmail}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1062,30 +1116,50 @@ export default function ClassroomView({
                   <div>
                     <div style={styles.peopleSectionHeader}>
                       <h2 style={styles.peopleSectionTitle}>Classmates</h2>
-                      <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: '600' }}>
+                      <span style={{ fontSize: '0.85rem', color: isDark ? '#a3a3a3' : '#64748b', fontWeight: '600' }}>
                         {enrolledStudents.length} student{enrolledStudents.length === 1 ? '' : 's'}
                       </span>
                     </div>
 
                     <div style={styles.peopleList}>
                       {loadingStudents ? (
-                        <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Loading classmates…</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <Skeleton.Row />
+                          <Skeleton.Row />
+                          <Skeleton.Row />
+                          <Skeleton.Row />
+                        </div>
                       ) : enrolledStudents.length === 0 ? (
-                        <div style={{ padding: '30px 10px', textAlign: 'center', color: '#64748b' }}>
-                          <Users size={40} color="#cbd5e1" style={{ margin: '0 auto 10px auto', display: 'block' }} />
+                        <div style={{ padding: '30px 10px', textAlign: 'center', color: isDark ? '#a3a3a3' : '#64748b' }}>
+                          <Users size={40} color={isDark ? '#404040' : '#cbd5e1'} style={{ margin: '0 auto 10px auto', display: 'block' }} />
                           <p style={{ fontWeight: '600', margin: 0 }}>No classmates found</p>
                         </div>
                       ) : (
                         enrolledStudents.map((student, idx) => (
                           <div key={idx} style={styles.peopleRow}>
-                            <div style={styles.peopleAvatarBlue}>
-                              {student.name.charAt(0).toUpperCase()}
-                            </div>
+                            {student.avatar ? (
+                              <img
+                                src={student.avatar}
+                                alt={student.name}
+                                style={{
+                                  width: '40px',
+                                  height: '40px',
+                                  borderRadius: '50%',
+                                  objectFit: 'cover',
+                                  flexShrink: 0,
+                                  boxShadow: '0 2px 6px rgba(0,0,0,0.15)'
+                                }}
+                              />
+                            ) : (
+                              <div style={styles.peopleAvatarBlue}>
+                                {student.name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
                             <div>
-                              <div style={{ fontWeight: '600', color: '#1e293b', fontSize: '0.95rem' }}>
+                              <div style={{ fontWeight: '600', color: isDark ? '#f5f5f5' : '#1e293b', fontSize: '0.95rem' }}>
                                 {student.name}
                               </div>
-                              <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                              <div style={{ fontSize: '0.8rem', color: isDark ? '#a3a3a3' : '#64748b' }}>
                                 {student.email}
                               </div>
                             </div>
@@ -1107,14 +1181,14 @@ export default function ClassroomView({
         <div style={styles.modalOverlay} onClick={() => setIsClassInfoModalOpen(false)}>
           <div style={styles.infoModalContent} onClick={e => e.stopPropagation()}>
             <div style={styles.modalHeader}>
-              <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '700', color: '#1e293b' }}>
+              <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: '700', color: isDark ? '#f5f5f5' : '#1e293b' }}>
                 Class Details
               </h3>
               <button
                 onClick={() => setIsClassInfoModalOpen(false)}
                 style={styles.closeBtn}
               >
-                <X size={20} color="#64748b" />
+                <X size={20} color={isDark ? '#a3a3a3' : '#64748b'} />
               </button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
@@ -1152,17 +1226,18 @@ export default function ClassroomView({
 }
 
 // STYLES matching TeacherClasswork design system
-const styles = {
+const getStyles = (isDark) => ({
   container: { 
     height: '100vh', 
     minHeight: '100vh', 
     width: '100%', 
     display: 'flex', 
     flexDirection: 'column', 
-    backgroundColor: '#EEF0F3', 
+    backgroundColor: isDark ? '#3C3C3C' : '#EEF0F3', 
     fontFamily: 'Arial, Helvetica, sans-serif', 
     position: 'relative', 
-    overflow: 'hidden' 
+    overflow: 'hidden',
+    transition: 'background-color 0.25s ease'
   },
   header: {
     height: '72px',
@@ -1171,19 +1246,21 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: '0 24px',
-    backgroundColor: '#EEF0F3',
-    zIndex: 50
+    backgroundColor: isDark ? '#3C3C3C' : '#EEF0F3',
+    borderBottom: 'none',
+    zIndex: 50,
+    transition: 'background-color 0.25s ease'
   },
   badge: { 
     fontSize: '0.7rem', 
-    backgroundColor: '#EEF0F3', 
-    color: '#475569', 
+    backgroundColor: isDark ? '#4A4A4A' : '#EEF0F3', 
+    color: isDark ? '#E8EAED' : '#475569', 
     padding: '3px 8px', 
     borderRadius: '10px', 
     marginLeft: '6px', 
     fontStyle: 'normal', 
     transform: 'translateY(-5px)', 
-    border: '1px solid #cbd5e1' 
+    border: isDark ? '1px solid #5A5A5A' : '1px solid #cbd5e1' 
   },
   sidebar: (collapsed) => ({
     width: collapsed ? '84px' : '240px',
@@ -1217,7 +1294,7 @@ const styles = {
   sidebarBtnText: {
     fontSize: '0.85rem',
     fontWeight: '600',
-    color: '#334155',
+    color: isDark ? '#E8EAED' : '#334155',
     overflow: 'hidden',
     textOverflow: 'ellipsis'
   },
@@ -1230,14 +1307,16 @@ const styles = {
     overflow: 'hidden'
   },
   bigBoxContainer: {
-    backgroundColor: '#ffffff',
+    backgroundColor: isDark ? '#323232' : '#ffffff',
     flex: 1,
     borderRadius: '24px',
-    boxShadow: '0 10px 25px rgba(0,0,0,0.05)',
+    boxShadow: isDark ? '0 10px 30px rgba(0,0,0,0.25)' : '0 10px 25px rgba(0,0,0,0.05)',
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
-    minWidth: 0
+    minWidth: 0,
+    border: isDark ? '1px solid #4A4A4A' : 'none',
+    transition: 'background-color 0.25s ease, border-color 0.25s ease'
   },
   classroomNavHeader: {
     height: '56px',
@@ -1245,8 +1324,8 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#ffffff',
-    borderBottom: '1px solid #e2e8f0',
+    backgroundColor: isDark ? '#323232' : '#ffffff',
+    borderBottom: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0',
     flexShrink: 0,
     zIndex: 10
   },
@@ -1347,20 +1426,20 @@ const styles = {
     gap: '16px'
   },
   streamSideCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: isDark ? '#383838' : '#ffffff',
     borderRadius: '12px',
-    border: '1px solid #e2e8f0',
+    border: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0',
     padding: '16px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
+    boxShadow: isDark ? '0 4px 12px rgba(0,0,0,0.3)' : '0 1px 3px rgba(0,0,0,0.02)'
   },
   sideCardLabel: {
     fontSize: '0.85rem',
     fontWeight: '700',
-    color: '#1e293b'
+    color: isDark ? '#E8EAED' : '#1e293b'
   },
   noWorkText: {
     fontSize: '0.82rem',
-    color: '#64748b'
+    color: isDark ? '#a3a3a3' : '#64748b'
   },
   upcomingItemRow: {
     display: 'flex',
@@ -1374,7 +1453,7 @@ const styles = {
   },
   upcomingItemTitle: {
     fontSize: '0.82rem',
-    color: '#1e293b',
+    color: isDark ? '#E8EAED' : '#1e293b',
     fontWeight: '600',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -1383,15 +1462,15 @@ const styles = {
   viewAllLink: {
     fontSize: '0.82rem',
     fontWeight: '700',
-    color: '#1a73e8',
+    color: '#10b981',
     cursor: 'pointer'
   },
   streamFeedCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: isDark ? '#383838' : '#ffffff',
     borderRadius: '12px',
-    border: '1px solid #e2e8f0',
+    border: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0',
     padding: '18px 20px',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
+    boxShadow: isDark ? '0 4px 12px rgba(0,0,0,0.3)' : '0 1px 3px rgba(0,0,0,0.02)'
   },
   teacherAvatarSmall: {
     width: '36px',
@@ -1408,27 +1487,27 @@ const styles = {
   },
   announcementBodyText: {
     margin: '12px 0 0 0',
-    color: '#334155',
+    color: isDark ? '#E8EAED' : '#334155',
     fontSize: '0.92rem',
     lineHeight: 1.5
   },
   assignmentStreamCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: isDark ? '#383838' : '#ffffff',
     borderRadius: '12px',
-    border: '1px solid #e2e8f0',
+    border: isDark ? '1px solid #4A4A4A' : '1px solid #e2e8f0',
     padding: '16px 20px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
     cursor: 'pointer',
     transition: 'all 0.15s ease',
-    boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
+    boxShadow: isDark ? '0 4px 12px rgba(0,0,0,0.3)' : '0 1px 3px rgba(0,0,0,0.02)'
   },
   assignmentIconBadge: {
     width: '42px',
     height: '42px',
     borderRadius: '50%',
-    backgroundColor: '#e6f4ea',
+    backgroundColor: isDark ? '#1c2d24' : '#e6f4ea',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1437,18 +1516,18 @@ const styles = {
   assignmentStreamTitle: {
     fontSize: '0.92rem',
     fontWeight: '700',
-    color: '#1f2937'
+    color: isDark ? '#E8EAED' : '#1f2937'
   },
   assignmentStreamDate: {
     fontSize: '0.78rem',
-    color: '#64748b',
+    color: isDark ? '#a3a3a3' : '#64748b',
     marginTop: '3px'
   },
   turnedInBadge: {
     display: 'flex',
     alignItems: 'center',
-    backgroundColor: '#ecfdf5',
-    color: '#059669',
+    backgroundColor: isDark ? '#1c2d24' : '#ecfdf5',
+    color: '#10b981',
     fontSize: '0.75rem',
     fontWeight: '700',
     padding: '4px 10px',
@@ -1457,7 +1536,7 @@ const styles = {
   emptyFeedBox: {
     padding: '32px 20px',
     borderRadius: '12px',
-    border: '1px dashed #cbd5e1',
+    border: isDark ? '1px dashed #404040' : '1px dashed #cbd5e1',
     textAlign: 'center'
   },
   headerRow: {
@@ -1465,7 +1544,7 @@ const styles = {
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: '0 0 20px 0',
-    borderBottom: '1px solid #e2e8f0',
+    borderBottom: isDark ? '1px solid #2e2e2e' : '1px solid #e2e8f0',
     marginBottom: '24px'
   },
   list: { 
@@ -1490,15 +1569,15 @@ const styles = {
     justifyContent: 'space-between',
     padding: '12px 20px', 
     borderRadius: '12px', 
-    color: '#1e293b', 
+    color: isDark ? '#E8EAED' : '#1e293b', 
     fontWeight: '700', 
     cursor: 'pointer', 
     userSelect: 'none', 
     transition: 'all 0.15s' 
   },
   turnedInPill: {
-    backgroundColor: '#ecfdf5',
-    color: '#059669',
+    backgroundColor: isDark ? '#1c2d24' : '#ecfdf5',
+    color: '#10b981',
     fontSize: '0.75rem',
     fontWeight: '700',
     padding: '3px 8px',
@@ -1506,35 +1585,35 @@ const styles = {
   },
   itemDuePill: { 
     fontSize: '0.75rem', 
-    color: '#64748b', 
+    color: isDark ? '#a3a3a3' : '#64748b', 
     fontWeight: '600' 
   },
   detailCard: { 
-    backgroundColor: 'white', 
+    backgroundColor: isDark ? '#2E2E2E' : 'white', 
     borderRadius: '16px', 
     padding: '0', 
-    border: '1px solid #e2e8f0', 
-    boxShadow: '0 4px 12px rgba(0,0,0,0.04)', 
+    border: isDark ? '1px solid #484848' : '1px solid #e2e8f0', 
+    boxShadow: isDark ? '0 8px 24px rgba(0,0,0,0.4)' : '0 4px 12px rgba(0,0,0,0.04)', 
     overflow: 'hidden' 
   },
   detailHeaderBar: { 
     display: 'flex', 
     alignItems: 'center', 
     gap: '18px', 
-    backgroundColor: '#f8fafc', 
+    backgroundColor: isDark ? '#262626' : '#f8fafc', 
     padding: '18px 24px', 
     borderRadius: '12px', 
     margin: '12px', 
-    border: '1px solid #e2e8f0' 
+    border: isDark ? '1px solid #444444' : '1px solid #e2e8f0' 
   },
   detailTitle: { 
     fontSize: '1.25rem', 
     fontWeight: 'bold', 
-    color: '#1e293b' 
+    color: isDark ? '#E8EAED' : '#1e293b' 
   },
   detailDue: { 
     fontSize: '0.85rem', 
-    color: '#64748b', 
+    color: isDark ? '#a3a3a3' : '#64748b', 
     marginTop: '2px' 
   },
   detailBody: { 
@@ -1549,12 +1628,12 @@ const styles = {
   },
   postedText: { 
     fontSize: '0.8rem', 
-    color: '#94a3b8', 
+    color: isDark ? '#737373' : '#94a3b8', 
     marginBottom: '8px' 
   },
   detailInstruction: { 
     margin: 0, 
-    color: '#334155', 
+    color: isDark ? '#E8EAED' : '#334155', 
     fontSize: '0.98rem', 
     lineHeight: 1.5 
   },
@@ -1581,7 +1660,7 @@ const styles = {
   attachLink: { 
     display: 'inline-flex', 
     alignItems: 'center', 
-    color: '#2563eb', 
+    color: '#3b82f6', 
     textDecoration: 'none', 
     fontSize: '0.88rem', 
     fontWeight: '600',
@@ -1591,15 +1670,15 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'flex-end',
-    backgroundColor: '#f8fafc',
-    border: '1px solid #e2e8f0',
+    backgroundColor: isDark ? '#262626' : '#f8fafc',
+    border: isDark ? '1px solid #444444' : '1px solid #e2e8f0',
     borderRadius: '12px',
     padding: '12px 18px',
     minWidth: '100px'
   },
   detailDivider: { 
     height: '1px', 
-    backgroundColor: '#e2e8f0', 
+    backgroundColor: isDark ? '#444444' : '#e2e8f0', 
     margin: '0 28px' 
   },
   detailFooter: { 
@@ -1609,7 +1688,7 @@ const styles = {
     padding: '16px 28px' 
   },
   viewActivityLink: { 
-    color: '#1a73e8', 
+    color: '#10b981', 
     fontSize: '0.92rem', 
     cursor: 'pointer', 
     fontWeight: '700' 
@@ -1640,7 +1719,7 @@ const styles = {
     margin: 0,
     fontSize: '1.5rem',
     fontWeight: '800',
-    color: '#1e293b'
+    color: isDark ? '#E8EAED' : '#1e293b'
   },
   peopleList: {
     display: 'flex',
@@ -1651,7 +1730,7 @@ const styles = {
     alignItems: 'center',
     gap: '16px',
     padding: '12px 14px',
-    borderBottom: '1px solid #f1f5f9'
+    borderBottom: isDark ? '1px solid #282828' : '1px solid #f1f5f9'
   },
   peopleAvatarGreen: {
     width: '38px',
@@ -1683,7 +1762,7 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0,0,0,0.7)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1691,12 +1770,14 @@ const styles = {
     backdropFilter: 'blur(3px)'
   },
   infoModalContent: {
-    backgroundColor: '#ffffff',
+    backgroundColor: isDark ? '#222222' : '#ffffff',
     borderRadius: '16px',
     padding: '24px',
     width: '90%',
     maxWidth: '440px',
-    boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)'
+    boxShadow: '0 20px 25px -5px rgba(0,0,0,0.4)',
+    border: isDark ? '1px solid #383838' : 'none',
+    color: isDark ? '#E8EAED' : 'inherit'
   },
   modalHeader: {
     display: 'flex',
@@ -1709,19 +1790,20 @@ const styles = {
     cursor: 'pointer',
     padding: '4px',
     display: 'flex',
-    alignItems: 'center'
+    alignItems: 'center',
+    color: isDark ? '#a3a3a3' : '#64748b'
   },
   infoFieldLabel: {
     fontSize: '0.78rem',
     fontWeight: '700',
-    color: '#64748b',
+    color: isDark ? '#a3a3a3' : '#64748b',
     textTransform: 'uppercase',
     letterSpacing: '0.04em'
   },
   infoFieldValue: {
     fontSize: '1rem',
     fontWeight: '600',
-    color: '#1e293b',
+    color: isDark ? '#E8EAED' : '#1e293b',
     marginTop: '3px'
   },
   infoCloseActionBtn: {
@@ -1733,4 +1815,4 @@ const styles = {
     fontWeight: '700',
     cursor: 'pointer'
   }
-};
+});

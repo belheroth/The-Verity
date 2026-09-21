@@ -72,7 +72,18 @@ function initSqlite() {
             section TEXT,
             name TEXT,
             subject TEXT,
-            instructor TEXT
+            instructor TEXT,
+            instructor_email TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS enrollments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            classroom_id INTEGER,
+            student_id INTEGER,
+            student_name TEXT,
+            student_email TEXT,
+            enrolled_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(classroom_id, student_email)
         );
 
         CREATE TABLE IF NOT EXISTS classwork (
@@ -147,6 +158,9 @@ function initSqlite() {
         VALUES ('System Admin', 'admin@verity.com', 'admin', 'Admin', 'Active');
     `);
 
+    try { sqliteDb.exec(`ALTER TABLE classrooms ADD COLUMN instructor_email TEXT;`); } catch (e) {}
+    try { sqliteDb.exec(`ALTER TABLE users ADD COLUMN avatar TEXT;`); } catch (e) {}
+
     provider = 'sqlite';
     console.log(`[Database] Connected to SQLite (Local Storage): ${DB_FILE}`);
     } catch (err) {
@@ -220,6 +234,13 @@ async function initPostgres(connStr = cleanedUrl) {
         if (fs.existsSync(schemaPath)) {
             const schemaSql = fs.readFileSync(schemaPath, 'utf8');
             await client.query(schemaSql);
+            try {
+                await client.query('ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS instructor_email VARCHAR(255);');
+                await client.query('ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS instructor VARCHAR(255);');
+                await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;');
+            } catch (colErr) {
+                console.warn('[Database] Note on column migration:', colErr.message);
+            }
             console.log('[Database] PostgreSQL schema verified/initialized.');
         }
         provider = 'postgres';

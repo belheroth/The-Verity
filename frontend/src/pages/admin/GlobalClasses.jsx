@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BarChart3, Users, Home, Shield, Settings, Search, Bell, Plus, X, Trash2, User, Menu, X as XIcon, Filter, CheckCircle, AlertCircle } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
+import Skeleton from '../../components/Skeleton';
 
 // Shared inner-card style tokens matching mockup specs
 const sh = {
@@ -84,6 +85,7 @@ const GLOBAL_STORAGE_KEY = 'verity_global_classrooms';
 
 export default function GlobalClassesTab() {
   const [classes, setClasses] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [viewClass, setViewClass] = useState(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -126,6 +128,9 @@ export default function GlobalClassesTab() {
       })
       .catch(() => {
         if (savedLocal.length > 0) setClasses(savedLocal);
+      })
+      .finally(() => {
+        setLoading(false);
       });
 
     apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/users`)
@@ -277,7 +282,9 @@ export default function GlobalClassesTab() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {filtered.length === 0 ? (
+            {loading ? (
+              Array.from({ length: 4 }).map((_, i) => <Skeleton.Row key={i} />)
+            ) : filtered.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '36px', color: '#94a3b8' }}>No classrooms found</div>
             ) : (
               filtered.map((c, i) => {

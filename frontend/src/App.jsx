@@ -144,10 +144,19 @@ export default function App() {
     }
   }, []);
 
-  // 2. AUTO-SAVE TO LOCAL STORAGE WHENEVER STATE CHANGES
   useEffect(() => {
     localStorage.setItem('currentScreen', currentScreen);
   }, [currentScreen]);
+
+  useEffect(() => {
+    const handleUserUpdate = (e) => {
+      if (e.detail) {
+        setCurrentUser(e.detail);
+      }
+    };
+    window.addEventListener('verity:user-updated', handleUserUpdate);
+    return () => window.removeEventListener('verity:user-updated', handleUserUpdate);
+  }, []);
 
   useEffect(() => {
     if (currentUser) {
@@ -355,6 +364,7 @@ export default function App() {
       {currentScreen === 'teacher_dashboard' && (
         <ProtectedRoute currentUser={currentUser} setCurrentScreen={setCurrentScreen}>
           <TeacherDashboard
+            currentUser={currentUser}
             onLogout={handleLogout}
             onEnterClassroom={(classroom) => {
               setActiveClassroom(classroom);
@@ -428,6 +438,7 @@ export default function App() {
               setProctoringReturnScreen('teacher_grading');
               setCurrentScreen('teacher_proctoring');
             }}
+            currentUser={currentUser}
           />
         </ProtectedRoute>
       )}

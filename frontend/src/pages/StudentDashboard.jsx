@@ -9,6 +9,7 @@ import ClassroomSettings from './ClassroomSettings';
 import { apiFetch } from '../utils/api';
 import Skeleton from '../components/Skeleton';
 import ClassroomCard from '../components/ClassroomCard';
+import { useDarkMode } from '../hooks/useDarkMode';
 
 // We now generate the storage key dynamically based on the current user
 const getStorageKey = (user) => {
@@ -17,12 +18,12 @@ const getStorageKey = (user) => {
 };
 
 const DEFAULT_CLASSROOMS = [
-  { id: 1, code: "CS101", name: "C# Programming", instructor: "Prof. Garcia" },
-  { id: 2, code: "IT202", name: "Data Structures", instructor: "Prof. Santos" },
-  { id: 3, code: "CS303", name: "Web Development", instructor: "Prof. Reyes" }
+  { id: 1, code: "CS101", name: "C# Programming", instructor: "kim fabie", instructorEmail: "kimfabie@gmail.com" },
+  { id: 2, code: "IT202", name: "Data Structures", instructor: "kim fabie", instructorEmail: "kimfabie@gmail.com" }
 ];
 
 export default function StudentDashboard({ currentUser, onLogout, onEnterClassroom }) {
+  const { isDark } = useDarkMode();
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('verity_sidebar_collapsed') === 'true');
   const toggleSidebar = () => {
     const next = !collapsed;
@@ -132,7 +133,57 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
 
   useEffect(() => {
     localStorage.setItem(getStorageKey(currentUser), JSON.stringify(classrooms));
+
+    // Sync student enrollment to server & local storage for each joined classroom
+    if (currentUser?.email && classrooms.length > 0) {
+      classrooms.forEach(c => {
+        apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/classrooms/${c.id}/enroll`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            studentName: currentUser.name,
+            studentEmail: currentUser.email
+          })
+        }).catch(() => {});
+
+        try {
+          const localEnrollKey = `verity_classroom_enrollments_${c.id}`;
+          const existing = JSON.parse(localStorage.getItem(localEnrollKey) || '[]');
+          if (!existing.some(s => s.email === currentUser.email || s.name === currentUser.name)) {
+            existing.push({ name: currentUser.name, email: currentUser.email });
+            localStorage.setItem(localEnrollKey, JSON.stringify(existing));
+          }
+        } catch {}
+      });
+    }
   }, [classrooms, currentUser]);
+
+  // Refresh joined classrooms with latest server instructor info
+  useEffect(() => {
+    const refreshInstructors = async () => {
+      try {
+        const res = await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/classrooms`);
+        if (res.ok) {
+          const data = await res.json();
+          const serverList = Array.isArray(data) ? data : (data.classrooms || []);
+          if (serverList.length > 0) {
+            setClassrooms(prev => prev.map(c => {
+              const matched = serverList.find(s => s.id === c.id || (s.section && s.section === c.code));
+              if (matched && matched.instructor) {
+                return {
+                  ...c,
+                  instructor: matched.instructor,
+                  instructorEmail: matched.instructorEmail || matched.instructor_email || c.instructorEmail || ''
+                };
+              }
+              return c;
+            }));
+          }
+        }
+      } catch {}
+    };
+    refreshInstructors();
+  }, []);
 
 
 
@@ -199,9 +250,8 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
 
     // 4. Default teacher fallback classes
     const fallbackClasses = [
-      { id: 1, section: "CS101", code: "CS101", name: "C# Programming", subject: "Computer Science", instructor: "Prof. Garcia" },
-      { id: 2, section: "IT202", code: "IT202", name: "Data Structures", subject: "Information Tech", instructor: "Prof. Santos" },
-      { id: 3, section: "CS303", code: "CS303", name: "Web Development", subject: "Computer Science", instructor: "Prof. Reyes" }
+      { id: 1, section: "CS101", code: "CS101", name: "C# Programming", subject: "Computer Science" },
+      { id: 2, section: "IT202", code: "IT202", name: "Data Structures", subject: "Information Tech" }
     ];
 
     const allCandidates = [
@@ -228,8 +278,31 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
       id: match.id || Date.now(),
       code: match.section || match.code || code.toUpperCase(),
       name: match.name || code,
-      instructor: match.instructor || match.subject || 'Instructor'
+      instructor: match.instructor || 'Instructor',
+      instructorEmail: match.instructorEmail || match.instructor_email || ''
     };
+
+    // Enroll on server
+    try {
+      apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/classrooms/${joined.id}/enroll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          studentName: currentUser?.name,
+          studentEmail: currentUser?.email
+        })
+      }).catch(() => {});
+    } catch {}
+
+    // Persist in local enrollment key for instant sync
+    try {
+      const localEnrollKey = `verity_classroom_enrollments_${joined.id}`;
+      const existing = JSON.parse(localStorage.getItem(localEnrollKey) || '[]');
+      if (!existing.some(s => s.email === currentUser?.email || s.name === currentUser?.name)) {
+        existing.push({ name: currentUser?.name, email: currentUser?.email });
+        localStorage.setItem(localEnrollKey, JSON.stringify(existing));
+      }
+    } catch {}
 
     const updated = [joined, ...classrooms.filter(c => c.id !== joined.id)];
     setClassrooms(updated);
@@ -268,7 +341,18 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
   };
   // STYLES
   const styles = {
-    container: { height: '100vh', minHeight: '100vh', width: '100%', display: 'flex', flexDirection: 'column', backgroundColor: '#EEF0F3', fontFamily: 'Arial, Helvetica, sans-serif', position: 'relative', overflow: 'hidden' },
+    container: {
+      height: '100vh',
+      minHeight: '100vh',
+      width: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      backgroundColor: isDark ? '#3C3C3C' : '#EEF0F3',
+      fontFamily: 'Arial, Helvetica, sans-serif',
+      position: 'relative',
+      overflow: 'hidden',
+      transition: 'background-color 0.25s ease'
+    },
     header: {
       height: '72px',
       flexShrink: 0,
@@ -276,19 +360,21 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
       alignItems: 'center',
       justifyContent: 'space-between',
       padding: '0 24px',
-      backgroundColor: '#EEF0F3',
-      zIndex: 50
+      backgroundColor: isDark ? '#3C3C3C' : '#EEF0F3',
+      borderBottom: 'none',
+      zIndex: 50,
+      transition: 'background-color 0.25s ease'
     },
     badge: { 
       fontSize: '0.7rem', 
-      backgroundColor: '#EEF0F3', 
-      color: '#475569', 
+      backgroundColor: isDark ? '#4A4A4A' : '#EEF0F3', 
+      color: isDark ? '#E8EAED' : '#475569', 
       padding: '3px 8px', 
       borderRadius: '10px', 
       marginLeft: '6px', 
       fontStyle: 'normal', 
       transform: 'translateY(-5px)', 
-      border: '1px solid #cbd5e1' 
+      border: isDark ? '1px solid #5A5A5A' : '1px solid #cbd5e1' 
     },
     sidebar: (collapsed) => ({
       width: collapsed ? '84px' : '240px',
@@ -327,8 +413,29 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
     activeNavItem: { color: '#10b981', fontWeight: '700', backgroundColor: 'transparent', boxShadow: 'none' },
     settingsIcon: { color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center' },
     mainContent: { flex: 1, padding: '20px 24px 24px', display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' },
-    whiteCard: { backgroundColor: 'white', flex: 1, borderRadius: '24px', padding: 'clamp(20px, 4vw, 40px)', boxShadow: '0 10px 25px rgba(0,0,0,0.05)', overflowY: 'auto' },
-    addButton: { display: 'flex', alignItems: 'center', padding: '10px 20px', backgroundColor: '#d1d5db', border: 'none', borderRadius: '50px', color: '#4b5563', fontWeight: 'bold', cursor: 'pointer', boxShadow: '2px 2px 5px rgba(0,0,0,0.1)' },
+    whiteCard: {
+      backgroundColor: isDark ? '#323232' : 'white',
+      flex: 1,
+      borderRadius: '24px',
+      padding: 'clamp(20px, 4vw, 40px)',
+      boxShadow: isDark ? '0 10px 30px rgba(0,0,0,0.25)' : '0 10px 25px rgba(0,0,0,0.05)',
+      overflowY: 'auto',
+      border: isDark ? '1px solid #4A4A4A' : 'none',
+      color: isDark ? '#E8EAED' : 'inherit',
+      transition: 'background-color 0.25s ease, border-color 0.25s ease'
+    },
+    addButton: {
+      display: 'flex',
+      alignItems: 'center',
+      padding: '10px 20px',
+      backgroundColor: isDark ? '#3A3A3A' : '#d1d5db',
+      border: isDark ? '1px solid #505050' : 'none',
+      borderRadius: '50px',
+      color: isDark ? '#E8EAED' : '#4b5563',
+      fontWeight: 'bold',
+      cursor: 'pointer',
+      boxShadow: isDark ? '0 2px 8px rgba(0,0,0,0.3)' : '2px 2px 5px rgba(0,0,0,0.1)'
+    },
     grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '24px' },
     cardContainer: { display: 'flex', flexDirection: 'column', gap: '10px', cursor: 'pointer' },
     cardPill: { backgroundColor: '#d1d5db', height: '30px', borderRadius: '50px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280', fontSize: '0.85rem', fontWeight: 'bold' },
@@ -344,7 +451,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
       left: 0,
       right: 0,
       bottom: 0,
-      backgroundColor: 'rgba(15, 23, 42, 0.45)',
+      backgroundColor: 'rgba(0, 0, 0, 0.7)',
       backdropFilter: 'blur(5px)',
       WebkitBackdropFilter: 'blur(5px)',
       display: 'flex',
@@ -354,18 +461,29 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
       padding: '20px'
     },
     modalCard: {
-      backgroundColor: 'white',
+      backgroundColor: isDark ? '#323232' : 'white',
       padding: '36px',
       borderRadius: '24px',
       width: '100%',
       maxWidth: '460px',
-      boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-      position: 'relative'
+      boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.4)',
+      position: 'relative',
+      border: isDark ? '1px solid #4A4A4A' : 'none',
+      color: isDark ? '#E8EAED' : 'inherit'
     },
     modalHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '22px' },
-    closeModalBtn: { background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3af', display: 'flex', alignItems: 'center', padding: '4px', borderRadius: '8px' },
+    closeModalBtn: { background: 'transparent', border: 'none', cursor: 'pointer', color: isDark ? '#a3a3a3' : '#94a3af', display: 'flex', alignItems: 'center', padding: '4px', borderRadius: '8px' },
     form: { display: 'flex', flexDirection: 'column', gap: '16px' },
-    input: { width: '100%', padding: '14px 18px', borderRadius: '12px', border: '1.5px solid #cbd5e1', backgroundColor: 'white', color: '#0f172a', fontSize: '1rem', boxSizing: 'border-box' },
+    input: {
+      width: '100%',
+      padding: '14px 18px',
+      borderRadius: '12px',
+      border: isDark ? '1.5px solid #4A4A4A' : '1.5px solid #cbd5e1',
+      backgroundColor: isDark ? '#282828' : 'white',
+      color: isDark ? '#E8EAED' : '#0f172a',
+      fontSize: '1rem',
+      boxSizing: 'border-box'
+    },
     joinButton: { padding: '11px 32px', backgroundColor: '#10b981', border: 'none', borderRadius: '50px', color: 'white', fontWeight: 'bold', fontSize: '0.95rem', cursor: 'pointer', boxShadow: '0 4px 12px rgba(16,185,129,0.25)' },
     errorText: { color: '#ef4444', backgroundColor: '#fee2e2', border: '1px solid #fca5a5', padding: '10px 15px', borderRadius: '10px', margin: 0, fontSize: '0.875rem', textAlign: 'center' }
   };
@@ -387,14 +505,14 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#64748b',
+              color: isDark ? '#ffffff' : '#64748b',
               flexShrink: 0,
               marginRight: '16px'
             }}
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
             className="icon-btn-anim"
           >
-            <Menu size={24} color="#64748b" />
+            <Menu size={24} color={isDark ? '#ffffff' : '#64748b'} />
           </button>
 
           <div
@@ -402,7 +520,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
             onClick={() => handleSetView('classrooms')}
           >
             <span style={{ color: '#10b981' }}>V</span>
-            <span style={{ color: '#1e293b' }}>erity</span>
+            <span style={{ color: isDark ? '#E8EAED' : '#1e293b' }}>erity</span>
             <span style={styles.badge}>Student</span>
           </div>
         </div>
@@ -424,12 +542,12 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
               right: 0,
               top: indicatorStyle.top,
               height: indicatorStyle.height,
-              background: 'rgba(255,255,255,0.25)',
+              background: isDark ? 'rgba(0,0,0,0.22)' : 'rgba(255,255,255,0.25)',
               backdropFilter: 'blur(8px)',
               WebkitBackdropFilter: 'blur(8px)',
               borderRadius: '14px',
-              boxShadow: '0 4px 16px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
-              border: '1px solid rgba(255,255,255,0.35)',
+              boxShadow: isDark ? '0 4px 16px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.15)' : '0 4px 16px rgba(16,185,129,0.15), inset 0 1px 0 rgba(255,255,255,0.5)',
+              border: isDark ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.35)',
               transition: indicatorStyle.transition || 'none',
               opacity: indicatorStyle.opacity,
               pointerEvents: 'none',
@@ -446,9 +564,9 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
                   style={styles.sidebarBtn(collapsed)}
                   title={collapsed ? label : ''}
                 >
-                  <Icon size={20} color={active ? '#10b981' : '#475569'} style={{ flexShrink: 0 }} />
+                  <Icon size={20} color={active ? '#10b981' : (isDark ? '#E8EAED' : '#475569')} style={{ flexShrink: 0 }} />
                   {!collapsed && (
-                    <span style={{ fontSize: '0.85rem', fontWeight: active ? '700' : '600', color: active ? '#10b981' : '#334155', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: active ? '700' : '600', color: active ? '#10b981' : (isDark ? '#E8EAED' : '#334155'), overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {label}
                     </span>
                   )}
@@ -464,7 +582,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
                     padding: '0 18px',
                     fontSize: '0.75rem',
                     fontWeight: 'bold',
-                    color: '#9ca3af',
+                    color: isDark ? '#10b981' : '#9ca3af',
                     textTransform: 'uppercase',
                     letterSpacing: '0.05em',
                     marginBottom: '4px'
@@ -499,7 +617,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
                         {cls.name.charAt(0).toUpperCase()}
                       </div>
                       {!collapsed && (
-                        <span style={{ fontSize: '0.85rem', fontWeight: '600', color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: '600', color: isDark ? '#E8EAED' : '#334155', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {cls.name}
                         </span>
                       )}
@@ -517,9 +635,9 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
                 style={styles.sidebarBtn(collapsed)}
                 title={collapsed ? 'Settings' : ''}
               >
-                <Settings size={20} color={activeView === 'settings' ? '#10b981' : '#475569'} style={{ flexShrink: 0 }} />
+                <Settings size={20} color={activeView === 'settings' ? '#10b981' : (isDark ? '#a3a3a3' : '#475569')} style={{ flexShrink: 0 }} />
                 {!collapsed && (
-                  <span style={{ fontSize: '0.85rem', fontWeight: activeView === 'settings' ? '700' : '600', color: activeView === 'settings' ? '#10b981' : '#334155', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: activeView === 'settings' ? '700' : '600', color: activeView === 'settings' ? '#10b981' : (isDark ? '#E8EAED' : '#334155'), overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     Settings
                   </span>
                 )}
@@ -623,7 +741,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
             onClick={(e) => e.stopPropagation()}
           >
             <div style={styles.modalHeader}>
-              <h2 style={{ margin: 0, color: '#0f172a', fontSize: '1.35rem', fontWeight: '700' }}>
+              <h2 style={{ margin: 0, color: isDark ? '#f5f5f5' : '#0f172a', fontSize: '1.35rem', fontWeight: '700' }}>
                 Join a Class
               </h2>
               <button
@@ -632,13 +750,13 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
                 style={styles.closeModalBtn}
                 title="Close"
               >
-                <X size={22} />
+                <X size={22} color={isDark ? '#a3a3a3' : '#94a3af'} />
               </button>
             </div>
 
             <form onSubmit={handleJoin} style={styles.form}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '0.875rem', fontWeight: '600', color: '#475569' }}>
+                <label style={{ fontSize: '0.875rem', fontWeight: '600', color: isDark ? '#d4d4d4' : '#475569' }}>
                   Class Code
                 </label>
                 <input
@@ -655,20 +773,20 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
                     width: '100%',
                     padding: '14px 18px',
                     borderRadius: '12px',
-                    border: inputFocused ? '2px solid #10b981' : '1.5px solid #cbd5e1',
+                    border: inputFocused ? '2px solid #10b981' : (isDark ? '1.5px solid #4D4D4D' : '1.5px solid #cbd5e1'),
                     outline: 'none',
-                    backgroundColor: 'white',
-                    color: '#0f172a',
+                    backgroundColor: isDark ? '#3A3A3A' : 'white',
+                    color: isDark ? '#f5f5f5' : '#0f172a',
                     fontSize: '1rem',
                     fontWeight: '500',
                     boxSizing: 'border-box',
-                    boxShadow: inputFocused ? '0 0 0 3px rgba(16, 185, 129, 0.15)' : 'inset 0 1px 2px rgba(0, 0, 0, 0.04)',
+                    boxShadow: inputFocused ? '0 0 0 3px rgba(16, 185, 129, 0.15)' : (isDark ? 'none' : 'inset 0 1px 2px rgba(0, 0, 0, 0.04)'),
                     transition: 'border-color 0.2s, box-shadow 0.2s'
                   }}
                   onFocus={() => setInputFocused(true)}
                   onBlur={() => setInputFocused(false)}
                 />
-                <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                <span style={{ fontSize: '0.78rem', color: isDark ? '#737373' : '#94a3b8' }}>
                   Ask your teacher for the class code or section name.
                 </span>
               </div>
@@ -682,9 +800,9 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
                   style={{
                     padding: '10px 20px',
                     borderRadius: '50px',
-                    border: '1px solid #cbd5e1',
-                    backgroundColor: 'transparent',
-                    color: '#64748b',
+                    border: isDark ? '1px solid #444444' : '1px solid #cbd5e1',
+                    backgroundColor: isDark ? '#262626' : 'transparent',
+                    color: isDark ? '#d4d4d4' : '#64748b',
                     fontWeight: '600',
                     fontSize: '0.92rem',
                     cursor: 'pointer'

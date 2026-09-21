@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS users (
     password TEXT NOT NULL,
     role VARCHAR(50) NOT NULL,
     lastlogin TEXT,
-    status VARCHAR(50) DEFAULT 'Active'
+    status VARCHAR(50) DEFAULT 'Active',
+    avatar TEXT
 );
 
 CREATE TABLE IF NOT EXISTS classrooms (
@@ -16,7 +17,18 @@ CREATE TABLE IF NOT EXISTS classrooms (
     section VARCHAR(100),
     name VARCHAR(255) NOT NULL,
     subject VARCHAR(255),
-    instructor VARCHAR(255)
+    instructor VARCHAR(255),
+    instructor_email VARCHAR(255)
+);
+
+CREATE TABLE IF NOT EXISTS enrollments (
+    id BIGSERIAL PRIMARY KEY,
+    classroom_id BIGINT,
+    student_id BIGINT,
+    student_name VARCHAR(255),
+    student_email VARCHAR(255),
+    enrolled_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(classroom_id, student_email)
 );
 
 CREATE TABLE IF NOT EXISTS classwork (
