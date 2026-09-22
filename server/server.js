@@ -52,10 +52,17 @@ const isIpWhitelisted = (ip) => {
 };
 
 const adminIpWhitelist = (req, res, next) => {
-    const clientIp = req.ip || req.connection?.remoteAddress || req.headers['x-forwarded-for'];
+    // In Vercel/proxy environments, the real IP is in headers.
+    let clientIp = req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || req.ip || req.connection?.remoteAddress;
+    
+    // x-forwarded-for can be a comma-separated list of IPs. The first one is the client.
+    if (typeof clientIp === 'string' && clientIp.includes(',')) {
+        clientIp = clientIp.split(',')[0].trim();
+    }
+
     if (!isIpWhitelisted(clientIp)) {
         console.warn(`[SECURITY ALERT] Admin access blocked for non-whitelisted IP: ${clientIp}`);
-        return res.status(403).json({ message: 'Access denied. IP address not whitelisted for Admin access.' });
+        return res.status(403).json({ message: `Access denied. Your public IP address (${clientIp || 'Unknown'}) is not whitelisted for Admin access.` });
     }
     next();
 };
