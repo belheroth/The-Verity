@@ -105,6 +105,7 @@ export default function SecurityAuditLogsTab() {
             <div style={{ ...sh.searchPill, maxWidth: '220px' }}>
               <Search size={15} color={muted} />
               <input
+                className="search-clean-input"
                 value={query}
                 onChange={e => setQuery(e.target.value)}
                 placeholder="Search logs..."

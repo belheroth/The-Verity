@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Plus, X, Filter } from 'lucide-react';
+import { Search, Plus, X, Filter, Edit3, Eye, Shield, User, Mail, Check, AlertCircle, Copy, Clock, Key } from 'lucide-react';
 import PendingInstructorApproval from '../../components/PendingInstructorApproval';
 import { apiFetch } from '../../utils/api';
 import Skeleton from '../../components/Skeleton';
@@ -18,15 +18,52 @@ const getStyles = (isDark) => ({
     scrollbarWidth: 'none',
   },
   addBlueBtn: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '9px 20px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '9999px', fontWeight: '600', fontSize: '0.85rem', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, boxShadow: '0 4px 12px rgba(0, 123, 255, 0.3)' },
-  searchPill: { display: 'flex', alignItems: 'center', gap: '10px', backgroundColor: isDark ? '#2a2a2a' : '#e2e8f0', borderRadius: '9999px', padding: '8px 18px', flex: '1 1 180px', maxWidth: '360px', minWidth: 0 },
-  searchInput: { border: 'none', outline: 'none', backgroundColor: 'transparent', fontSize: '0.875rem', color: isDark ? '#e2e8f0' : '#334155', width: '100%', minWidth: 0 },
+  searchPill: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    backgroundColor: isDark ? '#1e1e1e' : '#f1f5f9',
+    borderRadius: '9999px',
+    padding: '8px 18px',
+    flex: '1 1 180px',
+    maxWidth: '360px',
+    minWidth: 0,
+    border: isDark ? '1.5px solid #404040' : '1.5px solid #cbd5e1',
+    transition: 'border-color 0.2s, box-shadow 0.2s',
+  },
+  searchInput: {
+    border: 'none',
+    outline: 'none',
+    backgroundColor: 'transparent',
+    fontSize: '0.875rem',
+    color: isDark ? '#f8fafc' : '#1e293b',
+    width: '100%',
+    minWidth: 0,
+    boxShadow: 'none',
+    WebkitAppearance: 'none',
+    MozAppearance: 'none',
+    appearance: 'none',
+  },
   mainCard: { backgroundColor: isDark ? '#2c2c2c' : 'white', borderRadius: '24px', padding: '24px', boxShadow: isDark ? '0 4px 20px rgba(0,0,0,0.3)' : '0 4px 20px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', minWidth: 0, border: isDark ? '1px solid #3a3a3a' : 'none' },
   cardTitle: { margin: '0', fontSize: '1.1rem', fontWeight: '700', color: isDark ? '#f1f5f9' : '#1e293b' },
   tableWrap: { overflowX: 'auto', width: '100%', MsOverflowStyle: 'none', scrollbarWidth: 'none' },
   statusGreenPill: { padding: '4px 16px', borderRadius: '9999px', fontSize: '0.78rem', fontWeight: '700', backgroundColor: '#dcfce7', color: '#15803d', border: '1px solid #86efac', display: 'inline-block', whiteSpace: 'nowrap' },
   statusRedPill: { padding: '4px 16px', borderRadius: '9999px', fontSize: '0.78rem', fontWeight: '700', backgroundColor: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5', display: 'inline-block', whiteSpace: 'nowrap' },
   rolePill: { backgroundColor: isDark ? '#374151' : '#e2e8f0', color: isDark ? '#cbd5e1' : '#334155', padding: '3px 10px', borderRadius: '9999px', fontSize: '0.78rem', fontWeight: '600' },
-  actionTextLink: { background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.82rem', fontWeight: '700', color: isDark ? '#93c5fd' : '#1e293b', padding: '2px 6px', textDecoration: 'none' },
+  actionTextLink: {
+    background: 'transparent',
+    border: 'none',
+    outline: 'none',
+    boxShadow: 'none',
+    cursor: 'pointer',
+    fontSize: '0.82rem',
+    fontWeight: '700',
+    color: isDark ? '#93c5fd' : '#1e293b',
+    padding: '2px 6px',
+    textDecoration: 'none',
+    WebkitAppearance: 'none',
+    appearance: 'none',
+  },
   filterChip: { padding: '6px 16px', borderRadius: '9999px', fontSize: '0.8rem', fontWeight: '600', cursor: 'pointer', border: 'none', backgroundColor: isDark ? '#1e3a5f' : '#dbeafe', color: isDark ? '#93c5fd' : '#1d4ed8', transition: 'all 0.15s ease', whiteSpace: 'nowrap' },
   filterChipActive: { padding: '6px 16px', borderRadius: '9999px', fontSize: '0.8rem', fontWeight: '700', cursor: 'pointer', border: 'none', backgroundColor: '#2563eb', color: '#ffffff', boxShadow: '0 2px 8px rgba(37,99,235,0.3)', whiteSpace: 'nowrap' },
   modalOverlay: { position: 'fixed', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 200, backdropFilter: 'blur(4px)', padding: '20px' },
@@ -71,6 +108,104 @@ export default function UserManagementTab({ users = [], loading = false, onDelet
   const [roleOpen, setRoleOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [addOrigin, setAddOrigin] = useState({ x: '50%', y: '50%' });
+
+  // View & Edit user modals
+  const [viewingUser, setViewingUser] = useState(null);
+  const [editingUser, setEditingUser] = useState(null);
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState(null);
+  const [copiedEmail, setCopiedEmail] = useState(false);
+
+  const handleOpenEdit = (u) => {
+    const parts = (u.name || '').trim().split(' ');
+    const firstName = parts[0] || '';
+    const lastName = parts.slice(1).join(' ') || '';
+    setEditingUser({
+      originalEmail: u.email,
+      firstName,
+      lastName,
+      email: u.email,
+      role: u.role || 'Student',
+      status: u.status || 'Active',
+      password: '',
+    });
+    setEditError(null);
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    setEditLoading(true);
+    setEditError(null);
+
+    const fullName = `${editingUser.firstName} ${editingUser.lastName}`.trim();
+    if (!fullName) {
+      setEditError('Name cannot be empty');
+      setEditLoading(false);
+      return;
+    }
+    if (!editingUser.email) {
+      setEditError('Email cannot be empty');
+      setEditLoading(false);
+      return;
+    }
+
+    const payload = {
+      name: fullName,
+      email: editingUser.email.trim(),
+      role: editingUser.role,
+      status: editingUser.status,
+    };
+    if (editingUser.password && editingUser.password.trim()) {
+      payload.password = editingUser.password.trim();
+    }
+
+    try {
+      if (onUpdateUser) {
+        const res = await onUpdateUser(editingUser.originalEmail, payload);
+        if (res && res.success === false) {
+          setEditError(res.message || 'Failed to update user');
+          setEditLoading(false);
+          return;
+        }
+      } else {
+        const res = await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/users/${encodeURIComponent(editingUser.originalEmail)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setEditError(data.message || 'Failed to update user');
+          setEditLoading(false);
+          return;
+        }
+      }
+
+      setLocalMsg({ type: 'success', text: `User "${fullName}" updated successfully.` });
+      setTimeout(() => setLocalMsg(null), 3500);
+      if (viewingUser && viewingUser.email === editingUser.originalEmail) {
+        setViewingUser(prev => ({
+          ...prev,
+          name: fullName,
+          email: editingUser.email.trim(),
+          role: editingUser.role,
+          status: editingUser.status,
+        }));
+      }
+      setEditingUser(null);
+    } catch (err) {
+      setEditError(err.message || 'Failed to update user');
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const handleCopyEmail = (email) => {
+    navigator.clipboard?.writeText(email);
+    setCopiedEmail(true);
+    setTimeout(() => setCopiedEmail(false), 2000);
+  };
 
   const filtered = users.filter(u => u.role !== 'Admin').filter(u => {
     const q = query.toLowerCase();
@@ -152,17 +287,25 @@ export default function UserManagementTab({ users = [], loading = false, onDelet
 
             {/* Filter Bar */}
             <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
-              <div style={sh.searchPill}>
-                <Search size={15} color={isDark ? '#94a3b8' : '#64748b'} />
+              <div
+                style={{
+                  ...sh.searchPill,
+                  border: searchFocused ? '1.5px solid #007bff' : (isDark ? '1.5px solid #4a5568' : '1.5px solid #cbd5e1'),
+                  boxShadow: searchFocused ? (isDark ? '0 0 0 3px rgba(0, 123, 255, 0.25)' : '0 0 0 3px rgba(0, 123, 255, 0.15)') : 'none',
+                }}
+              >
+                <Search size={15} color={searchFocused ? '#007bff' : (isDark ? '#94a3b8' : '#64748b')} style={{ flexShrink: 0 }} />
                 <motion.input
+                  className="search-clean-input"
                   value={query}
                   onChange={e => setQuery(e.target.value)}
                   placeholder="Search..."
                   style={{
                     ...sh.searchInput,
-                    width: searchFocused ? '100%' : '80%',
-                    border: searchFocused ? '2px solid #007bff' : '1px solid transparent',
-                    transition: 'width 0.3s, border-color 0.3s'
+                    border: 'none',
+                    outline: 'none',
+                    backgroundColor: 'transparent',
+                    boxShadow: 'none',
                   }}
                   onFocus={() => setSearchFocused(true)}
                   onBlur={() => setSearchFocused(false)}
@@ -301,9 +444,23 @@ export default function UserManagementTab({ users = [], loading = false, onDelet
                       <div><span style={sh.rolePill}>{u.role}</span></div>
                       <div><span style={isOnline(u.lastLogin) ? sh.statusGreenPill : sh.statusRedPill}>{isOnline(u.lastLogin) ? 'Active' : 'Inactive'}</span></div>
                       <div style={{ fontSize: '0.78rem', color: isDark ? '#94a3b8' : '#64748b' }}>{fmt(u.lastLogin)}</div>
-                      <div style={{ textAlign: 'right', display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} style={sh.actionTextLink} className="btn-anim">Edit</motion.button>
-                        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} style={sh.actionTextLink} className="btn-anim">View</motion.button>
+                      <div style={{ textAlign: 'right', display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                        <motion.button
+                          whileHover={{ opacity: 0.7, scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => handleOpenEdit(u)}
+                          style={sh.actionTextLink}
+                        >
+                          Edit
+                        </motion.button>
+                        <motion.button
+                          whileHover={{ opacity: 0.7, scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => setViewingUser(u)}
+                          style={{ ...sh.actionTextLink, color: isDark ? '#a78bfa' : '#6366f1' }}
+                        >
+                          View
+                        </motion.button>
                       </div>
                     </div>
                   ))
@@ -389,6 +546,347 @@ export default function UserManagementTab({ users = [], loading = false, onDelet
                   <option>Student</option><option>Teacher</option><option>Admin</option>
                 </select>
                 <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} type="submit" style={sh.submitBlueBtn}>Add User</motion.button>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* View User Modal */}
+      <AnimatePresence>
+        {viewingUser && (
+          <motion.div style={sh.modalOverlay} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setViewingUser(null)}>
+            <motion.div
+              style={{ ...sh.modalCard, maxWidth: '440px' }}
+              initial={{ opacity: 0, scale: 0.85, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.85, y: 20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 320 }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div style={sh.modalHeader}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <User size={20} color={isDark ? '#60a5fa' : '#2563eb'} />
+                  <h2 style={{ margin: 0, fontSize: '1.2rem', color: isDark ? '#f1f5f9' : '#1e293b' }}>User Profile</h2>
+                </div>
+                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setViewingUser(null)} style={sh.closeBtn}>
+                  <X size={20} />
+                </motion.button>
+              </div>
+
+              {/* User Identity Banner */}
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                textAlign: 'center',
+                padding: '12px 0 20px',
+                borderBottom: isDark ? '1px solid #333333' : '1px solid #f1f5f9',
+                marginBottom: '18px'
+              }}>
+                <div style={{
+                  position: 'relative',
+                  width: '68px',
+                  height: '68px',
+                  borderRadius: '50%',
+                  backgroundColor: isDark ? '#3b82f6' : '#2563eb',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#ffffff',
+                  fontSize: '1.8rem',
+                  fontWeight: '700',
+                  boxShadow: '0 6px 18px rgba(37,99,235,0.3)',
+                  marginBottom: '12px'
+                }}>
+                  {(viewingUser.name || 'U').charAt(0).toUpperCase()}
+                  <span style={{
+                    position: 'absolute',
+                    bottom: '2px',
+                    right: '2px',
+                    width: '14px',
+                    height: '14px',
+                    borderRadius: '50%',
+                    backgroundColor: isOnline(viewingUser.lastLogin) ? '#22c55e' : '#94a3b8',
+                    border: `2px solid ${isDark ? '#1e1e1e' : '#ffffff'}`
+                  }} title={isOnline(viewingUser.lastLogin) ? 'Online' : 'Offline'} />
+                </div>
+                <h3 style={{ margin: '0 0 8px', fontSize: '1.2rem', fontWeight: '700', color: isDark ? '#f8fafc' : '#0f172a' }}>
+                  {viewingUser.name}
+                </h3>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <span style={sh.rolePill}>{viewingUser.role}</span>
+                  <span style={viewingUser.status === 'Active' ? sh.statusGreenPill : sh.statusRedPill}>
+                    {viewingUser.status || 'Active'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Detail Rows */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '22px' }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 14px',
+                  borderRadius: '12px',
+                  backgroundColor: isDark ? '#262626' : '#f8fafc',
+                  border: isDark ? '1px solid #383838' : '1px solid #e2e8f0'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                    <Mail size={16} color={isDark ? '#94a3b8' : '#64748b'} style={{ flexShrink: 0 }} />
+                    <span style={{ fontSize: '0.86rem', color: isDark ? '#e2e8f0' : '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {viewingUser.email}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => handleCopyEmail(viewingUser.email)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: copiedEmail ? '#22c55e' : (isDark ? '#94a3b8' : '#64748b'),
+                      padding: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '0.75rem',
+                      fontWeight: '600'
+                    }}
+                    title="Copy Email"
+                  >
+                    {copiedEmail ? <Check size={14} /> : <Copy size={14} />}
+                    <span>{copiedEmail ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 14px',
+                  borderRadius: '12px',
+                  backgroundColor: isDark ? '#262626' : '#f8fafc',
+                  border: isDark ? '1px solid #383838' : '1px solid #e2e8f0'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <Clock size={16} color={isDark ? '#94a3b8' : '#64748b'} />
+                    <span style={{ fontSize: '0.84rem', color: isDark ? '#94a3b8' : '#64748b' }}>Last Login:</span>
+                  </div>
+                  <span style={{ fontSize: '0.84rem', fontWeight: '600', color: isDark ? '#e2e8f0' : '#1e293b' }}>
+                    {fmt(viewingUser.lastLogin)}
+                  </span>
+                </div>
+
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '10px 14px',
+                  borderRadius: '12px',
+                  backgroundColor: isDark ? '#262626' : '#f8fafc',
+                  border: isDark ? '1px solid #383838' : '1px solid #e2e8f0'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <Shield size={16} color={isDark ? '#94a3b8' : '#64748b'} />
+                    <span style={{ fontSize: '0.84rem', color: isDark ? '#94a3b8' : '#64748b' }}>Account Status:</span>
+                  </div>
+                  <span style={{
+                    fontSize: '0.84rem',
+                    fontWeight: '700',
+                    color: isOnline(viewingUser.lastLogin) ? '#22c55e' : (isDark ? '#94a3b8' : '#64748b')
+                  }}>
+                    {isOnline(viewingUser.lastLogin) ? '● Active Session' : 'Offline'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <motion.button
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => {
+                    const u = viewingUser;
+                    setViewingUser(null);
+                    handleOpenEdit(u);
+                  }}
+                  style={{ ...sh.submitBlueBtn, flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                >
+                  <Edit3 size={15} />
+                  <span>Edit Account</span>
+                </motion.button>
+
+                <motion.button
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={async () => {
+                    const nextStatus = viewingUser.status === 'Active' ? 'Inactive' : 'Active';
+                    if (onUpdateUser) {
+                      await onUpdateUser(viewingUser.email, { status: nextStatus });
+                    }
+                    setViewingUser(prev => prev ? { ...prev, status: nextStatus } : null);
+                    setLocalMsg({ type: 'success', text: `Status changed to ${nextStatus}` });
+                    setTimeout(() => setLocalMsg(null), 3000);
+                  }}
+                  style={{
+                    ...sh.submitBlueBtn,
+                    flex: 1,
+                    backgroundColor: viewingUser.status === 'Active' ? (isDark ? '#3f2525' : '#fee2e2') : (isDark ? '#1b3b2b' : '#dcfce7'),
+                    color: viewingUser.status === 'Active' ? '#ef4444' : '#15803d',
+                    boxShadow: 'none',
+                    border: viewingUser.status === 'Active' ? '1px solid #f87171' : '1px solid #86efac'
+                  }}
+                >
+                  {viewingUser.status === 'Active' ? 'Deactivate' : 'Activate'}
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit User Modal */}
+      <AnimatePresence>
+        {editingUser && (
+          <motion.div style={sh.modalOverlay} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setEditingUser(null)}>
+            <motion.div
+              style={{ ...sh.modalCard, maxWidth: '460px' }}
+              initial={{ opacity: 0, scale: 0.85, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.85, y: 20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 320 }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div style={sh.modalHeader}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Edit3 size={20} color={isDark ? '#60a5fa' : '#2563eb'} />
+                  <h2 style={{ margin: 0, fontSize: '1.2rem', color: isDark ? '#f1f5f9' : '#1e293b' }}>Edit User</h2>
+                </div>
+                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setEditingUser(null)} style={sh.closeBtn}>
+                  <X size={20} />
+                </motion.button>
+              </div>
+
+              {editError && (
+                <div style={{
+                  padding: '10px 14px',
+                  borderRadius: '10px',
+                  backgroundColor: isDark ? '#3f1d1d' : '#fee2e2',
+                  color: isDark ? '#fca5a5' : '#b91c1c',
+                  fontSize: '0.84rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  marginBottom: '14px'
+                }}>
+                  <AlertCircle size={15} style={{ flexShrink: 0 }} />
+                  <span>{editError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleSaveEdit} style={sh.form}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.8rem', fontWeight: '600', color: isDark ? '#cbd5e1' : '#475569' }}>
+                    Full Name
+                  </label>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <input
+                      type="text"
+                      placeholder="First Name"
+                      required
+                      value={editingUser.firstName}
+                      onChange={e => setEditingUser({ ...editingUser, firstName: e.target.value })}
+                      style={{ ...sh.inputPill, flex: 1 }}
+                    />
+                    <input
+                      type="text"
+                      placeholder="Last Name"
+                      value={editingUser.lastName}
+                      onChange={e => setEditingUser({ ...editingUser, lastName: e.target.value })}
+                      style={{ ...sh.inputPill, flex: 1 }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.8rem', fontWeight: '600', color: isDark ? '#cbd5e1' : '#475569' }}>
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="Email"
+                    required
+                    value={editingUser.email}
+                    onChange={e => setEditingUser({ ...editingUser, email: e.target.value })}
+                    style={sh.inputPill}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.8rem', fontWeight: '600', color: isDark ? '#cbd5e1' : '#475569' }}>
+                      Role
+                    </label>
+                    <select
+                      value={editingUser.role}
+                      onChange={e => setEditingUser({ ...editingUser, role: e.target.value })}
+                      style={sh.inputPill}
+                    >
+                      <option>Student</option>
+                      <option>Teacher</option>
+                      <option>Admin</option>
+                    </select>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.8rem', fontWeight: '600', color: isDark ? '#cbd5e1' : '#475569' }}>
+                      Status
+                    </label>
+                    <select
+                      value={editingUser.status}
+                      onChange={e => setEditingUser({ ...editingUser, status: e.target.value })}
+                      style={sh.inputPill}
+                    >
+                      <option>Active</option>
+                      <option>Inactive</option>
+                      <option>Pending</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.8rem', fontWeight: '600', color: isDark ? '#cbd5e1' : '#475569' }}>
+                    New Password <span style={{ fontWeight: '400', fontSize: '0.75rem', color: isDark ? '#94a3b8' : '#64748b' }}>(Leave blank to keep current password)</span>
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="Enter new password"
+                    value={editingUser.password}
+                    onChange={e => setEditingUser({ ...editingUser, password: e.target.value })}
+                    style={sh.inputPill}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                  <motion.button
+                    type="button"
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => setEditingUser(null)}
+                    style={{ ...sh.submitBlueBtn, backgroundColor: isDark ? '#374151' : '#e2e8f0', color: isDark ? '#cbd5e1' : '#475569', flex: 1, boxShadow: 'none' }}
+                  >
+                    Cancel
+                  </motion.button>
+                  <motion.button
+                    type="submit"
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                    disabled={editLoading}
+                    style={{ ...sh.submitBlueBtn, flex: 1, opacity: editLoading ? 0.7 : 1 }}
+                  >
+                    {editLoading ? 'Saving...' : 'Save Changes'}
+                  </motion.button>
+                </div>
               </form>
             </motion.div>
           </motion.div>

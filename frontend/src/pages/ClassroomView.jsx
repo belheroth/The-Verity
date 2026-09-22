@@ -36,6 +36,31 @@ const getStorageKey = (user) => {
   return identifier ? `verity_student_classrooms_${identifier}` : 'verity_student_classrooms_anon';
 };
 
+const TAB_ORDER = { stream: 0, classwork: 1, people: 2 };
+
+const tabSlideVariants = {
+  enter: (direction) => ({
+    x: direction > 0 ? 50 : -50,
+    opacity: 0,
+  }),
+  center: {
+    x: 0,
+    opacity: 1,
+    transition: {
+      x: { type: 'spring', stiffness: 350, damping: 30 },
+      opacity: { duration: 0.18 },
+    },
+  },
+  exit: (direction) => ({
+    x: direction > 0 ? -50 : 50,
+    opacity: 0,
+    transition: {
+      duration: 0.12,
+      ease: 'easeIn',
+    },
+  }),
+};
+
 
 
 export default function ClassroomView({
@@ -150,6 +175,15 @@ export default function ClassroomView({
 
   // Active Tab: strictly 'stream' | 'classwork' | 'people' (no 'grades' for students)
   const [activeTab, setActiveTab] = useState('stream');
+  const [tabDirection, setTabDirection] = useState(1);
+
+  const handleTabChange = (newTab) => {
+    if (newTab === activeTab) return;
+    const currentIdx = TAB_ORDER[activeTab] ?? 0;
+    const newIdx = TAB_ORDER[newTab] ?? 0;
+    setTabDirection(newIdx >= currentIdx ? 1 : -1);
+    setActiveTab(newTab);
+  };
 
   // Banner Theme synced with instructor setting
   const [bannerTheme, setBannerTheme] = useState(() => getClassroomTheme(classroom));
@@ -751,48 +785,95 @@ export default function ClassroomView({
             <div style={styles.classroomNavHeader}>
               <div style={styles.classroomTabsGroup}>
                 <button
-                  onClick={() => setActiveTab('stream')}
+                  onClick={() => handleTabChange('stream')}
                   style={{
                     ...styles.classroomTabBtn,
+                    position: 'relative',
                     color: activeTab === 'stream' ? '#10b981' : (isDark ? '#a3a3a3' : '#5f6368'),
-                    borderBottom: activeTab === 'stream' ? '3px solid #10b981' : '3px solid transparent'
                   }}
                 >
                   Stream
+                  {activeTab === 'stream' && (
+                    <motion.div
+                      layoutId="studentClassroomTabUnderline"
+                      style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        height: '3px',
+                        backgroundColor: '#10b981',
+                        borderRadius: '3px 3px 0 0'
+                      }}
+                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                    />
+                  )}
                 </button>
                 <button
-                  onClick={() => setActiveTab('classwork')}
+                  onClick={() => handleTabChange('classwork')}
                   style={{
                     ...styles.classroomTabBtn,
+                    position: 'relative',
                     color: activeTab === 'classwork' ? '#10b981' : (isDark ? '#a3a3a3' : '#5f6368'),
-                    borderBottom: activeTab === 'classwork' ? '3px solid #10b981' : '3px solid transparent'
                   }}
                 >
                   Classwork
+                  {activeTab === 'classwork' && (
+                    <motion.div
+                      layoutId="studentClassroomTabUnderline"
+                      style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        height: '3px',
+                        backgroundColor: '#10b981',
+                        borderRadius: '3px 3px 0 0'
+                      }}
+                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                    />
+                  )}
                 </button>
                 <button
-                  onClick={() => setActiveTab('people')}
+                  onClick={() => handleTabChange('people')}
                   style={{
                     ...styles.classroomTabBtn,
+                    position: 'relative',
                     color: activeTab === 'people' ? '#10b981' : (isDark ? '#a3a3a3' : '#5f6368'),
-                    borderBottom: activeTab === 'people' ? '3px solid #10b981' : '3px solid transparent'
                   }}
                 >
                   People
+                  {activeTab === 'people' && (
+                    <motion.div
+                      layoutId="studentClassroomTabUnderline"
+                      style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        height: '3px',
+                        backgroundColor: '#10b981',
+                        borderRadius: '3px 3px 0 0'
+                      }}
+                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                    />
+                  )}
                 </button>
               </div>
             </div>
 
             {/* SCROLLABLE INNER BODY OF THE BIG BOX */}
             <div style={styles.bigBoxInnerScroll}>
-              <motion.div
-                key={`${classroom?.id || 'cls'}_${activeTab}`}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-                style={{ display: 'flex', flexDirection: 'column', flex: 1 }}
-              >
+              <AnimatePresence mode="wait" custom={tabDirection}>
+                <motion.div
+                  key={`${classroom?.id || 'cls'}_${activeTab}`}
+                  custom={tabDirection}
+                  variants={tabSlideVariants}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  style={{ display: 'flex', flexDirection: 'column', flex: 1, width: '100%' }}
+                >
 
               {/* ═══ TAB 1: STREAM ═══ */}
               {activeTab === 'stream' && (
@@ -852,7 +933,7 @@ export default function ClassroomView({
                                 <div
                                   key={item.id}
                                   onClick={() => {
-                                    setActiveTab('classwork');
+                                    handleTabChange('classwork');
                                     setExpandedId(item.id);
                                   }}
                                   style={styles.upcomingItemRow}
@@ -866,7 +947,7 @@ export default function ClassroomView({
                         </div>
                         <div style={{ marginTop: '16px', textAlign: 'right' }}>
                           <span
-                            onClick={() => setActiveTab('classwork')}
+                            onClick={() => handleTabChange('classwork')}
                             style={styles.viewAllLink}
                           >
                             View all
@@ -887,22 +968,22 @@ export default function ClassroomView({
                             {/* Instructor Announcements (Read-only for student) */}
                             {announcements.map((post) => (
                               <div key={post.id} style={styles.streamFeedCard}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                  <div style={styles.teacherAvatarSmall}>
-                                    {post.author ? post.author.charAt(0).toUpperCase() : 'I'}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                                  <div style={styles.feedAvatarCircle}>
+                                    {(post.author || classroom?.instructor || 'T').charAt(0).toUpperCase()}
                                   </div>
                                   <div>
-                                    <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '0.92rem' }}>
-                                      {post.author}
+                                    <div style={{ fontWeight: '700', fontSize: '0.88rem', color: isDark ? '#f5f5f5' : '#1e293b' }}>
+                                      {post.author || classroom?.instructor || 'Instructor'}
                                     </div>
-                                    <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
-                                      {formatShortDate(post.date)}
+                                    <div style={{ fontSize: '0.75rem', color: isDark ? '#a3a3a3' : '#64748b' }}>
+                                      {formatShortDate(post.date || post.id)}
                                     </div>
                                   </div>
                                 </div>
-                                <p style={styles.announcementBodyText}>
+                                <div style={{ fontSize: '0.88rem', color: isDark ? '#e5e5e5' : '#334155', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
                                   {post.text}
-                                </p>
+                                </div>
                               </div>
                             ))}
 
@@ -911,7 +992,7 @@ export default function ClassroomView({
                           <div
                             key={item.id}
                             onClick={() => {
-                              setActiveTab('classwork');
+                              handleTabChange('classwork');
                               setExpandedId(item.id);
                             }}
                             style={styles.assignmentStreamCard}
@@ -1217,6 +1298,7 @@ export default function ClassroomView({
                 </div>
               )}
               </motion.div>
+              </AnimatePresence>
             </div>
           </div>
         </div>
@@ -1414,6 +1496,7 @@ const getStyles = (isDark) => ({
   bigBoxInnerScroll: {
     flex: 1,
     overflowY: 'auto',
+    overflowX: 'hidden',
     padding: '24px 28px 32px 28px'
   },
   streamContainer: {

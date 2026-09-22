@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
+import { useDarkMode } from '../hooks/useDarkMode';
 
 // API configuration
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 export default function PendingInstructorApproval({ users, onUpdateUser, onActionLogged }) {
+  const { isDark } = useDarkMode();
+  const styles = getStyles(isDark);
+
   // Filter users with role "Instructor" and status "Pending"
   const [pendingInstructors, setPendingInstructors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -122,10 +126,10 @@ export default function PendingInstructorApproval({ users, onUpdateUser, onActio
         <div style={styles.emptyState}>
           <div style={styles.emptyIcon}>
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M20 4H4C2.89543 4 2 4.89543 2 6V18C2 19.1046 2.89543 20 4 20H16L20 16V6C20 4.89543 19.1046 4 20 4Z" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              <path d="M4 6H20" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round"/>
-              <path d="M4 10H20" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round"/>
-              <path d="M4 14H20" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round"/>
+              <path d="M20 4H4C2.89543 4 2 4.89543 2 6V18C2 19.1046 2.89543 20 4 20H16L20 16V6C20 4.89543 19.1046 4 20 4Z" stroke={isDark ? '#64748b' : '#94a3b8'} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M4 6H20" stroke={isDark ? '#64748b' : '#94a3b8'} strokeWidth="1.5" strokeLinecap="round"/>
+              <path d="M4 10H20" stroke={isDark ? '#64748b' : '#94a3b8'} strokeWidth="1.5" strokeLinecap="round"/>
+              <path d="M4 14H20" stroke={isDark ? '#64748b' : '#94a3b8'} strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
           </div>
           <p style={styles.emptyText}>
@@ -223,21 +227,22 @@ export default function PendingInstructorApproval({ users, onUpdateUser, onActio
   );
 }
 
-// Styles matching exact UI screenshot specifications
-const styles = {
+// Styles matching exact UI screenshot specifications with dark mode support
+const getStyles = (isDark) => ({
   cardContainer: {
-    backgroundColor: '#ffffff',
+    backgroundColor: isDark ? '#2c2c2c' : '#ffffff',
     borderRadius: '24px',
-    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.02)',
+    boxShadow: isDark ? '0 4px 20px rgba(0, 0, 0, 0.3)' : '0 8px 24px rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 0, 0, 0.02)',
     padding: '18px 20px',
     width: '100%',
     boxSizing: 'border-box',
+    border: isDark ? '1px solid #3a3a3a' : 'none',
   },
   title: {
     margin: '0 0 14px 0',
     fontSize: '0.88rem',
     fontWeight: '700',
-    color: '#1e293b',
+    color: isDark ? '#f1f5f9' : '#1e293b',
     letterSpacing: '-0.01em',
     whiteSpace: 'nowrap',
   },
@@ -246,17 +251,18 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     padding: '20px',
-    color: '#64748b',
+    color: isDark ? '#94a3b8' : '#64748b',
     fontSize: '0.85rem',
-    backgroundColor: '#ffffff',
+    backgroundColor: isDark ? '#2c2c2c' : '#ffffff',
     borderRadius: '24px',
+    border: isDark ? '1px solid #3a3a3a' : 'none',
   },
   error: {
     padding: '14px 16px',
-    backgroundColor: '#fee2e2',
-    border: '1px solid #fecaca',
+    backgroundColor: isDark ? '#3b1c1c' : '#fee2e2',
+    border: isDark ? '1px solid #7f1d1d' : '1px solid #fecaca',
     borderRadius: '16px',
-    color: '#991b1b',
+    color: isDark ? '#fca5a5' : '#991b1b',
     fontSize: '0.85rem',
   },
   listContainer: {
@@ -271,9 +277,10 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: '8px 12px',
-    backgroundColor: '#ffffff',
+    backgroundColor: isDark ? '#1e1e1e' : '#ffffff',
     borderRadius: '9999px',
-    boxShadow: '0 3px 12px rgba(0, 0, 0, 0.06), inset 0 0 0 1px rgba(0, 0, 0, 0.04)',
+    boxShadow: isDark ? '0 3px 12px rgba(0, 0, 0, 0.3)' : '0 3px 12px rgba(0, 0, 0, 0.06), inset 0 0 0 1px rgba(0, 0, 0, 0.04)',
+    border: isDark ? '1px solid #3a3a3a' : '1px solid #f1f5f9',
     width: '100%',
     boxSizing: 'border-box',
   },
@@ -289,11 +296,11 @@ const styles = {
     width: '36px',
     height: '36px',
     borderRadius: '50%',
-    backgroundColor: '#b4b4b4',
+    backgroundColor: isDark ? '#334155' : '#b4b4b4',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    color: '#1a1a1a',
+    color: isDark ? '#f8fafc' : '#1a1a1a',
     fontWeight: '700',
     fontSize: '1rem',
     flexShrink: 0,
@@ -307,7 +314,7 @@ const styles = {
   displayName: {
     fontWeight: '700',
     fontSize: '0.85rem',
-    color: '#000000',
+    color: isDark ? '#f8fafc' : '#000000',
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -315,7 +322,7 @@ const styles = {
   },
   displayEmail: {
     fontSize: '0.75rem',
-    color: '#666666',
+    color: isDark ? '#94a3b8' : '#666666',
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -329,9 +336,9 @@ const styles = {
     marginLeft: '6px',
   },
   acceptButton: {
-    backgroundColor: '#ffffff',
-    border: '1.5px solid #00e626',
-    color: '#00e626',
+    backgroundColor: isDark ? 'rgba(34, 197, 94, 0.15)' : '#ffffff',
+    border: isDark ? '1.5px solid #22c55e' : '1.5px solid #00e626',
+    color: isDark ? '#4ade80' : '#00e626',
     borderRadius: '9999px',
     padding: '5px 12px',
     fontSize: '0.78rem',
@@ -342,9 +349,9 @@ const styles = {
     transition: 'all 0.15s ease',
   },
   declineButton: {
-    backgroundColor: '#ffffff',
-    border: '1.5px solid #ff0000',
-    color: '#ff0000',
+    backgroundColor: isDark ? 'rgba(239, 68, 68, 0.15)' : '#ffffff',
+    border: isDark ? '1.5px solid #ef4444' : '1.5px solid #ff0000',
+    color: isDark ? '#f87171' : '#ff0000',
     borderRadius: '9999px',
     padding: '5px 12px',
     fontSize: '0.78rem',
@@ -368,12 +375,12 @@ const styles = {
   emptyText: {
     fontSize: '0.9rem',
     fontWeight: '700',
-    color: '#334155',
+    color: isDark ? '#f1f5f9' : '#334155',
     margin: '0 0 4px 0',
   },
   emptyHint: {
     fontSize: '0.78rem',
-    color: '#64748b',
+    color: isDark ? '#94a3b8' : '#64748b',
     margin: 0,
   },
   popupOverlay: {
@@ -384,12 +391,13 @@ const styles = {
     pointerEvents: 'none',
   },
   popupCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: isDark ? '#1e1e1e' : '#ffffff',
     borderRadius: '18px',
     padding: '16px 20px',
     maxWidth: '320px',
     width: 'max-content',
-    boxShadow: '0 8px 32px rgba(0,0,0,0.14), 0 1px 4px rgba(0,0,0,0.06)',
+    boxShadow: isDark ? '0 8px 32px rgba(0,0,0,0.5)' : '0 8px 32px rgba(0,0,0,0.14), 0 1px 4px rgba(0,0,0,0.06)',
+    border: isDark ? '1px solid #3a3a3a' : 'none',
     display: 'flex',
     flexDirection: 'row',
     alignItems: 'center',
@@ -403,12 +411,12 @@ const styles = {
     margin: '0 0 3px',
     fontSize: '0.92rem',
     fontWeight: '800',
-    color: '#0f172a',
+    color: isDark ? '#f8fafc' : '#0f172a',
   },
   popupSub: {
     margin: 0,
     fontSize: '0.8rem',
-    color: '#475569',
+    color: isDark ? '#cbd5e1' : '#475569',
     lineHeight: 1.4,
   },
-};
+});

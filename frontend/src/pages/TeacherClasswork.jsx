@@ -6,6 +6,7 @@ import {
   Info, Users, BookOpen, Sparkles, Plus, Send, ChevronRight, CheckCircle2, 
   MessageSquare, PlayCircle, Eye, RefreshCw, Palette, ExternalLink
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import Skeleton from '../components/Skeleton';
 import { useDarkMode } from '../hooks/useDarkMode';
@@ -34,6 +35,31 @@ const formatShortDate = (value) => {
 };
 
 const isLegacyHardcoded = (item) => (item?.id === 1 || item?.id === 2) && (item?.title?.startsWith('Activity 1:') || item?.title?.startsWith('Activity 2:'));
+
+const TAB_ORDER = { stream: 0, classwork: 1, people: 2, grades: 3 };
+
+const tabSlideVariants = {
+  enter: (direction) => ({
+    x: direction > 0 ? 50 : -50,
+    opacity: 0,
+  }),
+  center: {
+    x: 0,
+    opacity: 1,
+    transition: {
+      x: { type: 'spring', stiffness: 350, damping: 30 },
+      opacity: { duration: 0.18 },
+    },
+  },
+  exit: (direction) => ({
+    x: direction > 0 ? -50 : 50,
+    opacity: 0,
+    transition: {
+      duration: 0.12,
+      ease: 'easeIn',
+    },
+  }),
+};
 
 
 
@@ -142,6 +168,15 @@ export default function TeacherClasswork({
 
   // Active classroom tab
   const [activeTab, setActiveTab] = useState('stream'); // 'stream' | 'classwork' | 'people' | 'grades'
+  const [tabDirection, setTabDirection] = useState(1);
+
+  const handleTabChange = (newTab) => {
+    if (newTab === activeTab) return;
+    const currentIdx = TAB_ORDER[activeTab] ?? 0;
+    const newIdx = TAB_ORDER[newTab] ?? 0;
+    setTabDirection(newIdx >= currentIdx ? 1 : -1);
+    setActiveTab(newTab);
+  };
 
   // Persist classwork per classroom
   const storageKey = `verity_classwork_${classroom?.id ?? 'default'}`;
@@ -997,44 +1032,104 @@ export default function TeacherClasswork({
             <div style={styles.classroomNavHeader}>
               <div style={styles.classroomTabsGroup}>
                 <button
-                  onClick={() => setActiveTab('stream')}
+                  onClick={() => handleTabChange('stream')}
                   style={{
                     ...styles.classroomTabBtn,
+                    position: 'relative',
                     color: activeTab === 'stream' ? '#10b981' : (isDark ? '#a3a3a3' : '#5f6368'),
-                    borderBottom: activeTab === 'stream' ? '3px solid #10b981' : '3px solid transparent'
                   }}
                 >
                   Stream
+                  {activeTab === 'stream' && (
+                    <motion.div
+                      layoutId="teacherClassroomTabUnderline"
+                      style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        height: '3px',
+                        backgroundColor: '#10b981',
+                        borderRadius: '3px 3px 0 0'
+                      }}
+                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                    />
+                  )}
                 </button>
                 <button
-                  onClick={() => setActiveTab('classwork')}
+                  onClick={() => handleTabChange('classwork')}
                   style={{
                     ...styles.classroomTabBtn,
+                    position: 'relative',
                     color: activeTab === 'classwork' ? '#10b981' : (isDark ? '#a3a3a3' : '#5f6368'),
-                    borderBottom: activeTab === 'classwork' ? '3px solid #10b981' : '3px solid transparent'
                   }}
                 >
                   Classwork
+                  {activeTab === 'classwork' && (
+                    <motion.div
+                      layoutId="teacherClassroomTabUnderline"
+                      style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        height: '3px',
+                        backgroundColor: '#10b981',
+                        borderRadius: '3px 3px 0 0'
+                      }}
+                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                    />
+                  )}
                 </button>
                 <button
-                  onClick={() => setActiveTab('people')}
+                  onClick={() => handleTabChange('people')}
                   style={{
                     ...styles.classroomTabBtn,
+                    position: 'relative',
                     color: activeTab === 'people' ? '#10b981' : (isDark ? '#a3a3a3' : '#5f6368'),
-                    borderBottom: activeTab === 'people' ? '3px solid #10b981' : '3px solid transparent'
                   }}
                 >
                   People
+                  {activeTab === 'people' && (
+                    <motion.div
+                      layoutId="teacherClassroomTabUnderline"
+                      style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        height: '3px',
+                        backgroundColor: '#10b981',
+                        borderRadius: '3px 3px 0 0'
+                      }}
+                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                    />
+                  )}
                 </button>
                 <button
-                  onClick={() => setActiveTab('grades')}
+                  onClick={() => handleTabChange('grades')}
                   style={{
                     ...styles.classroomTabBtn,
+                    position: 'relative',
                     color: activeTab === 'grades' ? '#10b981' : (isDark ? '#a3a3a3' : '#5f6368'),
-                    borderBottom: activeTab === 'grades' ? '3px solid #10b981' : '3px solid transparent'
                   }}
                 >
                   Grades
+                  {activeTab === 'grades' && (
+                    <motion.div
+                      layoutId="teacherClassroomTabUnderline"
+                      style={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        height: '3px',
+                        backgroundColor: '#10b981',
+                        borderRadius: '3px 3px 0 0'
+                      }}
+                      transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                    />
+                  )}
                 </button>
               </div>
 
@@ -1052,14 +1147,16 @@ export default function TeacherClasswork({
 
             {/* SCROLLABLE INNER BODY OF THE BIG BOX */}
             <div style={styles.bigBoxInnerScroll}>
-              <motion.div
-                key={`${classroom?.id || 'cls'}_${activeTab}`}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-                style={{ display: 'flex', flexDirection: 'column', flex: 1 }}
-              >
+              <AnimatePresence mode="wait" custom={tabDirection}>
+                <motion.div
+                  key={`${classroom?.id || 'cls'}_${activeTab}`}
+                  custom={tabDirection}
+                  variants={tabSlideVariants}
+                  initial="enter"
+                  animate="center"
+                  exit="exit"
+                  style={{ display: 'flex', flexDirection: 'column', flex: 1, width: '100%' }}
+                >
 
               {/* ═══ TAB 1: STREAM ═══ */}
               {activeTab === 'stream' && (
@@ -1155,7 +1252,7 @@ export default function TeacherClasswork({
                                 <div
                                   key={item.id}
                                   onClick={() => {
-                                    setActiveTab('classwork');
+                                    handleTabChange('classwork');
                                     setExpandedId(item.id);
                                   }}
                                   style={styles.upcomingItemRow}
@@ -1169,7 +1266,7 @@ export default function TeacherClasswork({
                         </div>
                         <div style={{ marginTop: '16px', textAlign: 'right' }}>
                           <span
-                            onClick={() => setActiveTab('classwork')}
+                            onClick={() => handleTabChange('classwork')}
                             style={styles.viewAllLink}
                           >
                             View all
@@ -1199,7 +1296,7 @@ export default function TeacherClasswork({
                             <div
                               key={item.id}
                               onClick={() => {
-                                setActiveTab('classwork');
+                                handleTabChange('classwork');
                                 setExpandedId(item.id);
                               }}
                               style={styles.assignmentStreamCard}
@@ -1344,7 +1441,7 @@ export default function TeacherClasswork({
                                       if (onOpenGrading) onOpenGrading(item);
                                       else {
                                         setSelectedGradingActivityId(item.id);
-                                        setActiveTab('grades');
+                                        handleTabChange('grades');
                                       }
                                     }}
                                   >
@@ -1680,6 +1777,7 @@ export default function TeacherClasswork({
                 </div>
               )}
               </motion.div>
+              </AnimatePresence>
             </div>
           </div>
         </div>
@@ -2276,6 +2374,7 @@ const getStyles = (isDark) => ({
   bigBoxInnerScroll: {
     flex: 1,
     overflowY: 'auto',
+    overflowX: 'hidden',
     padding: '24px 28px 32px 28px'
   },
 

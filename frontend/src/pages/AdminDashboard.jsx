@@ -64,18 +64,26 @@ export default function AdminDashboard({ currentUser, onLogout }) {
   const [newUser, setNewUser] = useState({ firstName: '', lastName: '', email: '', password: '', role: 'Student' });
 
   const handleUpdateUser = async (email, updates) => {
-    if (updates.status) {
-      try {
-        await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/users/${encodeURIComponent(email)}/status`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: updates.status })
-        });
-      } catch (err) {
-        console.error("Failed to update status", err);
+    try {
+      const endpoint = (Object.keys(updates).length === 1 && updates.status)
+        ? `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/users/${encodeURIComponent(email)}/status`
+        : `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/users/${encodeURIComponent(email)}`;
+      const res = await apiFetch(endpoint, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, message: data.message || 'Failed to update user' };
       }
+      setUsers(prev => prev.map(u => u.email === email ? { ...u, ...updates, ...(data.user || {}) } : u));
+      loadStats();
+      return { success: true, user: data.user };
+    } catch (err) {
+      console.error("Failed to update user", err);
+      return { success: false, message: 'Server connection error' };
     }
-    setUsers(prev => prev.map(u => u.email === email ? { ...u, ...updates } : u));
   };
 
   const loadUsers = async () => {

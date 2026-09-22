@@ -76672,9 +76672,9 @@ var require_db4 = __commonJS({
         VALUES ('System Admin', 'admin@verity.com', 'admin', 'Admin', 'Active');
 
         INSERT OR IGNORE INTO admin_users (name, email, password, role, lastLogin, status, avatar)
-        SELECT name, email, password, role, lastLogin, status, avatar FROM users WHERE LOWER(role) = 'admin';
+        SELECT name, email, password, role, lastLogin, status, avatar FROM users WHERE LOWER(role) = 'admin' OR LOWER(email) = 'admin@verity.com';
 
-        DELETE FROM users WHERE LOWER(role) = 'admin';
+        DELETE FROM users WHERE LOWER(role) = 'admin' OR LOWER(email) = 'admin@verity.com';
     `);
         try {
           sqliteDb.exec(`ALTER TABLE classrooms ADD COLUMN instructor_email TEXT;`);
@@ -77178,9 +77178,17 @@ app.post("/register", async (req, res) => {
     if (!email || !password || !name) {
       return res.status(400).json({ message: "Name, email, and password are required" });
     }
-    const existing = await db.get("SELECT id FROM users WHERE email = ?", email);
-    if (existing) {
-      return res.status(400).json({ message: "Email already exists" });
+    const cleanEmail = (email || "").trim().toLowerCase();
+    const cleanName = (name || "").trim().toLowerCase();
+    const existingUserEmail = await db.get("SELECT id FROM users WHERE LOWER(email) = ?", cleanEmail);
+    const existingAdminEmail = await db.get("SELECT id FROM admin_users WHERE LOWER(email) = ?", cleanEmail);
+    if (existingUserEmail || existingAdminEmail) {
+      return res.status(400).json({ message: "invalid email" });
+    }
+    const existingUserName = await db.get("SELECT id FROM users WHERE LOWER(name) = ?", cleanName);
+    const existingAdminName = await db.get("SELECT id FROM admin_users WHERE LOWER(name) = ?", cleanName);
+    if (existingUserName || existingAdminName) {
+      return res.status(400).json({ message: "invalid email" });
     }
     const authHeader = req.headers["authorization"];
     const token = authHeader && authHeader.split(" ")[1];
@@ -77225,11 +77233,18 @@ app.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
     const cleanEmail = (email || "").trim().toLowerCase();
+    const isAdminAcc = await db.get("SELECT id FROM admin_users WHERE LOWER(email) = ?", cleanEmail);
+    if (isAdminAcc) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
     const user = await db.get("SELECT * FROM users WHERE LOWER(email) = ? AND password = ?", cleanEmail, password);
     if (!user) {
-      const isAdminAcc = await db.get("SELECT id FROM admin_users WHERE LOWER(email) = ?", cleanEmail);
-      if (isAdminAcc) {
-        return res.status(403).json({ message: "Admin accounts must log in via the dedicated Admin Portal" });
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+    if (user.role === "Admin" || user.role === "admin") {
+      try {
+        await db.run("DELETE FROM users WHERE id = ?", user.id);
+      } catch (_) {
       }
       return res.status(401).json({ message: "Invalid credentials" });
     }
@@ -77302,7 +77317,12 @@ app.post("/auth/google", async (req, res) => {
     });
     const payload = ticket.getPayload();
     const { email, name } = payload;
-    let user = await db.get("SELECT * FROM users WHERE email = ?", email);
+    const cleanEmail = (email || "").trim().toLowerCase();
+    const isAdminAcc = await db.get("SELECT id FROM admin_users WHERE LOWER(email) = ?", cleanEmail);
+    if (isAdminAcc) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+    let user = await db.get("SELECT * FROM users WHERE LOWER(email) = ?", cleanEmail);
     if (user) {
       if (user.status === "Pending") {
         return res.status(403).json({ message: "Your account is pending admin approval" });
@@ -77364,6 +77384,55 @@ app.put("/users/:email/status", authenticateToken, requireRole("Admin"), async (
     const info = await db.run("UPDATE users SET status = ? WHERE email = ?", status, email);
     if (info.changes === 0) return res.status(404).json({ message: "User not found" });
     res.status(200).json({ message: "User status updated" });
+  } catch (e2) {
+    res.status(500).json({ message: e2.message });
+  }
+});
+app.put("/users/:email", authenticateToken, requireRole("Admin"), async (req, res) => {
+  try {
+    const targetEmail = decodeURIComponent(req.params.email).toLowerCase();
+    const { name, email, role, status, password } = req.body || {};
+    const existing = await db.get("SELECT * FROM users WHERE LOWER(email) = ?", targetEmail);
+    if (!existing) return res.status(404).json({ message: "User not found" });
+    const newName = name && name.trim() ? name.trim() : existing.name;
+    const newEmail = email && email.trim() ? email.trim().toLowerCase() : existing.email;
+    const newRole = role || existing.role;
+    const newStatus = status || existing.status || "Active";
+    if (newEmail !== existing.email.toLowerCase()) {
+      const conflict = await db.get("SELECT id FROM users WHERE LOWER(email) = ? AND id != ?", newEmail, existing.id);
+      if (conflict) return res.status(400).json({ message: "Email is already in use by another user" });
+    }
+    if (password && password.trim()) {
+      await db.run(
+        "UPDATE users SET name = ?, email = ?, role = ?, status = ?, password = ? WHERE id = ?",
+        newName,
+        newEmail,
+        newRole,
+        newStatus,
+        password.trim(),
+        existing.id
+      );
+    } else {
+      await db.run(
+        "UPDATE users SET name = ?, email = ?, role = ?, status = ? WHERE id = ?",
+        newName,
+        newEmail,
+        newRole,
+        newStatus,
+        existing.id
+      );
+    }
+    if (existing.role === "Teacher") {
+      await db.run(
+        "UPDATE classrooms SET instructor = ?, instructor_email = ? WHERE LOWER(instructor_email) = ? OR instructor = ?",
+        newName,
+        newEmail,
+        existing.email.toLowerCase(),
+        existing.name
+      );
+    }
+    const updatedUser = await db.get("SELECT id, name, email, role, status, lastLogin FROM users WHERE id = ?", existing.id);
+    res.status(200).json({ message: "User updated successfully", user: updatedUser });
   } catch (e2) {
     res.status(500).json({ message: e2.message });
   }

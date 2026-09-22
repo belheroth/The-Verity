@@ -354,17 +354,26 @@ export default function GlobalClassesTab() {
 
         {/* Search & Action Bar */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
-          <div style={{ ...sh.searchPill, maxWidth: '600px', flex: 1 }}>
-            <Search size={16} color={muted} />
+          <div
+            style={{
+              ...sh.searchPill,
+              maxWidth: '600px',
+              flex: 1,
+              border: searchFocused ? '1.5px solid #007bff' : (isDark ? '1px solid #3a3a3a' : '1px solid #e2e8f0'),
+              boxShadow: searchFocused ? (isDark ? '0 0 0 3px rgba(0, 123, 255, 0.25)' : '0 0 0 3px rgba(0, 123, 255, 0.15)') : 'none',
+              transition: 'border-color 0.2s, box-shadow 0.2s'
+            }}
+          >
+            <Search size={16} color={searchFocused ? '#007bff' : muted} style={{ flexShrink: 0 }} />
             <motion.input
+              className="search-clean-input"
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder="Search by class name, instructor, or subject..."
               style={{
                 ...sh.searchInput,
-                width: searchFocused ? '100%' : '85%',
-                border: searchFocused ? '2px solid #007bff' : '1px solid transparent',
-                transition: 'width 0.3s, border-color 0.3s'
+                border: 'none',
+                outline: 'none',
               }}
               onFocus={() => setSearchFocused(true)}
               onBlur={() => setSearchFocused(false)}
@@ -576,10 +585,11 @@ export default function GlobalClassesTab() {
                 <div style={{ ...sh.searchPill, maxWidth: '320px', flex: 1, padding: '6px 14px' }}>
                   <Search size={14} color={muted} />
                   <input
+                    className="search-clean-input"
                     value={viewStudentQuery}
                     onChange={e => setViewStudentQuery(e.target.value)}
                     placeholder="Search enrolled students..."
-                    style={{ ...sh.searchInput, fontSize: '0.82rem' }}
+                    style={{ ...sh.searchInput, fontSize: '0.82rem', border: 'none', outline: 'none' }}
                   />
                 </div>
                 <motion.button
@@ -624,10 +634,11 @@ export default function GlobalClassesTab() {
                     <div style={{ ...sh.searchPill, maxWidth: '100%', padding: '6px 12px', backgroundColor: isDark ? '#1e1e1e' : 'white' }}>
                       <Search size={13} color={muted} />
                       <input
+                        className="search-clean-input"
                         value={addStudentQuery}
                         onChange={e => setAddStudentQuery(e.target.value)}
                         placeholder="Search available students..."
-                        style={{ ...sh.searchInput, fontSize: '0.8rem' }}
+                        style={{ ...sh.searchInput, fontSize: '0.8rem', border: 'none', outline: 'none' }}
                       />
                     </div>
 

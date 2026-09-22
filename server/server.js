@@ -500,6 +500,50 @@ app.put('/users/:email/status', authenticateToken, requireRole('Admin'), async (
     }
 });
 
+app.put('/users/:email', authenticateToken, requireRole('Admin'), async (req, res) => {
+    try {
+        const targetEmail = decodeURIComponent(req.params.email).toLowerCase();
+        const { name, email, role, status, password } = req.body || {};
+
+        const existing = await db.get('SELECT * FROM users WHERE LOWER(email) = ?', targetEmail);
+        if (!existing) return res.status(404).json({ message: 'User not found' });
+
+        const newName = name && name.trim() ? name.trim() : existing.name;
+        const newEmail = email && email.trim() ? email.trim().toLowerCase() : existing.email;
+        const newRole = role || existing.role;
+        const newStatus = status || existing.status || 'Active';
+
+        if (newEmail !== existing.email.toLowerCase()) {
+            const conflict = await db.get('SELECT id FROM users WHERE LOWER(email) = ? AND id != ?', newEmail, existing.id);
+            if (conflict) return res.status(400).json({ message: 'Email is already in use by another user' });
+        }
+
+        if (password && password.trim()) {
+            await db.run(
+                'UPDATE users SET name = ?, email = ?, role = ?, status = ?, password = ? WHERE id = ?',
+                newName, newEmail, newRole, newStatus, password.trim(), existing.id
+            );
+        } else {
+            await db.run(
+                'UPDATE users SET name = ?, email = ?, role = ?, status = ? WHERE id = ?',
+                newName, newEmail, newRole, newStatus, existing.id
+            );
+        }
+
+        if (existing.role === 'Teacher') {
+            await db.run(
+                'UPDATE classrooms SET instructor = ?, instructor_email = ? WHERE LOWER(instructor_email) = ? OR instructor = ?',
+                newName, newEmail, existing.email.toLowerCase(), existing.name
+            );
+        }
+
+        const updatedUser = await db.get('SELECT id, name, email, role, status, lastLogin FROM users WHERE id = ?', existing.id);
+        res.status(200).json({ message: 'User updated successfully', user: updatedUser });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
 // --- USER PROFILE ENDPOINTS ---
 app.get('/users/profile', authenticateToken, async (req, res) => {
     try {
