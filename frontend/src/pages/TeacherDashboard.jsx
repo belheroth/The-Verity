@@ -5,7 +5,6 @@ import SettingsPanel from './SettingsPanel';
 import ProfileMenu from './ProfileMenu';
 import TeacherCalendar from './TeacherCalendar';
 import ClassroomSettings from './ClassroomSettings';
-import UITransitionsShowcase from '../components/UITransitionsShowcase';
 import ClassroomCard from '../components/ClassroomCard';
 import { apiFetch } from '../utils/api';
 import Skeleton from '../components/Skeleton';
@@ -631,7 +630,6 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
 
               {activeView === 'classrooms' && (
                 <>
-                  <UITransitionsShowcase />
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', padding: '0 10px' }}>
                     <motion.button
                       whileHover={{ scale: 1.05 }}

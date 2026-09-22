@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BarChart3, Users, Home, Shield, Settings, Search, Bell, Plus, X, Trash2, User, Menu, X as XIcon, Filter, CheckCircle, AlertCircle } from 'lucide-react';
-import UITransitionsShowcase from '../../components/UITransitionsShowcase';
 import PendingInstructorApproval from '../../components/PendingInstructorApproval';
 import { apiFetch } from '../../utils/api';
 import { useDarkMode } from '../../hooks/useDarkMode';
@@ -168,8 +167,6 @@ export default function DashboardOverview({ stats, users, query, setQuery, onDel
           </div>
         </div>
       </div>
-
-      <UITransitionsShowcase />
 
       {/* Main Content Table Container */}
       <div style={sh.mainCard}>

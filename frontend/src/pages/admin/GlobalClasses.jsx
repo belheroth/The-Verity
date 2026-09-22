@@ -476,7 +476,7 @@ export default function GlobalClassesTab() {
                   </div>
 
                   {/* Student Search */}
-                  <div style={{ ...sh.searchPill, maxWidth: '100%', marginBottom: '8px', padding: '6px 14px' }}>
+                  <div style={{ ...sh.searchPill, flex: 'none', maxWidth: '320px', marginBottom: '8px', padding: '6px 14px' }}>
                     <Search size={14} color={muted} />
                     <input
                       value={createStudentQuery}
@@ -631,7 +631,7 @@ export default function GlobalClassesTab() {
                       </span>
                     </div>
 
-                    <div style={{ ...sh.searchPill, maxWidth: '100%', padding: '6px 12px', backgroundColor: isDark ? '#1e1e1e' : 'white' }}>
+                    <div style={{ ...sh.searchPill, flex: 'none', maxWidth: '320px', padding: '6px 12px', backgroundColor: isDark ? '#1e1e1e' : 'white' }}>
                       <Search size={13} color={muted} />
                       <input
                         className="search-clean-input"
