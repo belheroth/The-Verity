@@ -62,7 +62,7 @@ const adminIpWhitelist = (req, res, next) => {
 
     if (!isIpWhitelisted(clientIp)) {
         console.warn(`[SECURITY ALERT] Admin access blocked for non-whitelisted IP: ${clientIp}`);
-        return res.status(403).json({ message: `Access denied. Your public IP address (${clientIp || 'Unknown'}) is not whitelisted for Admin access.` });
+        return res.status(403).json({ message: `Access denied, your not eligible for admin access` });
     }
     next();
 };
