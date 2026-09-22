@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { GoogleLogin } from '@react-oauth/google';
-import { Moon, Sun } from 'lucide-react';
+import { Moon, Sun, Loader2 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { useDarkMode } from '../hooks/useDarkMode';
 
@@ -9,6 +9,7 @@ export default function Login({ onLogin, onGoToRegister }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleGoogleSuccess = async (credentialResponse) => {
     try {
@@ -35,6 +36,7 @@ export default function Login({ onLogin, onGoToRegister }) {
   const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
+    setIsLoading(true);
 
     try {
       const response = await apiFetch(`${import.meta.env.VITE_API_URL}/login`, {
@@ -49,9 +51,11 @@ export default function Login({ onLogin, onGoToRegister }) {
         onLogin(data.user, data.token);
       } else {
         setError(data.message || 'Invalid login credentials');
+        setIsLoading(false);
       }
     } catch (_) {
       setError('Could not connect to server. Is server.js running?');
+      setIsLoading(false);
     }
   };
 
@@ -137,7 +141,22 @@ export default function Login({ onLogin, onGoToRegister }) {
             }}
           />
 
-          <button type="submit" style={styles.button}>Login</button>
+          <button 
+            type="submit" 
+            style={{
+              ...styles.button,
+              opacity: isLoading ? 0.7 : 1,
+              cursor: isLoading ? 'not-allowed' : 'pointer'
+            }}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                <Loader2 size={20} className="animate-spin" />
+                Authenticating...
+              </span>
+            ) : 'Login'}
+          </button>
 
           <div style={{ display: 'flex', alignItems: 'center', margin: '10px 0' }}>
             <div style={{ flex: 1, height: '1px', backgroundColor: isDark ? '#3f3f46' : '#e5e7eb' }}></div>
