@@ -44,7 +44,7 @@ const isIpWhitelisted = (ip) => {
     if (!ip) return true;
     const cleanIp = ip.replace(/^.*:/, ''); // strip IPv6 prefix if mapped
     const allowedEnv = (process.env.ADMIN_ALLOWED_IPS || '').split(',').map(s => s.trim()).filter(Boolean);
-    const defaultAllowed = ['127.0.0.1', '::1', 'localhost', '192.168.8.115'];
+    const defaultAllowed = ['127.0.0.1', '::1', 'localhost', '192.168.8.115', '131.226.102.72'];
     if (defaultAllowed.includes(cleanIp) || allowedEnv.includes(cleanIp) || allowedEnv.includes('*')) {
         return true;
     }
