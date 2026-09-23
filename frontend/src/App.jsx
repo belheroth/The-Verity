@@ -172,6 +172,25 @@ export default function App() {
     }
   }, []);
 
+  // ────────────────────────────── Auto‑logout on Maintenance ──────────────────────────────
+  useEffect(() => {
+    const checkMaintenance = async () => {
+      try {
+        const res = await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/maintenance-status`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.enabled && currentUser && currentUser.role !== 'Admin') {
+            // Force logout for students/teachers when maintenance is active
+            handleLogout();
+          }
+        }
+      } catch (_) {}
+    };
+    checkMaintenance();
+    const interval = setInterval(checkMaintenance, 30000); // every 30 seconds
+    return () => clearInterval(interval);
+  }, [currentUser]);
+
   // Hydrate real permanent user profile (including avatar) from database
   useEffect(() => {
     const token = localStorage.getItem('verity_token') || localStorage.getItem('token');

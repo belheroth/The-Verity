@@ -8,7 +8,7 @@ const { Server } = require('socket.io');
 const http = require('http');
 const { OAuth2Client } = require('google-auth-library');
 const jwt = require('jsonwebtoken');
-const googleClient = new OAuth2Client('19771771402-t2ad6ohhek8jp428tm1pj6tpnke6u0su.apps.googleusercontent.com');
+const googleClient = new OAuth2Client('19771771402-6qoluvvmb04r1hfuglnh163hjhg8hvmb.apps.googleusercontent.com');
 const db = require('./db/index.js');
 
 const DATA_DIR = process.env.DATA_DIR || __dirname;
@@ -474,7 +474,7 @@ app.post('/auth/google', async (req, res) => {
 
         const ticket = await googleClient.verifyIdToken({
             idToken: token,
-            audience: '985650202101-p4jb6nlaqjeq14v1g2kqldhm7clphkk7.apps.googleusercontent.com'
+            audience: '19771771402-6qoluvvmb04r1hfuglnh163hjhg8hvmb.apps.googleusercontent.com'
         });
         const payload = ticket.getPayload();
         const { email, name } = payload;
