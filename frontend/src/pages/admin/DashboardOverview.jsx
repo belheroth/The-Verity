@@ -198,7 +198,7 @@ export default function DashboardOverview({ stats, users, query, setQuery, onDel
 
       {/* Main Content Table Container */}
       <div style={sh.mainCard}>
-        <h2 style={{ ...sh.cardTitle, marginBottom: '16px' }}>User Management — Alt-Tab & Copy-Paste Activity</h2>
+        <h2 style={{ ...sh.cardTitle, marginBottom: '16px' }}>Integrity Logs</h2>
 
         <div style={sh.tableWrap}>
           {/* Capsule Table Header */}
