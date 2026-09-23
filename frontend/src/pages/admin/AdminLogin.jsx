@@ -162,10 +162,7 @@ export default function AdminLogin({ onLogin }) {
           </button>
         </form>
 
-        <div style={{ ...styles.footerNotice, color: isDark ? '#71717a' : '#94a3b8' }}>
-          <Lock size={12} style={{ display: 'inline', marginRight: '4px' }} />
-          Protected by IP Whitelisting, Stricter Rate Limiting & Audit Logging.
-        </div>
+
       </div>
     </div>
   );
