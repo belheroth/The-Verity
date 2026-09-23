@@ -124,6 +124,7 @@ db.exec(`
 
 try { db.exec(`ALTER TABLE classrooms ADD COLUMN instructor_email TEXT;`); } catch (e) {}
 try { db.exec(`ALTER TABLE classrooms ADD COLUMN theme TEXT;`); } catch (e) {}
+try { db.exec(`ALTER TABLE users ADD COLUMN avatar TEXT;`); } catch (e) {}
 
 function generateClassCodeSync(takenSet = new Set()) {
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';

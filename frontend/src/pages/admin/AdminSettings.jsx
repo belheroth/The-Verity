@@ -13,7 +13,6 @@ import { useDarkMode } from '../../hooks/useDarkMode';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-const STORAGE_KEY = 'verity_admin_settings_v2';
 
 // ═══ DESIGN TOKENS (dynamic) ═══
 const getTokens = (isDark) => ({
@@ -793,6 +792,8 @@ export default function SystemSettingsTab({ currentUser: propCurrentUser }) {
   const [activeTab, setActiveTab] = useState('general');
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saveError, setSaveError] = useState('');
   const { isDark, toggle: toggleDark } = useDarkMode();
   const { currentUser: hookUser } = useCurrentUser();
   const currentUser = propCurrentUser || hookUser;
@@ -804,32 +805,59 @@ export default function SystemSettingsTab({ currentUser: propCurrentUser }) {
 
   useEffect(() => { loadSettings(); }, []);
 
+  // Deep-merge helper: merges nested objects from server on top of defaults
+  const deepMerge = (defaults, incoming) => {
+    const result = { ...defaults };
+    for (const key of Object.keys(incoming)) {
+      if (
+        incoming[key] && typeof incoming[key] === 'object' && !Array.isArray(incoming[key]) &&
+        defaults[key] && typeof defaults[key] === 'object' && !Array.isArray(defaults[key])
+      ) {
+        result[key] = { ...defaults[key], ...incoming[key] };
+      } else {
+        result[key] = incoming[key];
+      }
+    }
+    return result;
+  };
+
   const loadSettings = async () => {
+    setLoading(true);
     try {
       const res = await apiFetch(`${API_BASE}/system-settings`);
       if (res.ok) {
         const d = await res.json();
         if (d.settings && Object.keys(d.settings).length > 0) {
-          setSettings(prev => ({ ...DEFAULT_SETTINGS, ...prev, ...d.settings }));
-          return;
+          // If server stores as single global_config blob, unwrap it
+          const serverData = d.settings.global_config || d.settings;
+          setSettings(deepMerge(DEFAULT_SETTINGS, serverData));
         }
       }
-    } catch { /* fallback */ }
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setSettings(prev => ({ ...DEFAULT_SETTINGS, ...JSON.parse(raw) }));
-    } catch { }
+    } catch {
+      // Network error — keep defaults
+    }
+    setLoading(false);
   };
 
   const handleSave = async () => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); } catch { }
+    setSaveError('');
     try {
-      await apiFetch(`${API_BASE}/system-settings`, {
-        method: 'POST',
+      const res = await apiFetch(`${API_BASE}/system-settings`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings }),
+        body: JSON.stringify({ settings: { global_config: settings } }),
       });
-    } catch { }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setSaveError(err.message || 'Failed to save settings');
+        setTimeout(() => setSaveError(''), 4000);
+        return;
+      }
+    } catch (e) {
+      setSaveError('Network error — settings could not be saved');
+      setTimeout(() => setSaveError(''), 4000);
+      return;
+    }
     logSecurityEvent({ user: currentUserName, type: 'Settings Updated', severity: 'Normal', desc: `Updated system settings tab: ${activeTab.toUpperCase()}` });
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
@@ -860,6 +888,16 @@ export default function SystemSettingsTab({ currentUser: propCurrentUser }) {
       </div>
 
       {/* ═══ TAB PANELS ═══ */}
+      {loading ? (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '80px 0' }}>
+          <div style={{
+            width: '36px', height: '36px', border: `3px solid ${T.border}`,
+            borderTop: `3px solid ${T.blue}`, borderRadius: '50%',
+            animation: 'spin 0.8s linear infinite',
+          }} />
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      ) : (
       <AnimatePresence mode="wait">
         {activeTab === 'general' && (
           <GeneralPreferencesTab key="general" data={settings.general} onChange={v => update('general', v)} />
@@ -888,6 +926,7 @@ export default function SystemSettingsTab({ currentUser: propCurrentUser }) {
           <SystemDataTab key="data" data={settings.data} onChange={v => update('data', v)} currentUserName={currentUserName} />
         )}
       </AnimatePresence>
+      )}
 
       {/* ═══ FLOATING SAVE BAR ═══ */}
       <motion.div
@@ -895,10 +934,10 @@ export default function SystemSettingsTab({ currentUser: propCurrentUser }) {
         transition={{ delay: 0.3, type: 'spring', stiffness: 400, damping: 30 }}
         style={styles.floatingBar}
       >
-        <span style={{ fontSize: '0.82rem', color: T.muted, fontWeight: '600' }}>
-          {saved ? '✓ Saved successfully' : 'Unsaved changes'}
+        <span style={{ fontSize: '0.82rem', color: saveError ? T.red : T.muted, fontWeight: '600' }}>
+          {saveError ? `⚠ ${saveError}` : saved ? '✓ Saved successfully' : 'Unsaved changes'}
         </span>
-        <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={handleSave} style={styles.saveBtn(saved)}>
+        <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={handleSave} style={styles.saveBtn(saved)} disabled={loading}>
           {saved ? <Check size={16} /> : null}
           <span>{saved ? 'Saved!' : 'Save All Settings'}</span>
         </motion.button>

@@ -161,13 +161,13 @@ const SECTIONS = {
 /**
  * Distinctive, interactive Profile Picture Changer component
  */
-function ProfilePictureChanger({ isDark }) {
-  const { currentUser, updateCurrentUser } = useCurrentUser();
+function ProfilePictureChanger({ isDark, avatar, onAvatarChange }) {
+  const { currentUser } = useCurrentUser();
   const fileInputRef = useRef(null);
   const [feedback, setFeedback] = useState(null);
   const [imgError, setImgError] = useState(false);
 
-  const currentAvatar = currentUser?.avatar || currentUser?.profilePicture;
+  const currentAvatar = avatar !== undefined ? avatar : (currentUser?.avatar || currentUser?.profilePicture);
   const name = currentUser?.name || 'User';
 
   useEffect(() => {
@@ -207,7 +207,6 @@ function ProfilePictureChanger({ isDark }) {
       const img = new Image();
       img.onload = () => {
         try {
-          // Downscale to 256x256 square with center-crop to guarantee high quality + zero quota issues
           const canvas = document.createElement('canvas');
           const maxDim = 256;
           canvas.width = maxDim;
@@ -220,12 +219,12 @@ function ProfilePictureChanger({ isDark }) {
 
           ctx.drawImage(img, sx, sy, minSide, minSide, 0, 0, maxDim, maxDim);
           const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
-          updateCurrentUser({ avatar: dataUrl, profilePicture: dataUrl });
-          showFeedback('Profile picture updated successfully!');
+          onAvatarChange(dataUrl);
+          showFeedback('Profile picture ready to save!');
         } catch (_) {
           const rawUrl = uploadEvent.target.result;
-          updateCurrentUser({ avatar: rawUrl, profilePicture: rawUrl });
-          showFeedback('Profile picture updated successfully!');
+          onAvatarChange(rawUrl);
+          showFeedback('Profile picture ready to save!');
         }
       };
       img.onerror = () => {
@@ -238,12 +237,12 @@ function ProfilePictureChanger({ isDark }) {
   };
 
   const handleSelectPreset = (preset) => {
-    updateCurrentUser({ avatar: preset.svg, profilePicture: preset.svg });
-    showFeedback(`Avatar updated to "${preset.name}"!`);
+    onAvatarChange(preset.svg);
+    showFeedback(`Avatar selected: "${preset.name}". Remember to Save Changes.`);
   };
 
   const handleRemovePhoto = () => {
-    updateCurrentUser({ avatar: null, profilePicture: null });
+    onAvatarChange(null);
     showFeedback('Photo removed. Restored to default initial badge.');
   };
 
@@ -511,12 +510,14 @@ export default function SettingsPanel({ role = 'Student', onBack, loading = fals
       const saved = localStorage.getItem(STORAGE_KEY);
       const parsed = saved ? JSON.parse(saved) : {};
       const user = currentUser || JSON.parse(localStorage.getItem('currentUser') || '{}');
-      if (user?.name && !parsed['Profile Management:Full Name']) {
+      if (user?.name) {
         parsed['Profile Management:Full Name'] = user.name;
       }
-      if (user?.email && !parsed['Profile Management:Email Address']) {
+      if (user?.email) {
         parsed['Profile Management:Email Address'] = user.email;
       }
+      // Hold avatar temporarily until Save is clicked
+      parsed['Profile Management:Avatar'] = user?.avatar || user?.profilePicture || null;
       return parsed;
     } catch {
       return {};
@@ -525,17 +526,40 @@ export default function SettingsPanel({ role = 'Student', onBack, loading = fals
 
   const [savedSection, setSavedSection] = useState(null);
 
-  const handleSave = (sectionTitle) => {
+  // Sync currentUser fields into form values whenever the user object updates.
+  // The useState initializer only runs once on mount, so if currentUser loads
+  // asynchronously (e.g. from hook after mount), we need this effect to catch up.
+  useEffect(() => {
+    if (!currentUser) return;
+    setValues(prev => {
+      const updated = { ...prev };
+      if (currentUser.name) updated['Profile Management:Full Name'] = currentUser.name;
+      if (currentUser.email) updated['Profile Management:Email Address'] = currentUser.email;
+      // Only overwrite avatar if the form hasn't been modified by the user (i.e. still matches stored user)
+      const storedAvatar = currentUser.avatar || currentUser.profilePicture || null;
+      if (prev['Profile Management:Avatar'] === undefined || prev['Profile Management:Avatar'] === null) {
+        updated['Profile Management:Avatar'] = storedAvatar;
+      }
+      return updated;
+    });
+  }, [currentUser]);
+
+  const handleSave = async (sectionTitle) => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(values));
       if (sectionTitle === 'Profile Management') {
         const nameVal = values[`${sectionTitle}:Full Name`];
         const emailVal = values[`${sectionTitle}:Email Address`];
-        const updates = {};
-        if (nameVal && nameVal.trim()) updates.name = nameVal.trim();
-        if (emailVal && emailVal.trim()) updates.email = emailVal.trim();
-        if (Object.keys(updates).length > 0) {
-          updateCurrentUser(updates);
+        const avatarVal = values[`${sectionTitle}:Avatar`];
+        const payload = {};
+        if (nameVal && nameVal.trim()) payload.name = nameVal.trim();
+        if (emailVal && emailVal.trim()) payload.email = emailVal.trim();
+        // Always include avatar in payload (even null, so photo removal persists to DB)
+        payload.avatar = avatarVal !== undefined ? avatarVal : null;
+        if (Object.keys(payload).length > 0) {
+          // updateCurrentUser handles both local state update AND DB persistence in one call.
+          // Calling apiFetch separately here would cause a duplicate request race condition.
+          await updateCurrentUser(payload);
         }
       }
     } catch (err) {
@@ -602,7 +626,11 @@ export default function SettingsPanel({ role = 'Student', onBack, loading = fals
             <div style={styles.fields}>
               {/* Profile Picture Changer right at the top of Profile Management */}
               {isProfile && (
-                <ProfilePictureChanger isDark={isDark} />
+                <ProfilePictureChanger
+                  isDark={isDark}
+                  avatar={values['Profile Management:Avatar']}
+                  onAvatarChange={(av) => setValues(prev => ({ ...prev, 'Profile Management:Avatar': av }))}
+                />
               )}
 
               {section.fields.map((f) => {

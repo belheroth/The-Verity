@@ -260,9 +260,46 @@ const todayKey = () => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+// --- MAINTENANCE MODE HELPER ---
+const getMaintenanceStatus = async () => {
+    try {
+        const row = await db.get("SELECT value FROM system_settings WHERE key = 'global_config'");
+        if (row && row.value) {
+            const config = JSON.parse(row.value);
+            if (config.general && config.general.maintenanceMode) {
+                return {
+                    enabled: true,
+                    message: config.general.offlineMessage || 'The system is currently undergoing maintenance. Please try again later.',
+                };
+            }
+        }
+    } catch (_) {}
+    return { enabled: false, message: '' };
+};
+
+// Public endpoint: allows login page to check maintenance status without auth
+app.get('/maintenance-status', async (req, res) => {
+    const status = await getMaintenanceStatus();
+    res.status(200).json(status);
+});
+
 // --- AUTHENTICATION ROUTES ---
 app.post('/register', async (req, res) => {
     try {
+        // Block registration during maintenance mode (unless requester is admin)
+        const maintenance = await getMaintenanceStatus();
+        if (maintenance.enabled) {
+            const authHeader = req.headers['authorization'];
+            const token = authHeader && authHeader.split(' ')[1];
+            let isAdmin = false;
+            if (token) {
+                try { const d = jwt.verify(token, JWT_SECRET); if (d && d.role === 'Admin') isAdmin = true; } catch (_) {}
+            }
+            if (!isAdmin) {
+                return res.status(503).json({ message: maintenance.message, maintenance: true });
+            }
+        }
+
         const { name, email, password, role } = req.body;
         if (!email || !password || !name) {
             return res.status(400).json({ message: 'Name, email, and password are required' });
@@ -327,6 +364,12 @@ app.post('/register', async (req, res) => {
 
 app.post('/login', async (req, res) => {
     try {
+        // Block student/teacher login during maintenance mode
+        const maintenance = await getMaintenanceStatus();
+        if (maintenance.enabled) {
+            return res.status(503).json({ message: maintenance.message, maintenance: true });
+        }
+
         const { email, password } = req.body;
         const cleanEmail = (email || '').trim().toLowerCase();
 
@@ -423,6 +466,12 @@ app.get('/admin/profile', authenticateToken, adminIpWhitelist, requireRole('Admi
 app.post('/auth/google', async (req, res) => {
     const { token, role: userRole } = req.body;
     try {
+        // Block Google SSO login during maintenance mode
+        const maintenance = await getMaintenanceStatus();
+        if (maintenance.enabled) {
+            return res.status(503).json({ message: maintenance.message, maintenance: true });
+        }
+
         const ticket = await googleClient.verifyIdToken({
             idToken: token,
             audience: '985650202101-p4jb6nlaqjeq14v1g2kqldhm7clphkk7.apps.googleusercontent.com'
@@ -584,6 +633,14 @@ app.put('/users/profile', authenticateToken, async (req, res) => {
             await db.run(
                 'UPDATE classrooms SET instructor = ?, instructor_email = ? WHERE LOWER(instructor_email) = LOWER(?) OR instructor = ?',
                 updatedName, updatedEmail, current.email, current.name
+            ).catch(() => {});
+        }
+
+        // If admin, also update the admin_users table so the avatar persists for admins
+        if (current.role === 'Admin') {
+            await db.run(
+                'UPDATE admin_users SET name = ?, email = ?, avatar = ? WHERE id = ?',
+                updatedName, updatedEmail, updatedAvatar, userId
             ).catch(() => {});
         }
 
@@ -775,9 +832,11 @@ app.get('/classrooms', authenticateToken, async (req, res) => {
             let realTeacher = null;
             if (instEmail) {
                 realTeacher = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(email) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", instEmail).catch(() => null);
+                if (!realTeacher) realTeacher = await db.get("SELECT id, name, email, avatar, role FROM admin_users WHERE LOWER(email) = LOWER(?)", instEmail).catch(() => null);
             }
             if (!realTeacher && instName && instName !== 'Instructor') {
                 realTeacher = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(name) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", instName).catch(() => null);
+                if (!realTeacher) realTeacher = await db.get("SELECT id, name, email, avatar, role FROM admin_users WHERE LOWER(name) = LOWER(?)", instName).catch(() => null);
             }
 
             if (realTeacher) {
@@ -1081,9 +1140,11 @@ app.get('/classroom-students/:classroomId', authenticateToken, async (req, res) 
         if (classroom) {
             if (classroom.instructor_email && classroom.instructor_email.trim()) {
                 instUser = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(email) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", classroom.instructor_email.trim());
+                if (!instUser) instUser = await db.get("SELECT id, name, email, avatar, role FROM admin_users WHERE LOWER(email) = LOWER(?)", classroom.instructor_email.trim());
             }
             if (!instUser && classroom.instructor && classroom.instructor.trim() && classroom.instructor !== 'Instructor') {
                 instUser = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(name) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", classroom.instructor.trim());
+                if (!instUser) instUser = await db.get("SELECT id, name, email, avatar, role FROM admin_users WHERE LOWER(name) = LOWER(?)", classroom.instructor.trim());
             }
         }
 
@@ -1249,9 +1310,11 @@ app.post('/classrooms/join', authenticateToken, async (req, res) => {
         let realTeacher = null;
         if (instEmail) {
             realTeacher = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(email) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", instEmail).catch(() => null);
+            if (!realTeacher) realTeacher = await db.get("SELECT id, name, email, avatar, role FROM admin_users WHERE LOWER(email) = LOWER(?)", instEmail).catch(() => null);
         }
         if (!realTeacher && instName && instName !== 'Instructor') {
             realTeacher = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(name) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", instName).catch(() => null);
+            if (!realTeacher) realTeacher = await db.get("SELECT id, name, email, avatar, role FROM admin_users WHERE LOWER(name) = LOWER(?)", instName).catch(() => null);
         }
         if (realTeacher) {
             instName = realTeacher.name;
@@ -1939,7 +2002,7 @@ app.get('/system-settings', authenticateToken, async (req, res) => {
     }
 });
 
-app.post('/system-settings', authenticateToken, requireRole('Admin'), async (req, res) => {
+const handleSaveSettings = async (req, res) => {
     try {
         const { settings } = req.body || {};
         if (!settings || typeof settings !== 'object') {
@@ -1950,11 +2013,18 @@ app.post('/system-settings', authenticateToken, requireRole('Admin'), async (req
             await db.run('INSERT INTO system_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, strVal);
         }
         io.emit('system_settings_updated', { settings });
+        const userName = req.user?.email || req.user?.name || 'unknown';
+        await db.run('INSERT INTO audit_logs ("user", type, severity, "desc") VALUES (?, ?, ?, ?)', userName, 'System Settings Updated', 'Normal', 'Admin updated system settings via API');
         res.status(200).json({ message: 'Settings saved successfully' });
     } catch (e) {
         res.status(500).json({ message: e.message });
     }
-});
+};
+
+app.put('/system-settings', authenticateToken, requireRole('Admin'), handleSaveSettings);
+
+// Backward compatibility: POST delegates to the same handler
+app.post('/system-settings', authenticateToken, requireRole('Admin'), handleSaveSettings);
 
 // --- ACCESS TOKENS API ---
 app.get('/access-tokens', authenticateToken, requireRole('Admin', 'Teacher'), async (req, res) => {

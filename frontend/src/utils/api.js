@@ -118,6 +118,12 @@ export const apiFetch = async (url, options = {}) => {
     targetUrl = `${cloudUrl || LOCAL_API_URL}${targetUrl}`;
   }
 
+  // Cache busting for GET requests to prevent stale data
+  if (!options.method || options.method.toUpperCase() === 'GET') {
+    const sep = targetUrl.includes('?') ? '&' : '?';
+    targetUrl = `${targetUrl}${sep}_t=${Date.now()}`;
+  }
+
   const isTargetingCloud = cloudUrl && targetUrl.startsWith(cloudUrl) && cloudUrl !== LOCAL_API_URL;
   const localFallbackUrl = isTargetingCloud ? targetUrl.replace(cloudUrl, LOCAL_API_URL) : targetUrl;
 
