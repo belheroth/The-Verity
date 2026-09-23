@@ -283,6 +283,12 @@ app.get('/maintenance-status', async (req, res) => {
     res.status(200).json(status);
 });
 
+// Public endpoint: returns security/kiosk settings for student workspace enforcement
+app.get('/kiosk-settings', async (req, res) => {
+    const settings = await getKioskSettings();
+    res.status(200).json({ settings });
+});
+
 // --- AUTHENTICATION ROUTES ---
 app.post('/register', async (req, res) => {
     try {
@@ -521,11 +527,42 @@ app.post('/auth/google', async (req, res) => {
 // --- ADMIN: USER MANAGEMENT ---
 app.get('/users', authenticateToken, requireRole('Admin'), async (req, res) => {
     try {
-        const rows = await db.all('SELECT id, name, email, role, lastLogin, status FROM users');
+        const rows = await db.all(`
+            SELECT 
+                u.id, 
+                u.name, 
+                u.email, 
+                u.role, 
+                u.lastLogin, 
+                u.status,
+                (
+                    SELECT a.timestamp 
+                    FROM audit_logs a 
+                    WHERE (LOWER(a.user) = LOWER(u.name) OR LOWER(a.user) = LOWER(u.email))
+                    ORDER BY a.id DESC 
+                    LIMIT 1
+                ) as last_flag_time,
+                (
+                    SELECT a.desc 
+                    FROM audit_logs a 
+                    WHERE (LOWER(a.user) = LOWER(u.name) OR LOWER(a.user) = LOWER(u.email))
+                    ORDER BY a.id DESC 
+                    LIMIT 1
+                ) as last_flag_desc,
+                (
+                    SELECT COUNT(a.id) 
+                    FROM audit_logs a 
+                    WHERE (LOWER(a.user) = LOWER(u.name) OR LOWER(a.user) = LOWER(u.email))
+                ) as flag_count
+            FROM users u
+        `);
         const users = rows.map(u => ({
             ...u,
             status: u.status || 'Active',
-            lastLogin: u.lastLogin || null
+            lastLogin: u.lastLogin || null,
+            lastFlagTime: u.last_flag_time || null,
+            lastFlagDesc: u.last_flag_desc || null,
+            flagCount: Number(u.flag_count || 0)
         }));
         res.status(200).json({ users });
     } catch (e) {
@@ -1362,16 +1399,87 @@ app.get('/submission-counts', authenticateToken, requireRole('Teacher', 'Admin')
     }
 });
 
-// --- ADMIN DASHBOARD STATS ---
+// --- ADMIN DASHBOARD STATS & NOTIFICATIONS ---
 app.get('/stats', authenticateToken, requireRole('Admin'), async (req, res) => {
     try {
-        const activeUsersRow = await db.get("SELECT COUNT(id) as c FROM users WHERE status = 'Active'");
+        const activeUsersRow = await db.get("SELECT COUNT(id) as c FROM users WHERE COALESCE(status, 'Active') NOT IN ('Pending', 'Disabled', 'Suspended')");
         const activeClassroomsRow = await db.get("SELECT COUNT(id) as c FROM classrooms");
-        const flagRow = await db.get("SELECT count FROM security_flags WHERE date_string = ?", todayKey());
+        const tKey = todayKey();
+
+        // Try security_flags table first (fast path)
+        let securityFlagsToday = 0;
+        let altTabCopyPasteFlags = 0;
+        try {
+            const flagRow = await db.get("SELECT count, alt_tab_copy_paste_count FROM security_flags WHERE date_string = ?", tKey);
+            if (flagRow) {
+                securityFlagsToday = Number(flagRow.count || 0);
+                altTabCopyPasteFlags = Number(flagRow.alt_tab_copy_paste_count || 0);
+            }
+        } catch (_) {}
+
+        // Also count directly from audit_logs for today (works for both SQLite and Postgres)
+        // Use start-of-day ISO timestamp - compatible with both SQLite TEXT and Postgres TIMESTAMPTZ
+        try {
+            const startOfDay = `${tKey}T00:00:00.000Z`;
+            const auditAltTabRow = await db.get(
+                `SELECT COUNT(id) as c FROM audit_logs WHERE (type LIKE '%Alt-Tab%' OR type LIKE '%Copy-Paste%' OR LOWER("desc") LIKE '%alt%tab%' OR LOWER("desc") LIKE '%paste%' OR LOWER("desc") LIKE '%clipboard%') AND timestamp >= ?`,
+                startOfDay
+            );
+            const auditSecRow = await db.get(
+                `SELECT COUNT(id) as c FROM audit_logs WHERE severity IN ('High', 'Warning') AND type NOT LIKE '%Alt-Tab%' AND type NOT LIKE '%Copy-Paste%' AND timestamp >= ?`,
+                startOfDay
+            );
+            const auditAltCount = auditAltTabRow ? Number(auditAltTabRow.c || 0) : 0;
+            const auditSecCount = auditSecRow ? Number(auditSecRow.c || 0) : 0;
+            // Use whichever count is higher (security_flags or audit_logs direct count)
+            if (auditAltCount > altTabCopyPasteFlags) altTabCopyPasteFlags = auditAltCount;
+            if (auditSecCount > securityFlagsToday) securityFlagsToday = auditSecCount;
+        } catch (_) {}
+
         const activeUsers = activeUsersRow ? Number(activeUsersRow.c) : 0;
         const activeClassrooms = activeClassroomsRow ? Number(activeClassroomsRow.c) : 0;
-        const securityFlagsToday = flagRow ? Number(flagRow.count) : 0;
-        res.status(200).json({ activeUsers, activeClassrooms, securityFlagsToday });
+
+        res.status(200).json({ activeUsers, activeClassrooms, securityFlagsToday, altTabCopyPasteFlags });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
+app.get('/notifications', authenticateToken, async (req, res) => {
+    try {
+        const notifs = [];
+        // 1. Pending instructor approvals
+        const pendingRow = await db.get("SELECT COUNT(id) as c FROM users WHERE role = 'Teacher' AND status = 'Pending'");
+        const pendingCount = pendingRow ? Number(pendingRow.c) : 0;
+        if (pendingCount > 0) {
+            notifs.push({
+                id: 'pending-instructors',
+                title: 'Pending Instructor Approvals',
+                text: `${pendingCount} instructor(s) awaiting registration approval.`
+            });
+        }
+        // 2. Kiosk security & Alt-Tab / Copy-Paste flags today
+        const flagRow = await db.get("SELECT count, alt_tab_copy_paste_count FROM security_flags WHERE date_string = ?", todayKey());
+        const secFlags = flagRow ? Number(flagRow.count || 0) : 0;
+        const altTabFlags = flagRow ? Number(flagRow.alt_tab_copy_paste_count || 0) : 0;
+        if (secFlags > 0 || altTabFlags > 0) {
+            notifs.push({
+                id: 'security-flags-today',
+                title: 'Kiosk Security Activity Today',
+                text: `${altTabFlags} Alt-Tab/Copy-Paste flag(s) & ${secFlags} security alert(s) recorded today.`
+            });
+        }
+        // 3. Maintenance mode status
+        const maintenance = await getMaintenanceStatus();
+        if (maintenance && maintenance.enabled) {
+            notifs.push({
+                id: 'maintenance-mode',
+                title: 'System Maintenance Active',
+                text: maintenance.message || 'System maintenance mode is currently enabled.'
+            });
+        }
+
+        res.status(200).json({ notifications: notifs });
     } catch (e) {
         res.status(500).json({ message: e.message });
     }
@@ -1517,17 +1625,52 @@ function parseCompilerDiagnostics(output) {
 
 async function getTreatWarningsAsErrors() {
     try {
-        const row = await db.get("SELECT value FROM system_settings WHERE key = 'examDefaults'");
+        const row = await db.get("SELECT value FROM system_settings WHERE key = 'global_config'");
         if (row && row.value) {
             const parsed = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
+            if (parsed?.examDefaults?.treatWarningsAsErrors !== undefined) {
+                return !!parsed.examDefaults.treatWarningsAsErrors;
+            }
+        }
+        const fallbackRow = await db.get("SELECT value FROM system_settings WHERE key = 'examDefaults'");
+        if (fallbackRow && fallbackRow.value) {
+            const parsed = typeof fallbackRow.value === 'string' ? JSON.parse(fallbackRow.value) : fallbackRow.value;
             return !!parsed?.treatWarningsAsErrors;
         }
     } catch (_) {}
     return false;
 }
 
+async function getKioskSettings() {
+    const defaults = {
+        flagTabExits: true,
+        blockCopyPaste: true,
+        flagMultipleLogins: true,
+        violationThreshold: 3,
+        sessionTimeout: '30m',
+        cognitivePauseThreshold: 45,
+        strictClipboardBlocking: true,
+        enforceSingleMonitor: false,
+        disableWindowsKeyAltTab: true
+    };
+    try {
+        const row = await db.get("SELECT value FROM system_settings WHERE key = 'global_config'");
+        if (row && row.value) {
+            const parsed = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
+            if (parsed && parsed.security) return { ...defaults, ...parsed.security };
+        }
+        const secRow = await db.get("SELECT value FROM system_settings WHERE key = 'security'");
+        if (secRow && secRow.value) {
+            const parsed = typeof secRow.value === 'string' ? JSON.parse(secRow.value) : secRow.value;
+            return { ...defaults, ...parsed };
+        }
+    } catch (_) {}
+    return defaults;
+}
+
 let currentInstruction = "";
 const activeStudents = {};
+
 
 io.on('connection', (socket) => {
     console.log('🟢 Student Workspace Connected: ' + socket.id);
@@ -1578,14 +1721,21 @@ io.on('connection', (socket) => {
     const handshakeToken = socket.handshake.auth?.token;
     if (handshakeToken) {
         authenticateSocket(socket, handshakeToken);
+        if (socket.user) {
+            getKioskSettings().then(cfg => socket.emit('kiosk_settings', cfg)).catch(() => {});
+        }
     }
 
     socket.on('authenticate', (data) => {
         if (!data) return;
+        let u = null;
         if (typeof data === 'string') {
-            authenticateSocket(socket, data);
+            u = authenticateSocket(socket, data);
         } else if (typeof data === 'object') {
-            authenticateSocket(socket, data.token, data.user);
+            u = authenticateSocket(socket, data.token, data.user);
+        }
+        if (u) {
+            getKioskSettings().then(cfg => socket.emit('kiosk_settings', cfg)).catch(() => {});
         }
     });
 
@@ -1870,7 +2020,44 @@ io.on('connection', (socket) => {
 
         try {
             const key = todayKey();
-            await db.run('INSERT INTO security_flags (date_string, count) VALUES (?, 1) ON CONFLICT(date_string) DO UPDATE SET count = security_flags.count + 1', key);
+            const actionStr = (data?.action || '').toLowerCase();
+            const isAltTabCopyPaste = actionStr.includes('tab') || actionStr.includes('paste') || actionStr.includes('clipboard') || actionStr.includes('copy') || actionStr.includes('exit') || actionStr.includes('blur');
+
+            if (isAltTabCopyPaste) {
+                // Count under Alt-Tab / Copy-Paste flags (do NOT increment Security Flags Today count)
+                await db.run(
+                    'INSERT INTO security_flags (date_string, count, alt_tab_copy_paste_count) VALUES (?, 0, 1) ON CONFLICT(date_string) DO UPDATE SET alt_tab_copy_paste_count = COALESCE(security_flags.alt_tab_copy_paste_count, 0) + 1',
+                    key
+                );
+            } else {
+                // Count under high-severity Security Flags Today
+                await db.run(
+                    'INSERT INTO security_flags (date_string, count, alt_tab_copy_paste_count) VALUES (?, 1, 0) ON CONFLICT(date_string) DO UPDATE SET count = COALESCE(security_flags.count, 0) + 1',
+                    key
+                );
+            }
+
+            const nowIso = new Date().toISOString();
+            // Log event to audit_logs for admin activity view
+            if (data && (data.studentId || data.name || data.email)) {
+                const userName = data.name || data.email || data.studentId;
+                await db.run(
+                    'INSERT INTO audit_logs (timestamp, "user", type, severity, "desc") VALUES (?, ?, ?, ?, ?)',
+                    nowIso,
+                    userName,
+                    isAltTabCopyPaste ? 'Alt-Tab / Copy-Paste Violation' : 'Security Flag Alert',
+                    isAltTabCopyPaste ? 'Warning' : 'High',
+                    `${data.action || 'Violation alert'} in classroom ${data.classroomId || 'workspace'}`
+                );
+            }
+
+            // Emit live real-time update to all admin sessions
+            io.emit('admin_security_alert', {
+                ...data,
+                isAltTabCopyPaste,
+                timestamp: nowIso
+            });
+            io.emit('admin_stats_update');
         } catch (e) { console.error(e); }
     });
 
@@ -1889,10 +2076,13 @@ io.on('connection', (socket) => {
             studentId: authenticatedId,
             strictWarningsEnforced: strictWarnings
         };
-        activeStudents[studentKey] = { ...activeStudents[studentKey], ...payload, status: 'Submitted' };
+        delete activeStudents[studentKey];
+        delete activeStudents[`${classroomId}:${assignmentId}:${authenticatedName}`];
+        delete activeStudents[`${classroomId}:${assignmentId}:${authenticatedId}`];
 
         const roomName = `classroom:${classroomId}:assignment:${assignmentId}`;
         socket.to(roomName).emit('teacher_receive_submission', payload);
+        socket.to(roomName).emit('teacher_student_left', { studentId: authenticatedName, studentIdNum: authenticatedId, reason: 'submitted' });
 
         try {
             await db.run('DELETE FROM submissions WHERE assignment_id = ? AND student_name = ?', assignmentId, authenticatedName);
@@ -1958,6 +2148,19 @@ io.on('connection', (socket) => {
 });
 
 // --- AUDIT LOGS ---
+app.get('/audit-logs/user/:identifier', authenticateToken, requireRole('Admin', 'Teacher'), async (req, res) => {
+    try {
+        const id = decodeURIComponent(req.params.identifier);
+        const logs = await db.all(
+            `SELECT * FROM audit_logs WHERE LOWER("user") = LOWER(?) OR LOWER("user") = LOWER(?) ORDER BY id DESC LIMIT 200`,
+            id, id
+        );
+        res.status(200).json({ logs });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+});
+
 app.get('/audit-logs', authenticateToken, requireRole('Admin', 'Teacher'), async (req, res) => {
     try {
         const logs = await db.all('SELECT * FROM audit_logs ORDER BY id DESC LIMIT 300');
@@ -1972,13 +2175,40 @@ app.post('/audit-logs', authenticateToken, async (req, res) => {
         const { user = 'System', type = 'Event', severity = 'Normal', desc = '' } = req.body || {};
         const timestamp = new Date().toISOString();
         await db.run(
-            'INSERT INTO audit_logs (timestamp, user, type, severity, desc) VALUES (?, ?, ?, ?, ?)',
+            'INSERT INTO audit_logs (timestamp, "user", type, severity, "desc") VALUES (?, ?, ?, ?, ?)',
             timestamp, user, type, severity, desc
         );
 
         if (severity === 'High' || severity === 'Warning') {
             const key = todayKey();
-            await db.run('INSERT INTO security_flags (date_string, count) VALUES (?, 1) ON CONFLICT(date_string) DO UPDATE SET count = security_flags.count + 1', key);
+            const descLower = (desc || '').toLowerCase();
+            const typeLower = (type || '').toLowerCase();
+            const isAltTabCopyPaste = descLower.includes('tab') || descLower.includes('paste') || descLower.includes('clipboard') || descLower.includes('copy') || descLower.includes('exit') || typeLower.includes('alt-tab') || typeLower.includes('copy-paste');
+
+            if (isAltTabCopyPaste) {
+                await db.run(
+                    `INSERT INTO security_flags (date_string, count, alt_tab_copy_paste_count) VALUES (?, 0, 1) ON CONFLICT(date_string) DO UPDATE SET alt_tab_copy_paste_count = COALESCE(security_flags.alt_tab_copy_paste_count, 0) + 1`,
+                    key
+                );
+            } else {
+                await db.run(
+                    `INSERT INTO security_flags (date_string, count, alt_tab_copy_paste_count) VALUES (?, 1, 0) ON CONFLICT(date_string) DO UPDATE SET count = COALESCE(security_flags.count, 0) + 1`,
+                    key
+                );
+            }
+
+            // Emit live real-time update to all admin sessions
+            io.emit('admin_security_alert', {
+                user,
+                name: user,
+                studentId: user,
+                type,
+                desc,
+                action: desc,
+                isAltTabCopyPaste,
+                timestamp
+            });
+            io.emit('admin_stats_update');
         }
 
         res.status(201).json({ message: 'Log entry saved', timestamp });
@@ -2013,6 +2243,9 @@ const handleSaveSettings = async (req, res) => {
             await db.run('INSERT INTO system_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, strVal);
         }
         io.emit('system_settings_updated', { settings });
+        getKioskSettings().then(kioskConfig => {
+            io.emit('kiosk_settings', kioskConfig);
+        }).catch(() => {});
         const userName = req.user?.email || req.user?.name || 'unknown';
         await db.run('INSERT INTO audit_logs ("user", type, severity, "desc") VALUES (?, ?, ?, ?)', userName, 'System Settings Updated', 'Normal', 'Admin updated system settings via API');
         res.status(200).json({ message: 'Settings saved successfully' });

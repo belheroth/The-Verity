@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import Editor from '@monaco-editor/react';
 import { ArrowLeft, Save, Play, Square, Settings, TerminalSquare, Check, AlertTriangle, Trash2, Moon, Sun, X, Link2 } from 'lucide-react';
@@ -62,7 +62,26 @@ export default function StudentView({ socket, currentUser, username, assignment,
     }
   });
 
-  // Synchronize compiler strictness from Admin Settings and ensure socket authentication
+  const [kioskRules, setKioskRules] = useState({
+    flagTabExits: true,
+    strictClipboardBlocking: true,
+    flagMultipleLogins: true,
+    violationThreshold: 3,
+    sessionTimeout: '30m',
+    cognitivePauseThreshold: 45,
+    enforceSingleMonitor: false,
+    disableWindowsKeyAltTab: true
+  });
+  const kioskRulesRef = useRef(kioskRules);
+  useEffect(() => { kioskRulesRef.current = kioskRules; }, [kioskRules]);
+
+  const [multiMonitorDetected, setMultiMonitorDetected] = useState(false);
+  const [idleWarning, setIdleWarning] = useState(false);
+  const lastActivityRef = useRef(Date.now());
+  const cognitivePauseTimerRef = useRef(null);
+  const hasLoggedPauseRef = useRef(false);
+
+  // Synchronize compiler strictness & kiosk rules from Admin Settings
   useEffect(() => {
     let isMounted = true;
     apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/system-settings`)
@@ -71,6 +90,20 @@ export default function StudentView({ socket, currentUser, username, assignment,
         if (!isMounted) return;
         const treatWarnings = !!d.settings?.examDefaults?.treatWarningsAsErrors;
         setStrictCompiler(treatWarnings);
+        if (d.settings?.global_config?.security) {
+          setKioskRules(prev => ({ ...prev, ...d.settings.global_config.security }));
+        } else if (d.settings?.security) {
+          setKioskRules(prev => ({ ...prev, ...d.settings.security }));
+        }
+      })
+      .catch(() => {});
+
+    apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/kiosk-settings`)
+      .then(res => res.ok ? res.json() : {})
+      .then(data => {
+        if (isMounted && data?.settings) {
+          setKioskRules(prev => ({ ...prev, ...data.settings }));
+        }
       })
       .catch(() => {});
 
@@ -87,16 +120,95 @@ export default function StudentView({ socket, currentUser, username, assignment,
         if (data?.settings?.examDefaults?.treatWarningsAsErrors !== undefined) {
           setStrictCompiler(!!data.settings.examDefaults.treatWarningsAsErrors);
         }
+        if (data?.settings?.global_config?.security) {
+          setKioskRules(prev => ({ ...prev, ...data.settings.global_config.security }));
+        }
       };
+      const handleKioskSettings = (newSettings) => {
+        if (newSettings) {
+          setKioskRules(prev => ({ ...prev, ...newSettings }));
+        }
+      };
+
       socket.on('system_settings_updated', handleSettingsUpdate);
+      socket.on('kiosk_settings', handleKioskSettings);
       return () => {
         isMounted = false;
         socket.off('connect', sendAuth);
         socket.off('system_settings_updated', handleSettingsUpdate);
+        socket.off('kiosk_settings', handleKioskSettings);
       };
     }
     return () => { isMounted = false; };
   }, [socket, currentUser]);
+
+  // Activate Electron lockdown with option to disable Windows key / Alt+Tab hook
+  useEffect(() => {
+    if (window.electronAPI && typeof window.electronAPI.enableLockdown === 'function') {
+      window.electronAPI.enableLockdown({ disableWindowsKeyAltTab: kioskRules.disableWindowsKeyAltTab });
+    }
+  }, [kioskRules.disableWindowsKeyAltTab]);
+
+
+
+  // Monitor count enforcement
+  useEffect(() => {
+    if (!kioskRules.enforceSingleMonitor) {
+      setMultiMonitorDetected(false);
+      return;
+    }
+
+    const checkMonitors = async () => {
+      if (window.electronAPI && typeof window.electronAPI.getDisplayCount === 'function') {
+        try {
+          const count = await window.electronAPI.getDisplayCount();
+          setMultiMonitorDetected(count > 1);
+        } catch (_) {}
+      }
+    };
+
+    checkMonitors();
+    const interval = setInterval(checkMonitors, 3000);
+    return () => clearInterval(interval);
+  }, [kioskRules.enforceSingleMonitor]);
+
+  // Idle session timeout enforcement
+  useEffect(() => {
+    const updateActivity = () => { lastActivityRef.current = Date.now(); };
+    window.addEventListener('mousemove', updateActivity);
+    window.addEventListener('keydown', updateActivity);
+    window.addEventListener('click', updateActivity);
+    window.addEventListener('scroll', updateActivity);
+
+    const parseTimeoutMs = (str) => {
+      if (!str) return 30 * 60 * 1000;
+      const match = String(str).match(/^(\d+)\s*([smh])?$/i);
+      if (!match) return 30 * 60 * 1000;
+      const val = parseInt(match[1], 10);
+      const unit = (match[2] || 'm').toLowerCase();
+      if (unit === 's') return val * 1000;
+      if (unit === 'h') return val * 3600 * 1000;
+      return val * 60 * 1000;
+    };
+
+    const timeoutMs = parseTimeoutMs(kioskRules.sessionTimeout);
+    const interval = setInterval(() => {
+      const idleTime = Date.now() - lastActivityRef.current;
+      if (idleTime >= timeoutMs - 60000) {
+        setIdleWarning(true);
+      } else {
+        setIdleWarning(false);
+      }
+    }, 5000);
+
+    return () => {
+      window.removeEventListener('mousemove', updateActivity);
+      window.removeEventListener('keydown', updateActivity);
+      window.removeEventListener('click', updateActivity);
+      window.removeEventListener('scroll', updateActivity);
+      clearInterval(interval);
+    };
+  }, [kioskRules.sessionTimeout]);
 
   useEffect(() => {
     if (assignment?.details !== undefined) {
@@ -297,24 +409,79 @@ export default function StudentView({ socket, currentUser, username, assignment,
   }, [socket, safeUsername, classroom, assignment]);
 
   // 2. PROCTORING ALERTS
+  const lastTabExitLogRef = useRef(0);
+
   const addProctorLog = (message, color) => {
     const timeString = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
     setProctorLogs(prevLogs => [{ id: Date.now(), message, time: timeString, color }, ...prevLogs]);
-    socket.emit('proctor_alert', {
-      studentId: safeUsername,
-      name: safeUsername,
+    const payload = {
+      studentId: studentId || safeUsername,
+      name: currentUser?.name || safeUsername,
+      email: currentUser?.email || '',
       action: message,
       time: timeString,
       color: color,
       classroomId: classroom?.id,
       assignmentId: assignment?.id
-    });
+    };
+    if (socket && typeof socket.emit === 'function') {
+      socket.emit('proctor_alert', payload);
+    }
+    // Also post directly to /audit-logs for guaranteed persistence & instant admin dashboard update
+    apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/audit-logs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user: currentUser?.name || currentUser?.email || safeUsername,
+        type: 'Alt-Tab / Copy-Paste Violation',
+        severity: 'Warning',
+        desc: `${message} in classroom ${classroom?.id || 'workspace'}`
+      })
+    }).catch(() => {});
   };
 
   useEffect(() => {
-    const handleVisibilityChange = () => { if (document.hidden) addProctorLog("Exit tab", "#eab308"); };
+    const handleTabExit = (actionLabel = "Exit tab") => {
+      if (kioskRulesRef.current?.flagTabExits === false) return;
+      const now = Date.now();
+      // Debounce so blur and visibilitychange don't double fire within 1.5 seconds
+      if (now - lastTabExitLogRef.current < 1500) return;
+      lastTabExitLogRef.current = now;
+      addProctorLog(actionLabel, "#eab308");
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        handleTabExit("Exit tab (Alt+Tab)");
+      }
+    };
+
+    const handleWindowBlur = () => {
+      handleTabExit("Exit tab (Window blur / Alt+Tab)");
+    };
+
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("blur", handleWindowBlur);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", handleWindowBlur);
+    };
+  }, []);
+
+  const resetCognitivePauseTimer = useCallback(() => {
+    if (cognitivePauseTimerRef.current) {
+      clearTimeout(cognitivePauseTimerRef.current);
+    }
+    hasLoggedPauseRef.current = false;
+    const thresholdSec = Number(kioskRulesRef.current.cognitivePauseThreshold) || 45;
+    if (thresholdSec <= 0) return;
+
+    cognitivePauseTimerRef.current = setTimeout(() => {
+      if (!hasLoggedPauseRef.current) {
+        hasLoggedPauseRef.current = true;
+        addProctorLog(`Cognitive Pause (${thresholdSec}s inactivity)`, "#f59e0b");
+      }
+    }, thresholdSec * 1000);
   }, []);
 
   // Receive live instruction updates from the teacher; ignore empty pushes so
@@ -420,10 +587,15 @@ export default function StudentView({ socket, currentUser, username, assignment,
     editor.onDidPaste((e) => {
       const pastedText = editor.getModel().getValueInRange(e.range);
       const key = normalize(pastedText);
-      // Pasting back something copied from inside the app (editor or terminal) is
-      // allowed — only flag content that came from outside.
+      // Pasting back something copied from inside the app (editor or terminal) is allowed
       if (!key || copiedInternallyRef.current.has(key)) return;
-      addProctorLog("Paste a code", "#ef4444");
+
+      if (kioskRulesRef.current.strictClipboardBlocking) {
+        editor.trigger('keyboard', 'undo', null);
+        addProctorLog("Strict Clipboard: External Paste Blocked", "#ef4444");
+      } else {
+        addProctorLog("Paste a code", "#ef4444");
+      }
     });
   };
 
@@ -894,6 +1066,8 @@ export default function StudentView({ socket, currentUser, username, assignment,
             theme={isDark ? "vs-dark" : "light"}
             value={code}
             onChange={(newCode) => {
+              if (submitted) return;
+              resetCognitivePauseTimer();
               if (diagnosticsRef.current?.length > 0) {
                 updateEditorMarkers([]);
               }
@@ -913,7 +1087,12 @@ export default function StudentView({ socket, currentUser, username, assignment,
               });
             }}
             onMount={handleEditorDidMount}
-            options={{ fontSize: editorFontSize, minimap: { enabled: false } }}
+            options={{
+              fontSize: editorFontSize,
+              minimap: { enabled: false },
+              readOnly: submitted,
+              readOnlyMessage: { value: 'Unsubmit your work before editing' }
+            }}
           />
         </div>
 
@@ -1181,6 +1360,19 @@ export default function StudentView({ socket, currentUser, username, assignment,
           name={previewVideo.name}
           onClose={() => setPreviewVideo(null)}
         />
+      )}
+
+      {/* MULTIPLE MONITORS MODAL */}
+      {multiMonitorDetected && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 99998, backgroundColor: 'rgba(15, 23, 42, 0.92)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#ffffff', padding: '30px', textAlign: 'center' }}>
+          <div style={{ width: '70px', height: '70px', borderRadius: '50%', backgroundColor: '#d97706', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px' }}>
+            <span style={{ fontSize: '36px' }}>🖥️</span>
+          </div>
+          <h2 style={{ fontSize: '1.8rem', fontWeight: 'bold', marginBottom: '12px', color: '#fbbf24' }}>Multiple Displays Detected</h2>
+          <p style={{ fontSize: '1rem', maxWidth: '480px', color: '#cbd5e1', lineHeight: 1.5 }}>
+            Verity Kiosk Enforcement policy requires a single active monitor during exams. Please disconnect secondary monitors to continue.
+          </p>
+        </div>
       )}
     </div>
   );

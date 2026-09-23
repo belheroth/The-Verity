@@ -35,7 +35,7 @@ const sh = {
   addBlueBtn: { display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '9px 20px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '9999px', fontWeight: '600', fontSize: '0.85rem', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, boxShadow: '0 4px 12px rgba(0, 123, 255, 0.3)' },
 };
 
-export default function AdminDashboard({ currentUser, onLogout }) {
+export default function AdminDashboard({ currentUser, onLogout, socket }) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [users, setUsers] = useState([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -48,20 +48,37 @@ export default function AdminDashboard({ currentUser, onLogout }) {
   const [dashboardSearchFocused, setDashboardSearchFocused] = useState(false);
   const [msg, setMsg] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [stats, setStats] = useState({ activeUsers: 0, activeClassrooms: 0, securityFlagsToday: 0 });
+  const [stats, setStats] = useState({ activeUsers: 0, activeClassrooms: 0, securityFlagsToday: 0, altTabCopyPasteFlags: 0 });
+
+  const loadStats = async () => {
+    try {
+      const r = await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/stats`); const d = await r.json();
+      setStats({ activeUsers: d.activeUsers || 0, activeClassrooms: d.activeClassrooms || 0, securityFlagsToday: d.securityFlagsToday || 0, altTabCopyPasteFlags: d.altTabCopyPasteFlags || 0 });
+    } catch { /* keep previous */ }
+  };
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSelectUsersPopup, setShowSelectUsersPopup] = useState(false);
-  const [notifications, setNotifications] = useState(() => {
-    const cleared = localStorage.getItem('verity_notifications_cleared');
-    if (cleared === 'true') return [];
-    return [
-      { id: 1, title: 'System Update', text: 'A new version of Verity is available.' },
-      { id: 2, title: 'New Registration', text: '3 new instructors are awaiting approval.' }
-    ];
-  });
+  const [notifications, setNotifications] = useState([]);
 
   const [newUser, setNewUser] = useState({ firstName: '', lastName: '', email: '', password: '', role: 'Student' });
+
+  const loadNotifications = async () => {
+    try {
+      const r = await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/notifications`);
+      if (r.ok) {
+        const d = await r.json();
+        const fetched = d.notifications || [];
+        let readKeys = [];
+        try {
+          const stored = localStorage.getItem('verity_notifications_read_keys');
+          if (stored) readKeys = JSON.parse(stored);
+        } catch (e) {}
+        const unread = fetched.filter(n => !readKeys.includes(`${n.id}:${n.text}`));
+        setNotifications(unread);
+      }
+    } catch { /* keep previous */ }
+  };
 
   const handleUpdateUser = async (email, updates) => {
     try {
@@ -79,6 +96,7 @@ export default function AdminDashboard({ currentUser, onLogout }) {
       }
       setUsers(prev => prev.map(u => u.email === email ? { ...u, ...updates, ...(data.user || {}) } : u));
       loadStats();
+      loadNotifications();
       return { success: true, user: data.user };
     } catch (err) {
       console.error("Failed to update user", err);
@@ -91,13 +109,35 @@ export default function AdminDashboard({ currentUser, onLogout }) {
     try { const r = await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/users`); const d = await r.json(); setUsers(d.users || []); }
     catch { setUsers([]); } finally { setLoading(false); }
   };
-  const loadStats = async () => {
-    try {
-      const r = await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/stats`); const d = await r.json();
-      setStats({ activeUsers: d.activeUsers || 0, activeClassrooms: d.activeClassrooms || 0, securityFlagsToday: d.securityFlagsToday || 0 });
-    } catch { /* keep previous */ }
-  };
-  useEffect(() => { loadUsers(); loadStats(); const iv = setInterval(loadStats, 10000); return () => clearInterval(iv); }, []);
+  useEffect(() => {
+    loadUsers();
+    loadStats();
+    loadNotifications();
+    const iv = setInterval(() => {
+      loadStats();
+      loadNotifications();
+    }, 10000);
+    return () => clearInterval(iv);
+  }, []);
+
+  // Real-time socket event listener for live alerts & Alt-Tab violations
+  useEffect(() => {
+    if (!socket) return;
+    const handleLiveSecurityAlert = () => {
+      loadStats();
+      loadUsers();
+      loadNotifications();
+    };
+    socket.on('admin_security_alert', handleLiveSecurityAlert);
+    socket.on('admin_stats_update', handleLiveSecurityAlert);
+    socket.on('proctor_alert_broadcast', handleLiveSecurityAlert);
+    return () => {
+      socket.off('admin_security_alert', handleLiveSecurityAlert);
+      socket.off('admin_stats_update', handleLiveSecurityAlert);
+      socket.off('proctor_alert_broadcast', handleLiveSecurityAlert);
+    };
+  }, [socket]);
+
   useEffect(() => {
     localStorage.setItem('verity_sidebar_collapsed', sidebarCollapsed);
   }, [sidebarCollapsed]);
@@ -113,13 +153,13 @@ export default function AdminDashboard({ currentUser, onLogout }) {
       setNewUser({ firstName: '', lastName: '', email: '', password: '', role: 'Student' });
       setMsg({ type: 'success', text: 'User added successfully.' });
       setTimeout(() => setMsg(null), 3000);
-      loadUsers(); loadStats();
+      loadUsers(); loadStats(); loadNotifications();
     } catch { setMsg({ type: 'error', text: 'Could not connect to server.' }); }
   };
 
   const handleDeleteUser = async (email) => {
     if (!window.confirm(`Delete user ${email}?`)) return;
-    try { const r = await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/users/${encodeURIComponent(email)}`, { method: 'DELETE' }); if (r.ok) { loadUsers(); loadStats(); } }
+    try { const r = await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/users/${encodeURIComponent(email)}`, { method: 'DELETE' }); if (r.ok) { loadUsers(); loadStats(); loadNotifications(); } }
     catch { setMsg({ type: 'error', text: 'Could not connect to server.' }); }
   };
 

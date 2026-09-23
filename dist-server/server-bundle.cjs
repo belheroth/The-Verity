@@ -76963,7 +76963,7 @@ var { Server } = require_dist6();
 var http3 = require("http");
 var { OAuth2Client } = require_src5();
 var jwt = require_jsonwebtoken();
-var googleClient = new OAuth2Client("19771771402-t2ad6ohhek8jp428tm1pj6tpnke6u0su.apps.googleusercontent.com");
+var googleClient = new OAuth2Client("19771771402-6qoluvvmb04r1hfuglnh163hjhg8hvmb.apps.googleusercontent.com");
 var db = require_db4();
 var DATA_DIR = process.env.DATA_DIR || __dirname;
 var app = express();
@@ -76988,17 +76988,20 @@ var isIpWhitelisted = (ip) => {
   if (!ip) return true;
   const cleanIp = ip.replace(/^.*:/, "");
   const allowedEnv = (process.env.ADMIN_ALLOWED_IPS || "").split(",").map((s2) => s2.trim()).filter(Boolean);
-  const defaultAllowed = ["127.0.0.1", "::1", "localhost", "192.168.8.115"];
+  const defaultAllowed = ["127.0.0.1", "::1", "localhost", "192.168.8.115", "131.226.102.72"];
   if (defaultAllowed.includes(cleanIp) || allowedEnv.includes(cleanIp) || allowedEnv.includes("*")) {
     return true;
   }
   return false;
 };
 var adminIpWhitelist = (req, res, next) => {
-  const clientIp = req.ip || req.connection?.remoteAddress || req.headers["x-forwarded-for"];
+  let clientIp = req.headers["x-forwarded-for"] || req.headers["x-real-ip"] || req.ip || req.connection?.remoteAddress;
+  if (typeof clientIp === "string" && clientIp.includes(",")) {
+    clientIp = clientIp.split(",")[0].trim();
+  }
   if (!isIpWhitelisted(clientIp)) {
     console.warn(`[SECURITY ALERT] Admin access blocked for non-whitelisted IP: ${clientIp}`);
-    return res.status(403).json({ message: "Access denied. IP address not whitelisted for Admin access." });
+    return res.status(403).json({ message: `Access denied, your not eligible for admin access` });
   }
   next();
 };
@@ -77172,8 +77175,48 @@ var todayKey = () => {
   const d = /* @__PURE__ */ new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
+var getMaintenanceStatus = async () => {
+  try {
+    const row = await db.get("SELECT value FROM system_settings WHERE key = 'global_config'");
+    if (row && row.value) {
+      const config = JSON.parse(row.value);
+      if (config.general && config.general.maintenanceMode) {
+        return {
+          enabled: true,
+          message: config.general.offlineMessage || "The system is currently undergoing maintenance. Please try again later."
+        };
+      }
+    }
+  } catch (_) {
+  }
+  return { enabled: false, message: "" };
+};
+app.get("/maintenance-status", async (req, res) => {
+  const status = await getMaintenanceStatus();
+  res.status(200).json(status);
+});
+app.get("/kiosk-settings", async (req, res) => {
+  const settings = await getKioskSettings();
+  res.status(200).json({ settings });
+});
 app.post("/register", async (req, res) => {
   try {
+    const maintenance = await getMaintenanceStatus();
+    if (maintenance.enabled) {
+      const authHeader2 = req.headers["authorization"];
+      const token2 = authHeader2 && authHeader2.split(" ")[1];
+      let isAdmin = false;
+      if (token2) {
+        try {
+          const d = jwt.verify(token2, JWT_SECRET);
+          if (d && d.role === "Admin") isAdmin = true;
+        } catch (_) {
+        }
+      }
+      if (!isAdmin) {
+        return res.status(503).json({ message: maintenance.message, maintenance: true });
+      }
+    }
     const { name, email, password, role } = req.body;
     if (!email || !password || !name) {
       return res.status(400).json({ message: "Name, email, and password are required" });
@@ -77231,6 +77274,10 @@ app.post("/register", async (req, res) => {
 });
 app.post("/login", async (req, res) => {
   try {
+    const maintenance = await getMaintenanceStatus();
+    if (maintenance.enabled) {
+      return res.status(503).json({ message: maintenance.message, maintenance: true });
+    }
     const { email, password } = req.body;
     const cleanEmail = (email || "").trim().toLowerCase();
     const isAdminAcc = await db.get("SELECT id FROM admin_users WHERE LOWER(email) = ?", cleanEmail);
@@ -77311,9 +77358,13 @@ app.get("/admin/profile", authenticateToken, adminIpWhitelist, requireRole("Admi
 app.post("/auth/google", async (req, res) => {
   const { token, role: userRole } = req.body;
   try {
+    const maintenance = await getMaintenanceStatus();
+    if (maintenance.enabled) {
+      return res.status(503).json({ message: maintenance.message, maintenance: true });
+    }
     const ticket = await googleClient.verifyIdToken({
       idToken: token,
-      audience: "985650202101-p4jb6nlaqjeq14v1g2kqldhm7clphkk7.apps.googleusercontent.com"
+      audience: "19771771402-6qoluvvmb04r1hfuglnh163hjhg8hvmb.apps.googleusercontent.com"
     });
     const payload = ticket.getPayload();
     const { email, name } = payload;
@@ -77470,6 +77521,16 @@ app.put("/users/profile", authenticateToken, async (req, res) => {
         updatedEmail,
         current.email,
         current.name
+      ).catch(() => {
+      });
+    }
+    if (current.role === "Admin") {
+      await db.run(
+        "UPDATE admin_users SET name = ?, email = ?, avatar = ? WHERE id = ?",
+        updatedName,
+        updatedEmail,
+        updatedAvatar,
+        userId
       ).catch(() => {
       });
     }
@@ -77637,9 +77698,11 @@ app.get("/classrooms", authenticateToken, async (req, res) => {
       let realTeacher = null;
       if (instEmail) {
         realTeacher = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(email) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", instEmail).catch(() => null);
+        if (!realTeacher) realTeacher = await db.get("SELECT id, name, email, avatar, role FROM admin_users WHERE LOWER(email) = LOWER(?)", instEmail).catch(() => null);
       }
       if (!realTeacher && instName && instName !== "Instructor") {
         realTeacher = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(name) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", instName).catch(() => null);
+        if (!realTeacher) realTeacher = await db.get("SELECT id, name, email, avatar, role FROM admin_users WHERE LOWER(name) = LOWER(?)", instName).catch(() => null);
       }
       if (realTeacher) {
         instName = realTeacher.name;
@@ -77919,9 +77982,11 @@ app.get("/classroom-students/:classroomId", authenticateToken, async (req, res) 
     if (classroom) {
       if (classroom.instructor_email && classroom.instructor_email.trim()) {
         instUser = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(email) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", classroom.instructor_email.trim());
+        if (!instUser) instUser = await db.get("SELECT id, name, email, avatar, role FROM admin_users WHERE LOWER(email) = LOWER(?)", classroom.instructor_email.trim());
       }
       if (!instUser && classroom.instructor && classroom.instructor.trim() && classroom.instructor !== "Instructor") {
         instUser = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(name) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", classroom.instructor.trim());
+        if (!instUser) instUser = await db.get("SELECT id, name, email, avatar, role FROM admin_users WHERE LOWER(name) = LOWER(?)", classroom.instructor.trim());
       }
     }
     if (instUser) {
@@ -78057,9 +78122,11 @@ app.post("/classrooms/join", authenticateToken, async (req, res) => {
     let realTeacher = null;
     if (instEmail) {
       realTeacher = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(email) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", instEmail).catch(() => null);
+      if (!realTeacher) realTeacher = await db.get("SELECT id, name, email, avatar, role FROM admin_users WHERE LOWER(email) = LOWER(?)", instEmail).catch(() => null);
     }
     if (!realTeacher && instName && instName !== "Instructor") {
       realTeacher = await db.get("SELECT id, name, email, avatar, role FROM users WHERE LOWER(name) = LOWER(?) AND (LOWER(role) = 'teacher' OR LOWER(role) = 'admin')", instName).catch(() => null);
+      if (!realTeacher) realTeacher = await db.get("SELECT id, name, email, avatar, role FROM admin_users WHERE LOWER(name) = LOWER(?)", instName).catch(() => null);
     }
     if (realTeacher) {
       instName = realTeacher.name;
@@ -78244,17 +78311,52 @@ function parseCompilerDiagnostics(output) {
 }
 async function getTreatWarningsAsErrors() {
   try {
-    const row = await db.get("SELECT value FROM system_settings WHERE key = 'examDefaults'");
+    const row = await db.get("SELECT value FROM system_settings WHERE key = 'global_config'");
     if (row && row.value) {
       const parsed = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+      if (parsed?.examDefaults?.treatWarningsAsErrors !== void 0) {
+        return !!parsed.examDefaults.treatWarningsAsErrors;
+      }
+    }
+    const fallbackRow = await db.get("SELECT value FROM system_settings WHERE key = 'examDefaults'");
+    if (fallbackRow && fallbackRow.value) {
+      const parsed = typeof fallbackRow.value === "string" ? JSON.parse(fallbackRow.value) : fallbackRow.value;
       return !!parsed?.treatWarningsAsErrors;
     }
   } catch (_) {
   }
   return false;
 }
+async function getKioskSettings() {
+  const defaults = {
+    flagTabExits: true,
+    blockCopyPaste: true,
+    flagMultipleLogins: true,
+    violationThreshold: 3,
+    sessionTimeout: "30m",
+    cognitivePauseThreshold: 45,
+    strictClipboardBlocking: true,
+    enforceSingleMonitor: false,
+    disableWindowsKeyAltTab: true
+  };
+  try {
+    const row = await db.get("SELECT value FROM system_settings WHERE key = 'global_config'");
+    if (row && row.value) {
+      const parsed = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+      if (parsed && parsed.security) return { ...defaults, ...parsed.security };
+    }
+    const secRow = await db.get("SELECT value FROM system_settings WHERE key = 'security'");
+    if (secRow && secRow.value) {
+      const parsed = typeof secRow.value === "string" ? JSON.parse(secRow.value) : secRow.value;
+      return { ...defaults, ...parsed };
+    }
+  } catch (_) {
+  }
+  return defaults;
+}
 var currentInstruction = "";
 var activeStudents = {};
+var studentViolations = /* @__PURE__ */ new Map();
 io.on("connection", (socket) => {
   console.log("\u{1F7E2} Student Workspace Connected: " + socket.id);
   let activeProcess = null;
@@ -78295,13 +78397,37 @@ io.on("connection", (socket) => {
   const handshakeToken = socket.handshake.auth?.token;
   if (handshakeToken) {
     authenticateSocket(socket, handshakeToken);
+    if (socket.user) {
+      checkMultipleLogins(socket);
+      getKioskSettings().then((cfg) => socket.emit("kiosk_settings", cfg)).catch(() => {
+      });
+    }
   }
+  const checkMultipleLogins = async (targetSocket) => {
+    if (!targetSocket.user || !targetSocket.user.email) return;
+    const kioskConfig = await getKioskSettings();
+    if (!kioskConfig.flagMultipleLogins) return;
+    for (const [id, s2] of io.sockets.sockets) {
+      if (id !== targetSocket.id && s2.user && (s2.user.email === targetSocket.user.email || s2.user.id === targetSocket.user.id)) {
+        console.log(`\u26A0\uFE0F Multiple logins detected for user: ${targetSocket.user.email}`);
+        s2.emit("force_logout", { reason: "Multiple logins detected for this account." });
+        targetSocket.emit("force_logout", { reason: "Multiple logins detected for this account." });
+        break;
+      }
+    }
+  };
   socket.on("authenticate", (data) => {
     if (!data) return;
+    let u = null;
     if (typeof data === "string") {
-      authenticateSocket(socket, data);
+      u = authenticateSocket(socket, data);
     } else if (typeof data === "object") {
-      authenticateSocket(socket, data.token, data.user);
+      u = authenticateSocket(socket, data.token, data.user);
+    }
+    if (u) {
+      checkMultipleLogins(socket);
+      getKioskSettings().then((cfg) => socket.emit("kiosk_settings", cfg)).catch(() => {
+      });
     }
   });
   if (currentInstruction) {
@@ -78559,12 +78685,39 @@ io.on("connection", (socket) => {
       }
       const roomName = `classroom:${classroomId}:assignment:${assignmentId}`;
       socket.to(roomName).emit("teacher_receive_alert", data);
+      const kioskConfig = await getKioskSettings();
+      const threshold = Number(kioskConfig.violationThreshold) || 3;
+      const currentCount = (studentViolations.get(studentKey) || 0) + 1;
+      studentViolations.set(studentKey, currentCount);
+      if (currentCount >= threshold) {
+        const lockPayload = {
+          studentId: data.studentId,
+          studentKey,
+          reason: `Violation threshold reached (${currentCount}/${threshold})`,
+          count: currentCount,
+          threshold
+        };
+        socket.emit("exam_locked", lockPayload);
+        socket.to(roomName).emit("teacher_receive_alert", {
+          ...data,
+          action: `EXAM LOCKED (${currentCount} violations)`,
+          color: "#dc2626",
+          type: "exam_locked"
+        });
+      }
     }
     try {
       const key = todayKey();
       await db.run("INSERT INTO security_flags (date_string, count) VALUES (?, 1) ON CONFLICT(date_string) DO UPDATE SET count = security_flags.count + 1", key);
     } catch (e2) {
       console.error(e2);
+    }
+  });
+  socket.on("teacher_unlock_exam", (data) => {
+    if (!socket.user || !["Teacher", "Admin"].includes(socket.user.role)) return;
+    if (data && data.studentKey) {
+      studentViolations.delete(data.studentKey);
+      io.emit("exam_unlocked", { studentKey: data.studentKey });
     }
   });
   socket.on("submit_exam", async (data) => {
@@ -78693,7 +78846,7 @@ app.get("/system-settings", authenticateToken, async (req, res) => {
     res.status(500).json({ message: e2.message });
   }
 });
-app.post("/system-settings", authenticateToken, requireRole("Admin"), async (req, res) => {
+var handleSaveSettings = async (req, res) => {
   try {
     const { settings } = req.body || {};
     if (!settings || typeof settings !== "object") {
@@ -78704,11 +78857,19 @@ app.post("/system-settings", authenticateToken, requireRole("Admin"), async (req
       await db.run("INSERT INTO system_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, strVal);
     }
     io.emit("system_settings_updated", { settings });
+    getKioskSettings().then((kioskConfig) => {
+      io.emit("kiosk_settings", kioskConfig);
+    }).catch(() => {
+    });
+    const userName = req.user?.email || req.user?.name || "unknown";
+    await db.run('INSERT INTO audit_logs ("user", type, severity, "desc") VALUES (?, ?, ?, ?)', userName, "System Settings Updated", "Normal", "Admin updated system settings via API");
     res.status(200).json({ message: "Settings saved successfully" });
   } catch (e2) {
     res.status(500).json({ message: e2.message });
   }
-});
+};
+app.put("/system-settings", authenticateToken, requireRole("Admin"), handleSaveSettings);
+app.post("/system-settings", authenticateToken, requireRole("Admin"), handleSaveSettings);
 app.get("/access-tokens", authenticateToken, requireRole("Admin", "Teacher"), async (req, res) => {
   try {
     const tokens = await db.all("SELECT * FROM access_tokens ORDER BY id DESC");

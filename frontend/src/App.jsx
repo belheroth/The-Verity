@@ -520,7 +520,7 @@ export default function App() {
       {/* --- ADMIN ROUTES (Protected) --- */}
       {currentScreen === 'admin_dashboard' && (
         <ProtectedRoute currentUser={currentUser} setCurrentScreen={setCurrentScreen}>
-          <AdminDashboard currentUser={currentUser} onLogout={handleLogout} />
+          <AdminDashboard currentUser={currentUser} onLogout={handleLogout} socket={socket} />
         </ProtectedRoute>
       )}
 

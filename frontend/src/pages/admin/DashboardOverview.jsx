@@ -63,6 +63,8 @@ export default function DashboardOverview({ stats, users, query, setQuery, onDel
   const [viewUser, setViewUser] = useState(null);
   const [viewOrigin, setViewOrigin] = useState({ x: '50%', y: '50%' });
   const [serverOnline, setServerOnline] = useState(null);
+  const [flagHistory, setFlagHistory] = useState([]);
+  const [flagHistoryLoading, setFlagHistoryLoading] = useState(false);
 
   useEffect(() => {
     const checkHealth = async () => {
@@ -99,12 +101,34 @@ export default function DashboardOverview({ stats, users, query, setQuery, onDel
     }
   };
 
-  const filtered = users.filter(u => u.role !== 'Admin').filter(u => {
-    const q = query.toLowerCase();
-    return (u.name || '').toLowerCase().includes(q)
-      || (u.email || '').toLowerCase().includes(q)
-      || (u.role || '').toLowerCase().includes(q);
-  });
+  const fmtFlagTime = (iso) => {
+    if (!iso) return 'No flags';
+    try {
+      const d = new Date(iso);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+    } catch {
+      return iso;
+    }
+  };
+
+  const filtered = users
+    .filter(u => u.role !== 'Admin')
+    .filter(u => {
+      const q = query.toLowerCase();
+      return (u.name || '').toLowerCase().includes(q)
+        || (u.email || '').toLowerCase().includes(q)
+        || (u.role || '').toLowerCase().includes(q);
+    })
+    .sort((a, b) => {
+      // Put users with flags first (most recent flag first)
+      const timeA = a.lastFlagTime ? new Date(a.lastFlagTime).getTime() : 0;
+      const timeB = b.lastFlagTime ? new Date(b.lastFlagTime).getTime() : 0;
+      if (timeA !== timeB) return timeB - timeA;
+      const loginA = a.lastLogin ? new Date(a.lastLogin).getTime() : 0;
+      const loginB = b.lastLogin ? new Date(b.lastLogin).getTime() : 0;
+      if (loginA !== loginB) return loginB - loginA;
+      return (a.name || '').localeCompare(b.name || '');
+    });
   const fmt = iso => { if (!iso) return 'Never'; try { return new Date(iso).toLocaleString(); } catch { return iso; } };
 
   const [now, setNow] = useState(() => Date.now());
@@ -117,6 +141,10 @@ export default function DashboardOverview({ stats, users, query, setQuery, onDel
     if (!lastLogin) return false;
     try { return (now - new Date(lastLogin).getTime()) < 30 * 60 * 1000; } catch { return false; }
   };
+
+  const activeUsersCount = (stats?.activeUsers !== undefined && stats?.activeUsers > 0)
+    ? stats.activeUsers
+    : (users && users.length > 0 ? users.filter(u => u.role !== 'Admin' && u.status !== 'Pending' && u.status !== 'Disabled').length : 0);
 
   return (
     <div style={sh.pageWrap}>
@@ -137,11 +165,11 @@ export default function DashboardOverview({ stats, users, query, setQuery, onDel
         <div style={sh.statsGrid}>
           <div style={sh.statCard}>
             <div style={sh.statLabel}>Total Active users</div>
-            <div style={sh.statNum}>{stats.activeUsers || 25}</div>
+            <div style={sh.statNum}>{activeUsersCount}</div>
           </div>
           <div style={sh.statCard}>
-            <div style={sh.statLabel}>Active Classrooms</div>
-            <div style={sh.statNum}>{stats.activeClassrooms || 15}</div>
+            <div style={sh.statLabel}>Alt-Tab & Copy-Paste Flags</div>
+            <div style={{ ...sh.statNum, color: '#f59e0b' }}>{stats.altTabCopyPasteFlags || 0}</div>
           </div>
           <div style={sh.statCard}>
             <div style={sh.statLabel}>Security Flags Today</div>
@@ -170,7 +198,7 @@ export default function DashboardOverview({ stats, users, query, setQuery, onDel
 
       {/* Main Content Table Container */}
       <div style={sh.mainCard}>
-        <h2 style={{ ...sh.cardTitle, marginBottom: '16px' }}>User Management</h2>
+        <h2 style={{ ...sh.cardTitle, marginBottom: '16px' }}>User Management — Alt-Tab & Copy-Paste Activity</h2>
 
         <div style={sh.tableWrap}>
           {/* Capsule Table Header */}
@@ -178,7 +206,7 @@ export default function DashboardOverview({ stats, users, query, setQuery, onDel
             <div>Name</div>
             <div>Role</div>
             <div>Status</div>
-            <div>Last Login</div>
+            <div>Flags & Time</div>
             <div style={{ textAlign: 'right' }}>Actions</div>
           </div>
 
@@ -196,18 +224,42 @@ export default function DashboardOverview({ stats, users, query, setQuery, onDel
                       {isOnline(u.lastLogin) ? 'Active' : 'Inactive'}
                     </span>
                   </div>
-                  <div style={{ fontSize: '0.8rem', color: isDark ? '#94a3b8' : '#64748b' }}>{fmt(u.lastLogin)}</div>
+                  <div>
+                    {u.lastFlagTime ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <span style={{ fontSize: '0.84rem', fontWeight: '700', color: '#f59e0b' }}>
+                          {fmtFlagTime(u.lastFlagTime)}
+                        </span>
+                        <span style={{ fontSize: '0.73rem', color: isDark ? '#94a3b8' : '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '200px' }} title={u.lastFlagDesc || 'Alt-Tab / Security Flag'}>
+                          {u.lastFlagDesc || 'Alt-Tab Violation'} {u.flagCount > 1 ? `(${u.flagCount}x)` : ''}
+                        </span>
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: '0.8rem', color: isDark ? '#64748b' : '#94a3b8' }}>
+                        No flags
+                      </span>
+                    )}
+                  </div>
                   <div style={{ textAlign: 'right' }}>
                      <motion.button
                        whileHover={{ scale: 1.05 }}
                        whileTap={{ scale: 0.95 }}
-                       onClick={(e) => {
+                       onClick={async (e) => {
                          const rect = e.currentTarget.getBoundingClientRect();
                          setViewOrigin({
                            x: `${rect.left + rect.width / 2}px`,
                            y: `${rect.top + rect.height / 2}px`,
                          });
                          setViewUser(u);
+                         setFlagHistory([]);
+                         setFlagHistoryLoading(true);
+                         try {
+                           const identifier = encodeURIComponent(u.name || u.email);
+                           const res = await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/audit-logs/user/${identifier}`);
+                           const data = await res.json();
+                           setFlagHistory(data.logs || []);
+                         } catch { setFlagHistory([]); }
+                         finally { setFlagHistoryLoading(false); }
                        }}
                        style={sh.actionTextLink}
                        className="btn-anim"
@@ -306,20 +358,56 @@ export default function DashboardOverview({ stats, users, query, setQuery, onDel
                   <span style={{ color: isDark ? '#94a3b8' : '#64748b', fontSize: '0.85rem', fontWeight: '500' }}>Role</span>
                   <span style={{ color: isDark ? '#f1f5f9' : '#1e293b', fontWeight: '700', fontSize: '0.9rem' }}>{viewUser.role}</span>
                 </div>
-                {viewUser.role === 'Student' && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${isDark ? '#3a3a3a' : '#e2e8f0'}`, paddingBottom: '8px' }}>
-                    <span style={{ color: isDark ? '#94a3b8' : '#64748b', fontSize: '0.85rem', fontWeight: '500', flexShrink: 0, marginRight: '16px' }}>Enrolled Classes</span>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-end' }}>
-                      <span style={{ color: isDark ? '#f1f5f9' : '#1e293b', fontWeight: '600', fontSize: '0.85rem', backgroundColor: isDark ? '#374151' : '#f1f5f9', padding: '4px 10px', borderRadius: '9999px' }}>CS101 - Introduction to Programming</span>
-                      <span style={{ color: isDark ? '#f1f5f9' : '#1e293b', fontWeight: '600', fontSize: '0.85rem', backgroundColor: isDark ? '#374151' : '#f1f5f9', padding: '4px 10px', borderRadius: '9999px' }}>MATH202 - Calculus II</span>
-                      <span style={{ color: isDark ? '#f1f5f9' : '#1e293b', fontWeight: '600', fontSize: '0.85rem', backgroundColor: isDark ? '#374151' : '#f1f5f9', padding: '4px 10px', borderRadius: '9999px' }}>ENG105 - Academic Writing</span>
-                    </div>
-                  </div>
-                )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '4px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: `1px solid ${isDark ? '#3a3a3a' : '#e2e8f0'}`, paddingBottom: '8px' }}>
                   <span style={{ color: isDark ? '#94a3b8' : '#64748b', fontSize: '0.85rem', fontWeight: '500' }}>Last Login</span>
                   <span style={{ color: isDark ? '#f1f5f9' : '#1e293b', fontWeight: '700', fontSize: '0.9rem' }}>{fmt(viewUser.lastLogin)}</span>
                 </div>
+              </div>
+
+              {/* Flag History Section */}
+              <div style={{ marginTop: '18px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                  <span style={{ fontSize: '0.95rem', fontWeight: '700', color: isDark ? '#f1f5f9' : '#1e293b' }}>🚨 Flag History</span>
+                  {flagHistory.length > 0 && (
+                    <span style={{ backgroundColor: '#f59e0b', color: 'white', borderRadius: '9999px', padding: '2px 10px', fontSize: '0.75rem', fontWeight: '700' }}>
+                      {flagHistory.length} event{flagHistory.length !== 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+                {flagHistoryLoading ? (
+                  <div style={{ textAlign: 'center', padding: '16px', color: isDark ? '#94a3b8' : '#64748b', fontSize: '0.85rem' }}>Loading history...</div>
+                ) : flagHistory.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '16px', backgroundColor: isDark ? '#2a2a2a' : '#f8fafc', borderRadius: '12px', color: isDark ? '#64748b' : '#94a3b8', fontSize: '0.85rem', border: isDark ? '1px solid #3a3a3a' : '1px solid #e2e8f0' }}>
+                    ✅ No flags recorded
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '240px', overflowY: 'auto', paddingRight: '4px' }}>
+                    {flagHistory.map((log, i) => (
+                      <div key={log.id || i} style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '3px',
+                        padding: '10px 14px',
+                        borderRadius: '12px',
+                        backgroundColor: isDark ? '#2a2a2a' : '#fff',
+                        border: `1px solid ${log.severity === 'High' ? (isDark ? '#7f1d1d' : '#fca5a5') : (isDark ? '#713f12' : '#fde68a')}`,
+                        borderLeft: `4px solid ${log.severity === 'High' ? '#ef4444' : '#f59e0b'}`,
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.8rem', fontWeight: '700', color: log.severity === 'High' ? '#ef4444' : '#f59e0b' }}>
+                            {log.type || 'Security Flag'}
+                          </span>
+                          <span style={{ fontSize: '0.75rem', color: isDark ? '#94a3b8' : '#64748b', whiteSpace: 'nowrap' }}>
+                            {fmt(log.timestamp)}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: isDark ? '#cbd5e1' : '#475569' }}>
+                          {log.desc || 'Violation recorded'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div style={{ marginTop: '24px', display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>

@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS submissions (
 CREATE TABLE IF NOT EXISTS security_flags (
     id BIGSERIAL PRIMARY KEY,
     date_string VARCHAR(50) UNIQUE,
-    count INTEGER DEFAULT 0
+    count INTEGER DEFAULT 0,
+    alt_tab_copy_paste_count INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS audit_logs (

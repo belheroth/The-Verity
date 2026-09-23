@@ -204,16 +204,25 @@ export default function TeacherView({ socket, assignment, classroom, initialStud
       });
     }
 
-    // Always listen for submissions so if they submit while reviewing, it updates
+    // Always listen for submissions
     socket.on('teacher_receive_submission', (data) => {
       setStudents(prev => {
-        const existing = prev[data.studentName];
+        if (mode === 'live') {
+          const next = { ...prev };
+          if (data.studentName) delete next[data.studentName];
+          if (data.studentId) delete next[data.studentId];
+          return next;
+        }
+        const existing = prev[data.studentName] || prev[data.studentId];
         if (!existing) return prev;
         return {
           ...prev,
-          [data.studentName]: { ...existing, status: "Submitted", code: data.finalCode, codeHistory: data.codeHistory }
+          [data.studentName]: { ...existing, status: "Submitted", code: data.finalCode || data.code, codeHistory: data.codeHistory }
         };
       });
+      if (mode === 'live') {
+        setSelectedStudentId(prev => (prev === data.studentName || prev === data.studentId ? null : prev));
+      }
     });
 
     return () => {
@@ -255,7 +264,7 @@ export default function TeacherView({ socket, assignment, classroom, initialStud
   }, [students]);
 
   const history = activeStudent.codeHistory || activeStudent.history || [];
-  const hasPlayback = (activeStudent.status === 'Submitted' || history.length > 0) && Array.isArray(history) && history.length > 0;
+  const hasPlayback = mode === 'playback' && (activeStudent.status === 'Submitted' || history.length > 0) && Array.isArray(history) && history.length > 0;
 
   let displayCode = activeStudent.code || "";
   if (hasPlayback) {

@@ -1171,18 +1171,20 @@ export default function ClassroomView({
                                       >
                                         View Activity Details
                                       </span>
-                                      <button
-                                        style={styles.startBtn}
-                                        onClick={() => {
-                                          if (onStartAssignment) {
-                                            onStartAssignment(item);
-                                          } else {
-                                            onOpenAssignment(item);
-                                          }
-                                        }}
-                                      >
-                                        {isSubmitted ? 'View Work' : 'Start'}
-                                      </button>
+                                      {!isSubmitted && (
+                                        <button
+                                          style={styles.startBtn}
+                                          onClick={() => {
+                                            if (onStartAssignment) {
+                                              onStartAssignment(item);
+                                            } else {
+                                              onOpenAssignment(item);
+                                            }
+                                          }}
+                                        >
+                                          Start
+                                        </button>
+                                      )}
                                     </div>
                                   </div>
                                 </motion.div>

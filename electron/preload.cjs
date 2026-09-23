@@ -2,8 +2,9 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   closeApp: () => ipcRenderer.send('close-app'),
-  enableLockdown: () => ipcRenderer.send('enable-lockdown'),
+  enableLockdown: (options) => ipcRenderer.send('enable-lockdown', options),
   disableLockdown: () => ipcRenderer.send('disable-lockdown'),
+  getDisplayCount: () => ipcRenderer.invoke('get-display-count'),
 
   // Client-side SQLite local storage
   localDB: {

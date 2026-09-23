@@ -333,7 +333,7 @@ function createWindow() {
   });
 }
 
-function enableLockdown() {
+function enableLockdown(options = {}) {
   if (!mainWindow) return;
   lockdownActive = true;
 
@@ -348,14 +348,21 @@ function enableLockdown() {
   mainWindow.setAlwaysOnTop(true, 'screen-saver');
   mainWindow.setVisibleOnAllWorkspaces(true);
   mainWindow.focus();
-  // Engage the native keyboard hook.
-  setLockedFile(true);
-  for (const accel of LOCKED_SHORTCUTS) {
-    try {
-      globalShortcut.register(accel, () => {}); // swallow
-    } catch (_) {
-      // some accelerators aren't registrable on every platform; ignore
+
+  if (options.disableWindowsKeyAltTab !== false) {
+    // Engage the native keyboard hook & global shortcut swallowing
+    setLockedFile(true);
+    for (const accel of LOCKED_SHORTCUTS) {
+      try {
+        globalShortcut.register(accel, () => {}); // swallow
+      } catch (_) {
+        // some accelerators aren't registrable on every platform; ignore
+      }
     }
+  } else {
+    // Keep window kiosk mode active but release global shortcut hook
+    setLockedFile(false);
+    globalShortcut.unregisterAll();
   }
 }
 
@@ -395,13 +402,18 @@ app.whenReady().then(() => {
 });
 
 // --- IPC from the renderer (React) ---
-ipcMain.on('enable-lockdown', () => {
-  console.log('[main] enable-lockdown received');
-  enableLockdown();
+ipcMain.on('enable-lockdown', (event, options) => {
+  console.log('[main] enable-lockdown received with options:', options);
+  enableLockdown(options);
 });
 ipcMain.on('disable-lockdown', () => {
   console.log('[main] disable-lockdown received');
   disableLockdown();
+});
+
+ipcMain.handle('get-display-count', () => {
+  const { screen } = require('electron');
+  return screen.getAllDisplays().length;
 });
 
 ipcMain.on('close-app', () => {

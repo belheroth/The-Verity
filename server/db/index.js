@@ -130,8 +130,13 @@ function initSqlite() {
         CREATE TABLE IF NOT EXISTS security_flags (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date_string TEXT UNIQUE,
-            count INTEGER DEFAULT 0
+            count INTEGER DEFAULT 0,
+            alt_tab_copy_paste_count INTEGER DEFAULT 0
         );
+
+        try {
+            await db.run("ALTER TABLE security_flags ADD COLUMN alt_tab_copy_paste_count INTEGER DEFAULT 0");
+        } catch (_) {}
 
         CREATE TABLE IF NOT EXISTS audit_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -300,6 +305,7 @@ async function initPostgres(connStr = cleanedUrl) {
                 await client.query('ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS instructor VARCHAR(255);');
                 await client.query('ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS theme TEXT;');
                 await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;');
+                await client.query('ALTER TABLE security_flags ADD COLUMN IF NOT EXISTS alt_tab_copy_paste_count INTEGER DEFAULT 0;');
             } catch (colErr) {
                 console.warn('[Database] Note on column migration:', colErr.message);
             }

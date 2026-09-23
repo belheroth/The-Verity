@@ -322,9 +322,16 @@ export default function AdminLayout({
                   <h3 style={{ margin: 0, fontSize: '0.95rem', color: isDark ? '#f1f5f9' : '#1e293b' }}>Notifications</h3>
                   {currentNotifications.length > 0 && (
                     <span onClick={() => {
+                      try {
+                        const readKeys = currentNotifications.map(n => `${n.id}:${n.text}`);
+                        let existing = [];
+                        try { existing = JSON.parse(localStorage.getItem('verity_notifications_read_keys') || '[]'); } catch (e) {}
+                        const updated = Array.from(new Set([...existing, ...readKeys]));
+                        localStorage.setItem('verity_notifications_read_keys', JSON.stringify(updated));
+                        localStorage.removeItem('verity_notifications_cleared');
+                      } catch (e) { }
                       finalSetNotifications([]);
                       finalSetShowNotifications(false);
-                      try { localStorage.setItem('verity_notifications_cleared', 'true'); } catch (e) { }
                     }} style={{ fontSize: '0.75rem', color: '#007bff', cursor: 'pointer', fontWeight: '600' }}>Mark all as read</span>
                   )}
                 </div>
