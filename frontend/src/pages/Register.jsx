@@ -593,7 +593,7 @@ export default function Register({ onBackToLogin }) {
                 onSuccess={handleGoogleSuccess}
                 onError={handleGoogleError}
                 text="signup_with"
-                theme="filled_blue"
+                theme="outline"
                 useOneTap
               />
             </div>
