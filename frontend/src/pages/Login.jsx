@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GoogleLogin } from '@react-oauth/google';
+import { useGoogleLogin } from '@react-oauth/google';
 import { Moon, Sun, Loader2, Construction, AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { useDarkMode } from '../hooks/useDarkMode';
@@ -32,12 +32,12 @@ export default function Login({ onLogin, onGoToRegister }) {
     return () => clearInterval(interval);
   }, []);
 
-  const handleGoogleSuccess = async (credentialResponse) => {
+  const handleGoogleSuccess = async (tokenResponse) => {
     try {
       const response = await apiFetch(`${import.meta.env.VITE_API_URL}/auth/google`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: credentialResponse.credential })
+        body: JSON.stringify({ token: tokenResponse.credential, access_token: tokenResponse.access_token })
       });
       const data = await response.json();
       if (data.maintenance) {
@@ -57,6 +57,12 @@ export default function Login({ onLogin, onGoToRegister }) {
   const handleGoogleError = () => {
     setError('Google Login failed');
   };
+
+  const googleLogin = useGoogleLogin({
+    onSuccess: handleGoogleSuccess,
+    onError: handleGoogleError,
+    flow: 'implicit',
+  });
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -312,12 +318,36 @@ export default function Login({ onLogin, onGoToRegister }) {
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <GoogleLogin
-              onSuccess={handleGoogleSuccess}
-              onError={handleGoogleError}
-              theme="outline"
-              useOneTap
-            />
+            <button
+              type="button"
+              onClick={() => googleLogin()}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                padding: '10px 20px',
+                borderRadius: '8px',
+                border: isDark ? '1px solid #3f3f46' : '1px solid #d1d5db',
+                backgroundColor: isDark ? '#1e1e2e' : '#ffffff',
+                color: isDark ? '#e4e4e7' : '#374151',
+                fontSize: '0.95rem',
+                fontWeight: '500',
+                cursor: 'pointer',
+                transition: 'background 0.2s, border-color 0.2s',
+                width: '100%',
+                justifyContent: 'center',
+              }}
+              onMouseEnter={e => e.currentTarget.style.backgroundColor = isDark ? '#2a2a3e' : '#f9fafb'}
+              onMouseLeave={e => e.currentTarget.style.backgroundColor = isDark ? '#1e1e2e' : '#ffffff'}
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+                <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+                <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z" fill="#34A853"/>
+                <path d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.039l3.007-2.332z" fill="#FBBC05"/>
+                <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z" fill="#EA4335"/>
+              </svg>
+              Sign in with Google
+            </button>
           </div>
 
           <p style={{ ...styles.registerText, color: isDark ? '#a1a1aa' : '#9ca3af' }}>

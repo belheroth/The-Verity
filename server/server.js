@@ -712,7 +712,7 @@ app.get('/admin/profile', authenticateToken, adminIpWhitelist, requireRole('Admi
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || '6514928694-2rd8cu7b67o4f2jqtuv5hk1d51s97lcc.apps.googleusercontent.com');
 
 app.post('/auth/google', async (req, res) => {
-    const { token, role: userRole } = req.body;
+    const { token, access_token, role: userRole } = req.body;
     try {
         // Block Google SSO login during maintenance mode
         const maintenance = await getMaintenanceStatus();
@@ -720,12 +720,28 @@ app.post('/auth/google', async (req, res) => {
             return res.status(503).json({ message: maintenance.message, maintenance: true });
         }
 
-        const ticket = await googleClient.verifyIdToken({
-            idToken: token,
-            audience: process.env.GOOGLE_CLIENT_ID || '6514928694-2rd8cu7b67o4f2jqtuv5hk1d51s97lcc.apps.googleusercontent.com'
-        });
-        const payload = ticket.getPayload();
-        const { email, name } = payload;
+        let email, name;
+
+        if (access_token) {
+            // useGoogleLogin implicit flow: verify via Google userinfo endpoint
+            const userInfoRes = await fetch(`https://www.googleapis.com/oauth2/v3/userinfo?access_token=${access_token}`);
+            if (!userInfoRes.ok) {
+                return res.status(401).json({ message: 'Invalid Google token' });
+            }
+            const userInfo = await userInfoRes.json();
+            email = userInfo.email;
+            name = userInfo.name;
+        } else {
+            // Legacy: GoogleLogin component sends credential (ID token)
+            const ticket = await googleClient.verifyIdToken({
+                idToken: token,
+                audience: process.env.GOOGLE_CLIENT_ID || '6514928694-2rd8cu7b67o4f2jqtuv5hk1d51s97lcc.apps.googleusercontent.com'
+            });
+            const payload = ticket.getPayload();
+            email = payload.email;
+            name = payload.name;
+        }
+
         const cleanEmail = (email || '').trim().toLowerCase();
 
         const isAdminAcc = await db.get('SELECT id FROM admin_users WHERE LOWER(email) = ?', cleanEmail);
