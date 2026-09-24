@@ -1,6 +1,24 @@
 const path = require('path');
 const fs = require('fs');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+
+const envCandidates = [
+    process.env.ENV_FILE_PATH,
+    path.join(__dirname, '..', 'server', '.env'),
+    path.join(__dirname, 'server', '.env'),
+    path.join(__dirname, '.env'),
+    path.join(__dirname, '..', '.env'),
+    process.resourcesPath ? path.join(process.resourcesPath, '.env') : null,
+    path.join(process.cwd(), 'server', '.env'),
+    path.join(process.cwd(), '.env'),
+].filter(Boolean);
+
+for (const p of envCandidates) {
+    if (fs.existsSync(p)) {
+        try {
+            require('dotenv').config({ path: p });
+        } catch (_) {}
+    }
+}
 
 let provider = 'sqlite';
 let pgPool = null;
@@ -309,17 +327,17 @@ async function initPostgres(connStr = cleanedUrl) {
         if (fs.existsSync(schemaPath)) {
             const schemaSql = fs.readFileSync(schemaPath, 'utf8');
             await client.query(schemaSql);
-            try {
-                await client.query('ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS instructor_email VARCHAR(255);');
-                await client.query('ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS instructor VARCHAR(255);');
-                await client.query('ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS theme TEXT;');
-                await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;');
-                await client.query('ALTER TABLE security_flags ADD COLUMN IF NOT EXISTS alt_tab_copy_paste_count INTEGER DEFAULT 0;');
-            } catch (colErr) {
-                console.warn('[Database] Note on column migration:', colErr.message);
-            }
-            console.log('[Database] PostgreSQL schema verified/initialized.');
         }
+        try {
+            await client.query('ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS instructor_email VARCHAR(255);');
+            await client.query('ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS instructor VARCHAR(255);');
+            await client.query('ALTER TABLE classrooms ADD COLUMN IF NOT EXISTS theme TEXT;');
+            await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;');
+            await client.query('ALTER TABLE security_flags ADD COLUMN IF NOT EXISTS alt_tab_copy_paste_count INTEGER DEFAULT 0;');
+        } catch (colErr) {
+            console.warn('[Database] Note on column migration:', colErr.message);
+        }
+        console.log('[Database] PostgreSQL schema verified/initialized.');
         provider = 'postgres';
     } finally {
         client.release();

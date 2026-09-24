@@ -1,8 +1,11 @@
-const { app, BrowserWindow, Menu, globalShortcut, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, globalShortcut, ipcMain, shell, session, protocol, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { fork, spawn } = require('child_process');
 const { initLocalDb, localDbAPI } = require('./local-db.cjs');
+
+const CHROME_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36';
+app.userAgentFallback = CHROME_USER_AGENT;
 
 let mainWindow;
 let splashWindow = null;
@@ -96,15 +99,35 @@ function startServer() {
   // uploads/ land in a writable location.
   const serverPath = app.isPackaged
     ? path.join(process.resourcesPath, 'dist-server', 'server-bundle.cjs')
-    : path.join(__dirname, 'dist-server', 'server-bundle.cjs');
+    : path.join(__dirname, '..', 'dist-server', 'server-bundle.cjs');
   const dataDir = app.isPackaged
     ? app.getPath('userData')
-    : path.join(__dirname, 'server');
+    : path.join(__dirname, '..', 'server');
 
   if (app.isPackaged) seedDatabase(dataDir);
 
+  const envFile = app.isPackaged
+    ? path.join(process.resourcesPath, '.env')
+    : path.join(__dirname, '..', 'server', '.env');
+
+  const parsedEnv = {};
+  if (fs.existsSync(envFile)) {
+    try {
+      const raw = fs.readFileSync(envFile, 'utf8');
+      for (const line of raw.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+          const idx = trimmed.indexOf('=');
+          const key = trimmed.slice(0, idx).trim();
+          const val = trimmed.slice(idx + 1).trim().replace(/^["']|["']$/g, '');
+          if (key) parsedEnv[key] = val;
+        }
+      }
+    } catch (_) {}
+  }
+
   serverProcess = fork(serverPath, [], {
-    env: { ...process.env, DATA_DIR: dataDir, NODE_ENV: 'production' },
+    env: { ...process.env, ...parsedEnv, DATA_DIR: dataDir, NODE_ENV: 'production' },
     silent: true,
   });
   serverProcess.stdout.on('data', (d) => process.stdout.write(`[server] ${d}`));
@@ -243,7 +266,24 @@ function createWindow() {
 
   // Restrict child window creation and external link navigation
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    // Open external links safely in OS default browser rather than an uncontrolled Electron window
+    // Allow Google OAuth and auth popup dialogs inside an Electron child window so OAuth postMessage works
+    if (url.includes('accounts.google.com') || url.includes('google.com/gsi/') || url.includes('oauth2.googleapis.com')) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 520,
+          height: 650,
+          autoHideMenuBar: true,
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            userAgent: CHROME_USER_AGENT,
+          }
+        }
+      };
+    }
+
+    // Open other external links safely in OS default browser rather than an uncontrolled Electron window
     if (url.startsWith('http://') || url.startsWith('https://')) {
       shell.openExternal(url);
     }
@@ -265,8 +305,8 @@ function createWindow() {
   });
 
   if (app.isPackaged) {
-    // Production: load the Vite build output.
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    // Production: load the Vite build output via intercepted http.
+    mainWindow.loadURL('http://localhost:5173');
   } else {
     // Development: load the live Vite dev server.
     mainWindow.loadURL('http://localhost:5173');
@@ -382,6 +422,41 @@ app.whenReady().then(() => {
   // Completely remove default application menu bar (File, Edit, View, Window, Help)
   Menu.setApplicationMenu(null);
 
+  // Intercept Google OAuth and Google API requests to prevent disallowed_useragent blocks
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ['https://accounts.google.com/*', 'https://*.google.com/*', 'https://oauth2.googleapis.com/*'] },
+    (details, callback) => {
+      const { requestHeaders } = details;
+      requestHeaders['User-Agent'] = CHROME_USER_AGENT;
+      if (!requestHeaders['Origin'] || requestHeaders['Origin'] === 'file://' || requestHeaders['Origin'] === 'null') {
+        requestHeaders['Origin'] = 'http://localhost:5173';
+        requestHeaders['Referer'] = 'http://localhost:5173/';
+      }
+      callback({ requestHeaders });
+    }
+  );
+
+  if (app.isPackaged) {
+    // Intercept http://localhost:5173 to serve local files in production
+    // This allows Google OAuth to see a valid web origin instead of file://
+    protocol.handle('http', (request) => {
+      const url = new URL(request.url);
+      if (url.hostname === 'localhost' && url.port === '5173') {
+        let reqPath = url.pathname;
+        if (reqPath === '/' || reqPath === '') reqPath = '/index.html';
+        
+        let file = path.join(__dirname, '../dist', reqPath);
+        // Fallback to index.html for React Router
+        if (!fs.existsSync(file)) {
+          file = path.join(__dirname, '../dist/index.html');
+        }
+        
+        return net.fetch('file://' + file);
+      }
+      return net.fetch(request, { bypassCustomProtocolHandlers: true });
+    });
+  }
+
   createSplashWindow();
 
   try {
@@ -419,6 +494,10 @@ ipcMain.handle('get-display-count', () => {
 ipcMain.on('close-app', () => {
   disableLockdown(); // make sure the close handler lets us quit
   app.quit();
+});
+
+ipcMain.on('open-external', (event, url) => {
+  shell.openExternal(url);
 });
 
 // Local SQLite storage IPC handlers

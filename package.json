@@ -12,7 +12,7 @@
   "scripts": {
     "dev": "concurrently \"cd frontend && vite\" \"node --watch server/server.js\"",
     "build": "npm --prefix frontend run build",
-    "build:server": "esbuild server/server.js --bundle --platform=node --outfile=dist-server/server-bundle.cjs --external:better-sqlite3 --external:pg",
+    "build:server": "esbuild server/server.js --bundle --platform=node --outfile=dist-server/server-bundle.cjs --external:better-sqlite3",
     "electron": "electron .",
     "electron:admin": "electron electron/admin-main.cjs",
     "package": "npm run build && npm run build:server && electron-builder",
@@ -57,7 +57,8 @@
         "from": "server",
         "to": ".",
         "filter": [
-          "database.json"
+          "database.json",
+          ".env"
         ]
       }
     ],
@@ -76,5 +77,8 @@
       "uninstallerIcon": "electron/assets/icon.ico",
       "runAfterFinish": true
     }
+  },
+  "dependencies": {
+    "package": "^1.0.1"
   }
 }

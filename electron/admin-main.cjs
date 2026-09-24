@@ -1,8 +1,11 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, session, protocol, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { fork } = require('child_process');
 const { initLocalDb, localDbAPI } = require('./local-db.cjs');
+
+const CHROME_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36';
+app.userAgentFallback = CHROME_USER_AGENT;
 
 let mainWindow;
 let splashWindow = null;
@@ -44,15 +47,35 @@ function seedDatabase(dataDir) {
 function startServer() {
   const serverPath = app.isPackaged
     ? path.join(process.resourcesPath, 'dist-server', 'server-bundle.cjs')
-    : path.join(__dirname, 'dist-server', 'server-bundle.cjs');
+    : path.join(__dirname, '..', 'dist-server', 'server-bundle.cjs');
   const dataDir = app.isPackaged
     ? app.getPath('userData')
     : path.join(__dirname, '..', 'server');
 
   if (app.isPackaged) seedDatabase(dataDir);
 
+  const envFile = app.isPackaged
+    ? path.join(process.resourcesPath, '.env')
+    : path.join(__dirname, '..', 'server', '.env');
+
+  const parsedEnv = {};
+  if (fs.existsSync(envFile)) {
+    try {
+      const raw = fs.readFileSync(envFile, 'utf8');
+      for (const line of raw.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+          const idx = trimmed.indexOf('=');
+          const key = trimmed.slice(0, idx).trim();
+          const val = trimmed.slice(idx + 1).trim().replace(/^["']|["']$/g, '');
+          if (key) parsedEnv[key] = val;
+        }
+      }
+    } catch (_) {}
+  }
+
   serverProcess = fork(serverPath, [], {
-    env: { ...process.env, DATA_DIR: dataDir, NODE_ENV: 'production', IS_ADMIN_APP: 'true' },
+    env: { ...process.env, ...parsedEnv, DATA_DIR: dataDir, NODE_ENV: 'production', IS_ADMIN_APP: 'true' },
     silent: true,
   });
   serverProcess.stdout.on('data', (d) => process.stdout.write(`[admin-server] ${d}`));
@@ -115,6 +138,23 @@ function createWindow() {
   mainWindow.setMenuBarVisibility(false);
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // Allow Google OAuth popup window to open in Electron for seamless postMessage exchange
+    if (url.includes('accounts.google.com') || url.includes('google.com/gsi/') || url.includes('oauth2.googleapis.com')) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 520,
+          height: 650,
+          autoHideMenuBar: true,
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            userAgent: CHROME_USER_AGENT,
+          }
+        }
+      };
+    }
+
     if (url.startsWith('http://') || url.startsWith('https://')) {
       shell.openExternal(url);
     }
@@ -135,7 +175,7 @@ function createWindow() {
   });
 
   if (app.isPackaged) {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    mainWindow.loadURL('http://localhost:5173');
   } else {
     mainWindow.loadURL('http://localhost:5173');
   }
@@ -177,6 +217,38 @@ if (!gotTheLock) {
   });
 
   app.whenReady().then(() => {
+    // Intercept Google OAuth and Google API requests to prevent disallowed_useragent blocks
+    session.defaultSession.webRequest.onBeforeSendHeaders(
+      { urls: ['https://accounts.google.com/*', 'https://*.google.com/*', 'https://oauth2.googleapis.com/*'] },
+      (details, callback) => {
+        const { requestHeaders } = details;
+        requestHeaders['User-Agent'] = CHROME_USER_AGENT;
+        if (!requestHeaders['Origin'] || requestHeaders['Origin'] === 'file://' || requestHeaders['Origin'] === 'null') {
+          requestHeaders['Origin'] = 'http://localhost:5173';
+          requestHeaders['Referer'] = 'http://localhost:5173/';
+        }
+        callback({ requestHeaders });
+      }
+    );
+
+    if (app.isPackaged) {
+      protocol.handle('http', (request) => {
+        const url = new URL(request.url);
+        if (url.hostname === 'localhost' && url.port === '5173') {
+          let reqPath = url.pathname;
+          if (reqPath === '/' || reqPath === '') reqPath = '/index.html';
+          
+          let file = path.join(__dirname, '../dist', reqPath);
+          if (!fs.existsSync(file)) {
+            file = path.join(__dirname, '../dist/index.html');
+          }
+          
+          return net.fetch('file://' + file);
+        }
+        return net.fetch(request, { bypassCustomProtocolHandlers: true });
+      });
+    }
+
     const dataDir = app.isPackaged
       ? app.getPath('userData')
       : path.join(__dirname, '..', 'server');
@@ -200,6 +272,10 @@ if (!gotTheLock) {
 // IPC Handlers
 ipcMain.on('close-app', () => {
   app.quit();
+});
+
+ipcMain.on('open-external', (event, url) => {
+  shell.openExternal(url);
 });
 
 // IPC Handler for client-side local database

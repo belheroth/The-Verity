@@ -3,6 +3,7 @@ import { useGoogleLogin } from '@react-oauth/google';
 import { Moon, Sun, Loader2, Construction, AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { useDarkMode } from '../hooks/useDarkMode';
+import { io } from 'socket.io-client';
 
 export default function Login({ onLogin, onGoToRegister }) {
   const { isDark, toggle } = useDarkMode();
@@ -70,6 +71,47 @@ export default function Login({ onLogin, onGoToRegister }) {
     onNonOAuthError: handleGoogleError,
     flow: 'implicit',
   });
+
+  const handleGoogleElectron = () => {
+    setIsGoogleLoading(true);
+    setError('');
+    
+    const sessionId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+    
+    const socket = io(backendUrl, { transports: ['websocket', 'polling'] });
+    
+    socket.on(`google-login-success-${sessionId}`, (data) => {
+      socket.disconnect();
+      if (data && data.token && data.user) {
+        onLogin(data.user, data.token);
+      } else {
+        setError('Received invalid data from external login.');
+        setIsGoogleLoading(false);
+      }
+    });
+    
+    socket.on(`google-login-error-${sessionId}`, (data) => {
+      socket.disconnect();
+      setError(data.message || 'External Google login failed.');
+      setIsGoogleLoading(false);
+    });
+    
+    const url = `${backendUrl}/auth/google/external?sessionId=${sessionId}`;
+    if (window.electronAPI && window.electronAPI.openExternal) {
+      window.electronAPI.openExternal(url);
+    } else {
+      window.open(url, '_blank');
+    }
+    
+    setTimeout(() => {
+      if (socket.connected) {
+        socket.disconnect();
+        setIsGoogleLoading(false);
+        setError('Login timed out. Please try again.');
+      }
+    }, 5 * 60 * 1000);
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -328,8 +370,12 @@ export default function Login({ onLogin, onGoToRegister }) {
             <button
               type="button"
               onClick={() => {
-                setIsGoogleLoading(true);
-                googleLogin();
+                if (window.electronAPI) {
+                  handleGoogleElectron();
+                } else {
+                  setIsGoogleLoading(true);
+                  googleLogin();
+                }
               }}
               disabled={isGoogleLoading || isLoading}
               style={isGoogleLoading ? {

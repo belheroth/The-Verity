@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   enableLockdown: (options) => ipcRenderer.send('enable-lockdown', options),
   disableLockdown: () => ipcRenderer.send('disable-lockdown'),
   getDisplayCount: () => ipcRenderer.invoke('get-display-count'),
+  openExternal: (url) => ipcRenderer.send('open-external', url),
 
   // Client-side SQLite local storage
   localDB: {

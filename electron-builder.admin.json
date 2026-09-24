@@ -25,7 +25,8 @@
       "from": "server",
       "to": ".",
       "filter": [
-        "database.json"
+        "database.json",
+        ".env"
       ]
     }
   ],

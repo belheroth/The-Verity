@@ -1,8 +1,27 @@
-require('dotenv').config();
+const path = require('path');
+const fs = require('fs');
+
+const envCandidates = [
+    process.env.ENV_FILE_PATH,
+    path.join(__dirname, '..', 'server', '.env'),
+    path.join(__dirname, 'server', '.env'),
+    path.join(__dirname, '.env'),
+    path.join(__dirname, '..', '.env'),
+    process.resourcesPath ? path.join(process.resourcesPath, '.env') : null,
+    path.join(process.cwd(), 'server', '.env'),
+    path.join(process.cwd(), '.env'),
+].filter(Boolean);
+
+for (const p of envCandidates) {
+    if (fs.existsSync(p)) {
+        try {
+            require('dotenv').config({ path: p });
+        } catch (_) {}
+    }
+}
+
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs');
-const path = require('path');
 const os = require('os');
 const { spawn, exec, execSync } = require('child_process');
 const { Server } = require('socket.io');
@@ -709,7 +728,117 @@ app.get('/admin/profile', authenticateToken, adminIpWhitelist, requireRole('Admi
     }
 });
 
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || '6514928694-2rd8cu7b67o4f2jqtuv5hk1d51s97lcc.apps.googleusercontent.com');
+const googleClient = new OAuth2Client(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    // We will dynamically set redirect URI per request, but define a fallback
+    process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3001/auth/google/callback'
+);
+
+app.get('/auth/google/external', (req, res) => {
+    const sessionId = req.query.sessionId;
+    if (!sessionId) {
+        return res.status(400).send('Missing sessionId');
+    }
+    const redirectUri = `${req.protocol}://${req.get('host')}/auth/google/callback`;
+    const authorizeUrl = googleClient.generateAuthUrl({
+        access_type: 'offline',
+        scope: ['email', 'profile'],
+        state: sessionId,
+        redirect_uri: redirectUri
+    });
+    res.redirect(authorizeUrl);
+});
+
+app.get('/auth/google/callback', async (req, res) => {
+    const { code, state: sessionId } = req.query;
+    if (!code || !sessionId) {
+        return res.status(400).send('Missing code or state');
+    }
+
+    try {
+        const redirectUri = `${req.protocol}://${req.get('host')}/auth/google/callback`;
+        const { tokens } = await googleClient.getToken({
+            code,
+            redirect_uri: redirectUri
+        });
+
+        const ticket = await googleClient.verifyIdToken({
+            idToken: tokens.id_token,
+            audience: process.env.GOOGLE_CLIENT_ID
+        });
+        const payload = ticket.getPayload();
+        const email = payload.email;
+        const name = payload.name;
+        const cleanEmail = (email || '').trim().toLowerCase();
+
+        const maintenance = await getMaintenanceStatus();
+        if (maintenance.enabled) {
+            io.emit(`google-login-error-${sessionId}`, { message: maintenance.message });
+            return res.send(`<h2>System Maintenance</h2><p>${maintenance.message}</p>`);
+        }
+
+        const isAdminAcc = await db.get('SELECT id FROM admin_users WHERE LOWER(email) = ?', cleanEmail);
+        if (isAdminAcc) {
+            io.emit(`google-login-error-${sessionId}`, { message: 'Invalid credentials' });
+            return res.send(`<h2>Error</h2><p>Cannot login with admin account here.</p>`);
+        }
+
+        let user = await db.get('SELECT * FROM users WHERE LOWER(email) = ?', cleanEmail);
+
+        if (user) {
+            if (user.status === 'Pending') {
+                io.emit(`google-login-error-${sessionId}`, { message: 'Your account is pending admin approval' });
+                return res.send('<h2>Account Pending</h2><p>Your account is pending admin approval.</p>');
+            }
+            user.lastLogin = new Date().toISOString();
+            await db.run('UPDATE users SET lastLogin = ? WHERE id = ?', user.lastLogin, user.id);
+        } else {
+            let requireApproval = true;
+            try {
+                const row = await db.get("SELECT value FROM system_settings WHERE key = 'global_config'");
+                if (row) {
+                    const config = JSON.parse(row.value);
+                    if (config?.roles?.requireAdminApproval === false) requireApproval = false;
+                }
+            } catch (e) {}
+
+            // Default to Student for new external SSO signups unless we know they chose Teacher (not possible via basic GET)
+            const role = 'Student';
+            const status = 'Active';
+            const lastLogin = new Date().toISOString();
+            const password = 'google_sso_user';
+
+            const info = await db.run(
+                'INSERT INTO users (name, email, password, role, lastLogin, status) VALUES (?, ?, ?, ?, ?, ?)',
+                name, cleanEmail, password, role, lastLogin, status
+            );
+            user = { id: info.lastInsertRowid, name, email: cleanEmail, password, role, status, lastLogin };
+        }
+
+        const token = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET);
+        
+        io.emit(`google-login-success-${sessionId}`, { user, token });
+
+        res.send(`
+            <html>
+                <body style="font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; background: #1a1a1a; color: white;">
+                    <div style="text-align: center;">
+                        <h2 style="color: #10b981;">Authentication Successful!</h2>
+                        <p>You can safely close this window and return to The Verity app.</p>
+                        <script>
+                            setTimeout(() => window.close(), 3000);
+                        </script>
+                    </div>
+                </body>
+            </html>
+        `);
+    } catch (err) {
+        console.error('Google OAuth Callback Error:', err);
+        io.emit(`google-login-error-${sessionId}`, { message: 'Google authentication failed' });
+        res.status(500).send('<h2>Authentication Failed</h2><p>An error occurred during Google sign-in. Please try again.</p>');
+    }
+});
 
 app.post('/auth/google', async (req, res) => {
     const { token, access_token, role: userRole } = req.body;
