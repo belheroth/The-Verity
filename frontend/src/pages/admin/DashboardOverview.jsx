@@ -65,6 +65,23 @@ export default function DashboardOverview({ stats, users, query, setQuery, onDel
   const [serverOnline, setServerOnline] = useState(null);
   const [flagHistory, setFlagHistory] = useState([]);
   const [flagHistoryLoading, setFlagHistoryLoading] = useState(false);
+  const [classroomsMap, setClassroomsMap] = useState({});
+
+  useEffect(() => {
+    const fetchClassrooms = async () => {
+      try {
+        const res = await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/classrooms`);
+        if (res.ok) {
+          const data = await res.json();
+          const map = {};
+          (data.classrooms || []).forEach(c => map[c.id] = c.name);
+          setClassroomsMap(map);
+        }
+      } catch (e) {
+      }
+    };
+    fetchClassrooms();
+  }, []);
 
   useEffect(() => {
     const checkHealth = async () => {
@@ -105,7 +122,7 @@ export default function DashboardOverview({ stats, users, query, setQuery, onDel
     if (!iso) return 'No flags';
     try {
       const d = new Date(iso);
-      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
     } catch {
       return iso;
     }
@@ -129,7 +146,7 @@ export default function DashboardOverview({ stats, users, query, setQuery, onDel
       if (loginA !== loginB) return loginB - loginA;
       return (a.name || '').localeCompare(b.name || '');
     });
-  const fmt = iso => { if (!iso) return 'Never'; try { return new Date(iso).toLocaleString(); } catch { return iso; } };
+  const fmt = iso => { if (!iso) return 'Never'; try { return new Date(iso).toLocaleString([], { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return iso; } };
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -367,7 +384,7 @@ export default function DashboardOverview({ stats, users, query, setQuery, onDel
               {/* Flag History Section */}
               <div style={{ marginTop: '18px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                  <span style={{ fontSize: '0.95rem', fontWeight: '700', color: isDark ? '#f1f5f9' : '#1e293b' }}>🚨 Flag History</span>
+                  <span style={{ fontSize: '0.95rem', fontWeight: '700', color: isDark ? '#f1f5f9' : '#1e293b' }}>Flag History</span>
                   {flagHistory.length > 0 && (
                     <span style={{ backgroundColor: '#f59e0b', color: 'white', borderRadius: '9999px', padding: '2px 10px', fontSize: '0.75rem', fontWeight: '700' }}>
                       {flagHistory.length} event{flagHistory.length !== 1 ? 's' : ''}
@@ -382,7 +399,26 @@ export default function DashboardOverview({ stats, users, query, setQuery, onDel
                   </div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '240px', overflowY: 'auto', paddingRight: '4px' }}>
-                    {flagHistory.map((log, i) => (
+                    {flagHistory.map((log, i) => {
+                      let displayType = log.type || 'Security Flag';
+                      let displayColor = log.severity === 'High' ? '#ef4444' : '#f59e0b';
+                      
+                      if (displayType === 'Alt-Tab / Copy-Paste Violation') {
+                        const actionStr = (log.desc || '').toLowerCase();
+                        if (actionStr.includes('paste') || actionStr.includes('copy') || actionStr.includes('clipboard')) {
+                          displayType = 'Copy/Paste Violation';
+                          displayColor = '#ef4444';
+                        } else {
+                          displayType = 'Exit Tab Violation';
+                          displayColor = '#f59e0b';
+                        }
+                      } else if (displayType === 'Copy/Paste Violation') {
+                        displayColor = '#ef4444';
+                      } else if (displayType === 'Exit Tab Violation') {
+                        displayColor = '#f59e0b';
+                      }
+
+                      return (
                       <div key={log.id || i} style={{
                         display: 'flex',
                         flexDirection: 'column',
@@ -390,34 +426,35 @@ export default function DashboardOverview({ stats, users, query, setQuery, onDel
                         padding: '10px 14px',
                         borderRadius: '12px',
                         backgroundColor: isDark ? '#2a2a2a' : '#fff',
-                        border: `1px solid ${log.severity === 'High' ? (isDark ? '#7f1d1d' : '#fca5a5') : (isDark ? '#713f12' : '#fde68a')}`,
-                        borderLeft: `4px solid ${log.severity === 'High' ? '#ef4444' : '#f59e0b'}`,
+                        border: `1px solid ${isDark ? '#3a3a3a' : '#e2e8f0'}`,
                       }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontSize: '0.8rem', fontWeight: '700', color: log.severity === 'High' ? '#ef4444' : '#f59e0b' }}>
-                            {log.type || 'Security Flag'}
+                          <span style={{ fontSize: '0.8rem', fontWeight: '700', color: displayColor }}>
+                            {displayType}
                           </span>
                           <span style={{ fontSize: '0.75rem', color: isDark ? '#94a3b8' : '#64748b', whiteSpace: 'nowrap' }}>
                             {fmt(log.timestamp)}
                           </span>
                         </div>
                         <div style={{ fontSize: '0.8rem', color: isDark ? '#cbd5e1' : '#475569' }}>
-                          {log.desc || 'Violation recorded'}
+                          {(() => {
+                            let displayDesc = log.desc || 'Violation recorded';
+                            const match = displayDesc.match(/in classroom (\w+)/);
+                            if (match) {
+                              const activityName = classroomsMap[match[1]] || `classroom ${match[1]}`;
+                              displayDesc = displayDesc.replace(`in classroom ${match[1]}`, `in ${activityName}`);
+                            }
+                            return displayDesc;
+                          })()}
                         </div>
                       </div>
-                    ))}
+                    )})}
                   </div>
                 )}
               </div>
 
               <div style={{ marginTop: '24px', display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '9px 20px', backgroundColor: isDark ? '#374151' : '#e2e8f0', color: isDark ? '#cbd5e1' : '#475569', border: 'none', borderRadius: '9999px', fontWeight: '600', fontSize: '0.85rem', cursor: 'pointer', boxShadow: 'none' }}
-                >
-                  Edit User
-                </motion.button>
+
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}

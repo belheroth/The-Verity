@@ -202,6 +202,24 @@ export default function GlobalClassesTab() {
       .finally(() => setViewLoadingStudents(false));
   }, [viewClass]);
 
+  const handleDeleteClass = async (classroomId) => {
+    if (!window.confirm('Are you sure you want to permanently delete this classroom and all its data? This action cannot be undone.')) return;
+    
+    const updatedClasses = classes.filter(c => c.id !== classroomId);
+    setClasses(updatedClasses);
+
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedClasses));
+      localStorage.setItem(GLOBAL_STORAGE_KEY, JSON.stringify(updatedClasses));
+    } catch (e) { }
+
+    try {
+      await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/classrooms/${classroomId}`, {
+        method: 'DELETE'
+      });
+    } catch (e) { }
+  };
+
   // Handle creating a new class (with 1 fixed instructor and student enrollment)
   const handleCreateClass = async (e) => {
     e.preventDefault();
@@ -409,6 +427,7 @@ export default function GlobalClassesTab() {
                     <div><span style={active ? sh.statusGreenPill : sh.statusRedPill}>{active ? 'Active' : 'Archived'}</span></div>
                     <div style={{ textAlign: 'right', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                       <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setViewClass(c)} style={sh.actionTextLink}>View</motion.button>
+                      <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => handleDeleteClass(c.id)} style={{ ...sh.actionTextLink, color: '#ef4444' }}>Delete</motion.button>
                     </div>
                   </div>
                 );

@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Plus, X, Filter, Edit3, Eye, Shield, User, Mail, Check, AlertCircle, Copy, Clock, Key } from 'lucide-react';
+import { Search, Plus, X, Filter, Edit3, Eye, EyeOff, Shield, User, Mail, Check, AlertCircle, Copy, Clock, Key } from 'lucide-react';
 import PendingInstructorApproval from '../../components/PendingInstructorApproval';
 import { apiFetch } from '../../utils/api';
 import Skeleton from '../../components/Skeleton';
 import { useDarkMode } from '../../hooks/useDarkMode';
+import PasswordRequirements from '../../components/PasswordRequirements';
 
 const getStyles = (isDark) => ({
   pageWrap: {
@@ -49,6 +50,7 @@ const getStyles = (isDark) => ({
   tableWrap: { overflowX: 'auto', width: '100%', MsOverflowStyle: 'none', scrollbarWidth: 'none' },
   statusGreenPill: { padding: '4px 16px', borderRadius: '9999px', fontSize: '0.78rem', fontWeight: '700', backgroundColor: '#dcfce7', color: '#15803d', border: '1px solid #86efac', display: 'inline-block', whiteSpace: 'nowrap' },
   statusRedPill: { padding: '4px 16px', borderRadius: '9999px', fontSize: '0.78rem', fontWeight: '700', backgroundColor: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5', display: 'inline-block', whiteSpace: 'nowrap' },
+  statusYellowPill: { padding: '4px 16px', borderRadius: '9999px', fontSize: '0.78rem', fontWeight: '700', backgroundColor: '#fef3c7', color: '#b45309', border: '1px solid #fde68a', display: 'inline-block', whiteSpace: 'nowrap' },
   rolePill: { backgroundColor: isDark ? '#374151' : '#e2e8f0', color: isDark ? '#cbd5e1' : '#334155', padding: '3px 10px', borderRadius: '9999px', fontSize: '0.78rem', fontWeight: '600' },
   actionTextLink: {
     background: 'transparent',
@@ -108,6 +110,25 @@ export default function UserManagementTab({ users = [], loading = false, onDelet
   const [roleOpen, setRoleOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [addOrigin, setAddOrigin] = useState({ x: '50%', y: '50%' });
+  const [showBulkPassword, setShowBulkPassword] = useState(false);
+  const [showAddPassword, setShowAddPassword] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
+
+  const roleDropdownRef = useRef(null);
+  const statusDropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (roleDropdownRef.current && !roleDropdownRef.current.contains(e.target)) {
+        setRoleOpen(false);
+      }
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target)) {
+        setStatusOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // View & Edit user modals
   const [viewingUser, setViewingUser] = useState(null);
@@ -207,25 +228,43 @@ export default function UserManagementTab({ users = [], loading = false, onDelet
     setTimeout(() => setCopiedEmail(false), 2000);
   };
 
-  const filtered = users.filter(u => u.role !== 'Admin').filter(u => {
-    const q = query.toLowerCase();
-    return ((u.name || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q))
-      && (roleFilter === 'All' || u.role === roleFilter)
-      && (statusFilter === 'All' || u.status === statusFilter);
-  });
-  const fmt = iso => { if (!iso) return 'Never'; try { return new Date(iso).toLocaleString(); } catch { return iso; } };
-  const toggleSel = email => setSelected(p => p.includes(email) ? p.filter(e => e !== email) : [...p, email]);
-  const toggleAll = () => setSelected(selected.length === filtered.length && filtered.length > 0 ? [] : filtered.map(u => u.email));
-
   const [now, setNow] = useState(() => Date.now());
+  const [policies, setPolicies] = useState(null);
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 60000);
+    apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/kiosk-settings`)
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.settings && data.settings.passwordPolicies) {
+          setPolicies(data.settings.passwordPolicies);
+        }
+      })
+      .catch(() => {});
     return () => clearInterval(tick);
   }, []);
+
   const isOnline = (lastLogin) => {
     if (!lastLogin) return false;
     try { return (now - new Date(lastLogin).getTime()) < 30 * 60 * 1000; } catch { return false; }
   };
+
+  const getUserStatus = (u) => {
+    if (!u) return 'Inactive';
+    if ((u.status || '').toLowerCase() === 'inactive') return 'Inactive';
+    return isOnline(u.lastLogin) ? 'Active' : 'Inactive';
+  };
+
+  const filtered = users.filter(u => u.role !== 'Admin' && u.status !== 'Pending').filter(u => {
+    const q = query.toLowerCase();
+    const userStatus = getUserStatus(u);
+    const matchesQuery = (u.name || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q);
+    const matchesRole = roleFilter === 'All' || (u.role || '').toLowerCase() === roleFilter.toLowerCase();
+    const matchesStatus = statusFilter === 'All' || userStatus.toLowerCase() === statusFilter.toLowerCase();
+    return matchesQuery && matchesRole && matchesStatus;
+  });
+  const fmt = iso => { if (!iso) return 'Never'; try { return new Date(iso).toLocaleString(); } catch { return iso; } };
+  const toggleSel = email => setSelected(p => p.includes(email) ? p.filter(e => e !== email) : [...p, email]);
+  const toggleAll = () => setSelected(selected.length === filtered.length && filtered.length > 0 ? [] : filtered.map(u => u.email));
 
   const handleAdd = async (e) => {
     e.preventDefault();
@@ -313,7 +352,7 @@ export default function UserManagementTab({ users = [], loading = false, onDelet
               </div>
 
               {/* Role Filter */}
-              <div style={{ position: 'relative' }}>
+              <div ref={roleDropdownRef} style={{ position: 'relative' }}>
                 <motion.button
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.97 }}
@@ -361,7 +400,7 @@ export default function UserManagementTab({ users = [], loading = false, onDelet
               </div>
 
               {/* Status Filter */}
-              <div style={{ position: 'relative' }}>
+              <div ref={statusDropdownRef} style={{ position: 'relative' }}>
                 <motion.button
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.97 }}
@@ -442,7 +481,11 @@ export default function UserManagementTab({ users = [], loading = false, onDelet
                       <div style={{ fontWeight: '600', color: isDark ? '#f1f5f9' : '#1e293b' }}>{u.name}</div>
                       <div style={{ color: isDark ? '#94a3b8' : '#64748b', fontSize: '0.8rem', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.email}</div>
                       <div><span style={sh.rolePill}>{u.role}</span></div>
-                      <div><span style={isOnline(u.lastLogin) ? sh.statusGreenPill : sh.statusRedPill}>{isOnline(u.lastLogin) ? 'Active' : 'Inactive'}</span></div>
+                      <div>
+                        <span style={getUserStatus(u) === 'Active' ? sh.statusGreenPill : sh.statusRedPill}>
+                          {getUserStatus(u)}
+                        </span>
+                      </div>
                       <div style={{ fontSize: '0.78rem', color: isDark ? '#94a3b8' : '#64748b' }}>{fmt(u.lastLogin)}</div>
                       <div style={{ textAlign: 'right', display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
                         <motion.button
@@ -498,7 +541,13 @@ export default function UserManagementTab({ users = [], loading = false, onDelet
                     <p style={{ fontWeight: '700', color: '#007bff', marginBottom: '12px' }}>
                       {selected.map(e => users.find(u => u.email === e)?.name || e).join(', ')}
                     </p>
-                    <input type="password" placeholder="New Password" value={newPassword} onChange={e => setNewPassword(e.target.value)} style={sh.inputPill} />
+                    <div style={{ position: 'relative' }}>
+                      <input type={showBulkPassword ? "text" : "password"} placeholder="New Password" value={newPassword} onChange={e => setNewPassword(e.target.value)} style={{ ...sh.inputPill, paddingRight: '40px' }} />
+                      <button type="button" onClick={() => setShowBulkPassword(!showBulkPassword)} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: isDark ? '#9ca3af' : '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {showBulkPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
+                    </div>
+                    <PasswordRequirements password={newPassword} policies={policies} />
                   </>
                 ) : (
                   <>
@@ -541,7 +590,13 @@ export default function UserManagementTab({ users = [], loading = false, onDelet
                   <input type="text" placeholder="Last Name" required value={newUser.lastName} onChange={e => setNewUser({ ...newUser, lastName: e.target.value })} style={{ ...sh.inputPill, flex: 1 }} />
                 </div>
                 <input type="email" placeholder="Email" required value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })} style={sh.inputPill} />
-                <input type="password" placeholder="Password" required value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} style={sh.inputPill} />
+                <div style={{ position: 'relative' }}>
+                  <input type={showAddPassword ? "text" : "password"} placeholder="Password" required value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} style={{ ...sh.inputPill, paddingRight: '40px' }} />
+                  <button type="button" onClick={() => setShowAddPassword(!showAddPassword)} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: isDark ? '#9ca3af' : '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {showAddPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+                <PasswordRequirements password={newUser.password} policies={policies} />
                 <select value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })} style={sh.inputPill}>
                   <option>Student</option><option>Teacher</option><option>Admin</option>
                 </select>
@@ -600,24 +655,15 @@ export default function UserManagementTab({ users = [], loading = false, onDelet
                   marginBottom: '12px'
                 }}>
                   {(viewingUser.name || 'U').charAt(0).toUpperCase()}
-                  <span style={{
-                    position: 'absolute',
-                    bottom: '2px',
-                    right: '2px',
-                    width: '14px',
-                    height: '14px',
-                    borderRadius: '50%',
-                    backgroundColor: isOnline(viewingUser.lastLogin) ? '#22c55e' : '#94a3b8',
-                    border: `2px solid ${isDark ? '#1e1e1e' : '#ffffff'}`
-                  }} title={isOnline(viewingUser.lastLogin) ? 'Online' : 'Offline'} />
+
                 </div>
                 <h3 style={{ margin: '0 0 8px', fontSize: '1.2rem', fontWeight: '700', color: isDark ? '#f8fafc' : '#0f172a' }}>
                   {viewingUser.name}
                 </h3>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <span style={sh.rolePill}>{viewingUser.role}</span>
-                  <span style={viewingUser.status === 'Active' ? sh.statusGreenPill : sh.statusRedPill}>
-                    {viewingUser.status || 'Active'}
+                  <span style={getUserStatus(viewingUser) === 'Active' ? sh.statusGreenPill : sh.statusRedPill}>
+                    {getUserStatus(viewingUser)}
                   </span>
                 </div>
               </div>
@@ -689,14 +735,14 @@ export default function UserManagementTab({ users = [], loading = false, onDelet
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <Shield size={16} color={isDark ? '#94a3b8' : '#64748b'} />
-                    <span style={{ fontSize: '0.84rem', color: isDark ? '#94a3b8' : '#64748b' }}>Account Status:</span>
+                    <span style={{ fontSize: '0.84rem', color: isDark ? '#94a3b8' : '#64748b' }}>Status:</span>
                   </div>
                   <span style={{
                     fontSize: '0.84rem',
                     fontWeight: '700',
-                    color: isOnline(viewingUser.lastLogin) ? '#22c55e' : (isDark ? '#94a3b8' : '#64748b')
+                    color: getUserStatus(viewingUser) === 'Active' ? '#22c55e' : '#ef4444'
                   }}>
-                    {isOnline(viewingUser.lastLogin) ? '● Active Session' : 'Offline'}
+                    {getUserStatus(viewingUser)}
                   </span>
                 </div>
               </div>
@@ -721,7 +767,8 @@ export default function UserManagementTab({ users = [], loading = false, onDelet
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.97 }}
                   onClick={async () => {
-                    const nextStatus = viewingUser.status === 'Active' ? 'Inactive' : 'Active';
+                    const currentStatus = (viewingUser.status || 'Active');
+                    const nextStatus = currentStatus.toLowerCase() === 'active' ? 'Inactive' : 'Active';
                     if (onUpdateUser) {
                       await onUpdateUser(viewingUser.email, { status: nextStatus });
                     }
@@ -732,13 +779,13 @@ export default function UserManagementTab({ users = [], loading = false, onDelet
                   style={{
                     ...sh.submitBlueBtn,
                     flex: 1,
-                    backgroundColor: viewingUser.status === 'Active' ? (isDark ? '#3f2525' : '#fee2e2') : (isDark ? '#1b3b2b' : '#dcfce7'),
-                    color: viewingUser.status === 'Active' ? '#ef4444' : '#15803d',
+                    backgroundColor: (viewingUser.status || 'Active').toLowerCase() === 'active' ? (isDark ? '#3f2525' : '#fee2e2') : (isDark ? '#1b3b2b' : '#dcfce7'),
+                    color: (viewingUser.status || 'Active').toLowerCase() === 'active' ? '#ef4444' : '#15803d',
                     boxShadow: 'none',
-                    border: viewingUser.status === 'Active' ? '1px solid #f87171' : '1px solid #86efac'
+                    border: (viewingUser.status || 'Active').toLowerCase() === 'active' ? '1px solid #f87171' : '1px solid #86efac'
                   }}
                 >
-                  {viewingUser.status === 'Active' ? 'Deactivate' : 'Activate'}
+                  {(viewingUser.status || 'Active').toLowerCase() === 'active' ? 'Deactivate' : 'Activate'}
                 </motion.button>
               </div>
             </motion.div>
@@ -858,13 +905,23 @@ export default function UserManagementTab({ users = [], loading = false, onDelet
                   <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.8rem', fontWeight: '600', color: isDark ? '#cbd5e1' : '#475569' }}>
                     New Password <span style={{ fontWeight: '400', fontSize: '0.75rem', color: isDark ? '#94a3b8' : '#64748b' }}>(Leave blank to keep current password)</span>
                   </label>
-                  <input
-                    type="password"
-                    placeholder="Enter new password"
-                    value={editingUser.password}
-                    onChange={e => setEditingUser({ ...editingUser, password: e.target.value })}
-                    style={sh.inputPill}
-                  />
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type={showEditPassword ? "text" : "password"}
+                      placeholder="Enter new password"
+                      value={editingUser.password}
+                      onChange={e => setEditingUser({ ...editingUser, password: e.target.value })}
+                      style={{ ...sh.inputPill, paddingRight: '40px' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowEditPassword(!showEditPassword)}
+                      style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: isDark ? '#9ca3af' : '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      {showEditPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                  <PasswordRequirements password={editingUser.password} policies={policies} />
                 </div>
 
                 <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>

@@ -18,7 +18,7 @@ import VideoPreviewModal from '../components/VideoPreviewModal';
 import VideoAttachment from '../components/VideoAttachment';
 import AttachmentCard from '../components/AttachmentCard';
 
-const EMPTY_FORM = { title: '', noDueDate: true, dueDate: '', instruction: '', points: '100', grading: 'On', attachments: [] };
+const EMPTY_FORM = { title: '', noDueDate: true, dueDate: '', instruction: '', points: '100', grading: 'On', attachments: [], duration: 60, autoSaveInterval: '30s', treatWarningsAsErrors: false };
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const formatShortDate = (value) => {
@@ -683,9 +683,23 @@ export default function TeacherClasswork({
     setActiveMenu(null);
   };
 
-  const openCreate = () => {
+  const openCreate = async () => {
     setEditingId(null);
-    setForm(EMPTY_FORM);
+    let defaults = { ...EMPTY_FORM };
+    try {
+      const res = await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/system-settings`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.settings?.examDefaults) {
+          defaults.duration = data.settings.examDefaults.defaultExamTimer || 60;
+          defaults.autoSaveInterval = data.settings.examDefaults.autoSaveInterval || '30s';
+          defaults.treatWarningsAsErrors = !!data.settings.examDefaults.treatWarningsAsErrors;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch exam defaults', e);
+    }
+    setForm(defaults);
     setIsModalOpen(true);
   };
 
@@ -699,7 +713,10 @@ export default function TeacherClasswork({
       instruction: item.details || '',
       points: item.points || '100',
       grading: item.grading || 'On',
-      attachments: item.attachments || []
+      attachments: item.attachments || [],
+      duration: item.duration || 60,
+      autoSaveInterval: item.autoSaveInterval || '30s',
+      treatWarningsAsErrors: !!item.treatWarningsAsErrors
     });
     setActiveMenu(null);
     setIsModalOpen(true);
@@ -713,7 +730,10 @@ export default function TeacherClasswork({
       dueDate: form.noDueDate ? '' : form.dueDate,
       points: form.points,
       grading: form.grading,
-      attachments: form.attachments || []
+      attachments: form.attachments || [],
+      duration: form.duration,
+      autoSaveInterval: form.autoSaveInterval,
+      treatWarningsAsErrors: form.treatWarningsAsErrors
     };
 
     if (editingId) {
@@ -2174,6 +2194,41 @@ export default function TeacherClasswork({
                 <option value="50">50</option>
                 <option value="100">100</option>
               </select>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginTop: '10px' }}>
+                <div>
+                  <label style={styles.fieldLabel}>Time Limit (Minutes)</label>
+                  <input
+                    type="number"
+                    min="5" max="300"
+                    value={form.duration}
+                    onChange={(e) => setForm({ ...form, duration: parseInt(e.target.value) || 60 })}
+                    style={styles.input}
+                  />
+                </div>
+                <div>
+                  <label style={styles.fieldLabel}>Auto-Save Interval</label>
+                  <select
+                    value={form.autoSaveInterval}
+                    onChange={(e) => setForm({ ...form, autoSaveInterval: e.target.value })}
+                    style={styles.input}
+                  >
+                    <option value="10s">10 Seconds</option>
+                    <option value="30s">30 Seconds</option>
+                    <option value="1m">1 Minute</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{ ...styles.labelRow, marginTop: '5px', marginBottom: '10px' }}>
+                <label style={styles.checkboxLabel}>
+                  <input
+                    type="checkbox"
+                    checked={form.treatWarningsAsErrors}
+                    onChange={(e) => setForm({ ...form, treatWarningsAsErrors: e.target.checked })}
+                  />
+                  Treat compiler warnings as errors
+                </label>
+              </div>
 
               <div style={styles.bottomRow}>
                 <div style={styles.gradingGroup}>

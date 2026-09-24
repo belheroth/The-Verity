@@ -104,11 +104,19 @@ export default function AdminDashboard({ currentUser, onLogout, socket }) {
     }
   };
 
-  const loadUsers = async () => {
-    setLoading(true);
-    try { const r = await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/users`); const d = await r.json(); setUsers(d.users || []); }
-    catch { setUsers([]); } finally { setLoading(false); }
+  const loadUsers = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    try {
+      const r = await apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/users`);
+      const d = await r.json();
+      setUsers(d.users || []);
+    } catch {
+      if (showLoading) setUsers([]);
+    } finally {
+      if (showLoading) setLoading(false);
+    }
   };
+
   useEffect(() => {
     loadUsers();
     loadStats();
@@ -116,6 +124,7 @@ export default function AdminDashboard({ currentUser, onLogout, socket }) {
     const iv = setInterval(() => {
       loadStats();
       loadNotifications();
+      loadUsers(false);
     }, 10000);
     return () => clearInterval(iv);
   }, []);
@@ -207,7 +216,7 @@ export default function AdminDashboard({ currentUser, onLogout, socket }) {
       showSelectUsersPopup={showSelectUsersPopup}
       setShowSelectUsersPopup={setShowSelectUsersPopup}
     >
-      {activeTab === 'dashboard' && (
+      <div style={{ display: activeTab === 'dashboard' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}>
         <DashboardOverview
           stats={stats}
           users={users}
@@ -216,8 +225,8 @@ export default function AdminDashboard({ currentUser, onLogout, socket }) {
           onDeleteUser={handleDeleteUser}
           msg={msg}
         />
-      )}
-      {activeTab === 'users' && (
+      </div>
+      <div style={{ display: activeTab === 'users' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}>
         <UserManagement
           users={users}
           loading={loading}
@@ -225,10 +234,16 @@ export default function AdminDashboard({ currentUser, onLogout, socket }) {
           onUpdateUser={handleUpdateUser}
           onShowSelectUsersPopup={setShowSelectUsersPopup}
         />
-      )}
-      {activeTab === 'classes' && <GlobalClasses />}
-      {activeTab === 'security' && <SecurityLogs />}
-      {activeTab === 'settings' && <AdminSettings currentUser={currentUser} />}
+      </div>
+      <div style={{ display: activeTab === 'classes' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+        <GlobalClasses />
+      </div>
+      <div style={{ display: activeTab === 'security' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+        <SecurityLogs />
+      </div>
+      <div style={{ display: activeTab === 'settings' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+        <AdminSettings currentUser={currentUser} />
+      </div>
     </AdminLayout>
   );
 }

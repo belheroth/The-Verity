@@ -427,14 +427,17 @@ export default function StudentView({ socket, currentUser, username, assignment,
     if (socket && typeof socket.emit === 'function') {
       socket.emit('proctor_alert', payload);
     }
+    const actionStr = (message || '').toLowerCase();
+    const isCopyPaste = actionStr.includes('paste') || actionStr.includes('clipboard') || actionStr.includes('copy');
+    
     // Also post directly to /audit-logs for guaranteed persistence & instant admin dashboard update
     apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/audit-logs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         user: currentUser?.name || currentUser?.email || safeUsername,
-        type: 'Alt-Tab / Copy-Paste Violation',
-        severity: 'Warning',
+        type: isCopyPaste ? 'Copy/Paste Violation' : 'Exit Tab Violation',
+        severity: isCopyPaste ? 'High' : 'Warning',
         desc: `${message} in classroom ${classroom?.id || 'workspace'}`
       })
     }).catch(() => {});

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Editor from '@monaco-editor/react';
 import { Home, ArrowLeft, Maximize2, Play, Pause } from 'lucide-react';
 import { apiFetch } from '../utils/api';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function TeacherView({ socket, assignment, classroom, initialStudent, onBack, onLogout, mode = 'live' }) {
   const [students, setStudents] = useState(() => {
@@ -38,6 +39,29 @@ export default function TeacherView({ socket, assignment, classroom, initialStud
   const animFrameRef = useRef(null);
   // Records { fromIndex, toIndex, startAt, endAt } for smooth rAF interpolation between steps
   const stepTimingRef = useRef(null);
+
+  const [notifSettings, setNotifSettings] = useState({
+    soundAlerts: true,
+    notifyOnSubmission: true,
+    showToastWarnings: true,
+  });
+  const notifSettingsRef = useRef(notifSettings);
+  useEffect(() => { notifSettingsRef.current = notifSettings; }, [notifSettings]);
+  const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/system-settings`)
+      .then(res => res.ok ? res.json() : {})
+      .then(d => {
+        if (!isMounted) return;
+        if (d.settings?.notifications) {
+          setNotifSettings(d.settings.notifications);
+        }
+      })
+      .catch(() => {});
+    return () => { isMounted = false; };
+  }, []);
 
   // Load submissions from backend and localStorage so submitted students and their VCR history are ready
   useEffect(() => {
@@ -182,6 +206,22 @@ export default function TeacherView({ socket, assignment, classroom, initialStud
           return { ...prev, [data.studentId]: { ...existing, logs: [newLog, ...existing.logs] } };
         });
         checkSelection(data.studentId);
+        
+        // Notifications & Alerts Logic
+        if (notifSettingsRef.current.soundAlerts) {
+          try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            osc.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.15);
+          } catch (e) {}
+        }
+        
+        if (notifSettingsRef.current.showToastWarnings) {
+          setToast({ message: `Warning: ${data.name || data.studentId} - ${data.action}`, type: 'warning' });
+          setTimeout(() => setToast(null), 3500);
+        }
       });
 
       socket.on('teacher_terminal_update', (data) => {
@@ -222,6 +262,11 @@ export default function TeacherView({ socket, assignment, classroom, initialStud
       });
       if (mode === 'live') {
         setSelectedStudentId(prev => (prev === data.studentName || prev === data.studentId ? null : prev));
+      }
+      
+      if (notifSettingsRef.current.notifyOnSubmission) {
+        setToast({ message: `${data.studentName || data.studentId || 'A student'} submitted their exam.`, type: 'success' });
+        setTimeout(() => setToast(null), 3500);
       }
     });
 
@@ -357,6 +402,31 @@ export default function TeacherView({ socket, assignment, classroom, initialStud
 
   return (
     <div style={styles.container}>
+      
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.9 }}
+            style={{
+              position: 'fixed',
+              bottom: '30px',
+              right: '30px',
+              backgroundColor: toast.type === 'warning' ? '#fef3c7' : '#dcfce7',
+              border: `2px solid ${toast.type === 'warning' ? '#f59e0b' : '#22c55e'}`,
+              color: toast.type === 'warning' ? '#b45309' : '#15803d',
+              padding: '12px 20px',
+              borderRadius: '12px',
+              boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
+              fontWeight: 'bold',
+              zIndex: 9999
+            }}
+          >
+            {toast.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div style={styles.leftSidebar}>
         <div style={styles.rosterSection}>
           <button

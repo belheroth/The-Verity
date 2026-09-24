@@ -388,6 +388,23 @@ export default function ClassroomView({
     name: classroom?.instructor || '',
     email: classroom?.instructorEmail || ''
   });
+  
+  const [allowManageStudents, setAllowManageStudents] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/system-settings`)
+      .then(res => res.json())
+      .then(d => {
+        if (!active) return;
+        const config = d.settings?.global_config || d.settings || {};
+        if (config.roles && typeof config.roles.allowManageStudents !== 'undefined') {
+          setAllowManageStudents(config.roles.allowManageStudents);
+        }
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (!classroom?.id) return;
@@ -1244,7 +1261,28 @@ export default function ClassroomView({
                   {/* Classmates Section */}
                   <div>
                     <div style={styles.peopleSectionHeader}>
-                      <h2 style={styles.peopleSectionTitle}>Classmates</h2>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <h2 style={styles.peopleSectionTitle}>Classmates</h2>
+                        {(currentUser?.role === 'Admin' || (currentUser?.role === 'Teacher' && allowManageStudents)) && (
+                          <motion.button 
+                            whileHover={{ scale: 1.05 }} 
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => {
+                              const email = window.prompt("Enter student's email to add them:");
+                              if (!email) return;
+                              const name = email.split('@')[0];
+                              apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/classrooms/${classroom.id}/enroll`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ studentEmail: email, studentName: name })
+                              }).then(() => window.location.reload()).catch(e => alert(e.message));
+                            }}
+                            style={{ padding: '6px 12px', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 'bold' }}
+                          >
+                            + Add Student
+                          </motion.button>
+                        )}
+                      </div>
                       <span style={{ fontSize: '0.85rem', color: isDark ? '#a3a3a3' : '#64748b', fontWeight: '600' }}>
                         {enrolledStudents.length} student{enrolledStudents.length === 1 ? '' : 's'}
                       </span>

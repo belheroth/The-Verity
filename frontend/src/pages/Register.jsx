@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GoogleLogin } from '@react-oauth/google';
-import { Moon, Sun } from 'lucide-react';
+import { Moon, Sun, Eye, EyeOff } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { useDarkMode } from '../hooks/useDarkMode';
+import PasswordRequirements from '../components/PasswordRequirements';
 
 export default function Register({ onBackToLogin }) {
   const { isDark, toggle } = useDarkMode();
@@ -15,6 +16,20 @@ export default function Register({ onBackToLogin }) {
     role: 'Student'
   });
   const [message, setMessage] = useState(null); // { type: 'error' | 'success', text }
+  const [policies, setPolicies] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  useEffect(() => {
+    apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/kiosk-settings`)
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.settings && data.settings.passwordPolicies) {
+          setPolicies(data.settings.passwordPolicies);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleGoogleSuccess = async (credentialResponse) => {
     try {
@@ -180,33 +195,54 @@ export default function Register({ onBackToLogin }) {
             }}
           />
 
-          <input
-            type="password"
-            placeholder="Password"
-            required
-            value={formData.password}
-            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-            style={{
-              ...styles.input,
-              backgroundColor: isDark ? '#333338' : '#f9fafb',
-              borderColor: isDark ? '#4a4a52' : '#e5e7eb',
-              color: isDark ? '#f4f4f5' : '#4b5563',
-            }}
-          />
+          <div style={{ position: 'relative' }}>
+            <input
+              type={showPassword ? 'text' : 'password'}
+              placeholder="Password"
+              required
+              value={formData.password}
+              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              style={{
+                ...styles.input,
+                backgroundColor: isDark ? '#333338' : '#f9fafb',
+                borderColor: isDark ? '#4a4a52' : '#e5e7eb',
+                color: isDark ? '#f4f4f5' : '#4b5563',
+                paddingRight: '40px'
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: isDark ? '#9ca3af' : '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
+          <PasswordRequirements password={formData.password} policies={policies} />
 
-          <input
-            type="password"
-            placeholder="Retype Password"
-            required
-            value={formData.confirmPassword}
-            onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-            style={{
-              ...styles.input,
-              backgroundColor: isDark ? '#333338' : '#f9fafb',
-              borderColor: isDark ? '#4a4a52' : '#e5e7eb',
-              color: isDark ? '#f4f4f5' : '#4b5563',
-            }}
-          />
+          <div style={{ position: 'relative' }}>
+            <input
+              type={showConfirmPassword ? 'text' : 'password'}
+              placeholder="Retype Password"
+              required
+              value={formData.confirmPassword}
+              onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+              style={{
+                ...styles.input,
+                backgroundColor: isDark ? '#333338' : '#f9fafb',
+                borderColor: isDark ? '#4a4a52' : '#e5e7eb',
+                color: isDark ? '#f4f4f5' : '#4b5563',
+                paddingRight: '40px'
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: isDark ? '#9ca3af' : '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
 
           {/* Role Checkboxes */}
           <div style={styles.checkboxContainer}>

@@ -14,7 +14,8 @@ export default function PendingInstructorApproval({ users, onUpdateUser, onActio
   const [pendingInstructors, setPendingInstructors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [successPopup, setSuccessPopup] = useState(null); // { name: string }
+  const [actionPopup, setActionPopup] = useState(null); // { name: string, type: 'approve' | 'decline' }
+  const [isSeeAllOpen, setIsSeeAllOpen] = useState(false);
 
   useEffect(() => {
     const filterPendingInstructors = () => {
@@ -55,8 +56,8 @@ export default function PendingInstructorApproval({ users, onUpdateUser, onActio
       // Show success popup
       const instructor = pendingInstructors.find(i => (i.emailAddress || i.email) === email);
       const name = instructor?.name || instructor?.fullName || email.split('@')[0];
-      setSuccessPopup({ name });
-      setTimeout(() => setSuccessPopup(null), 2500);
+      setActionPopup({ name, type: 'approve' });
+      setTimeout(() => setActionPopup(null), 2500);
 
       // Log the action
       if (onActionLogged) {
@@ -77,15 +78,20 @@ export default function PendingInstructorApproval({ users, onUpdateUser, onActio
     // Optimistically remove from list immediately
     setPendingInstructors(prev => prev.filter(i => (i.emailAddress || i.email) !== email));
     try {
-      const response = await apiFetch(`${API}/users/${encodeURIComponent(email)}/status`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'Rejected' })
+      // Instead of changing status, completely delete the pending account
+      const response = await apiFetch(`${API}/users/${encodeURIComponent(email)}`, {
+        method: 'DELETE'
       });
 
       if (!response.ok) {
         throw new Error(`Failed to reject user: ${response.status}`);
       }
+
+      // Show decline popup
+      const instructor = pendingInstructors.find(i => (i.emailAddress || i.email) === email);
+      const name = instructor?.name || instructor?.fullName || email.split('@')[0];
+      setActionPopup({ name, type: 'decline' });
+      setTimeout(() => setActionPopup(null), 2500);
 
       // Log the action
       if (onActionLogged) {
@@ -93,7 +99,7 @@ export default function PendingInstructorApproval({ users, onUpdateUser, onActio
           type: 'REJECT_INSTRUCTOR',
           email,
           timestamp: new Date().toISOString(),
-          message: `Instructor rejected`
+          message: `Instructor rejected and account deleted`
         });
       }
     } catch (err) {
@@ -118,9 +124,63 @@ export default function PendingInstructorApproval({ users, onUpdateUser, onActio
     );
   }
 
+  const displayedInstructors = pendingInstructors.slice(0, 3);
+
+  const renderInstructor = (instructor) => {
+    const email = instructor.emailAddress || instructor.email || '';
+    const name = instructor.name || instructor.fullName || (email ? email.split('@')[0] : 'Instructor');
+    const initial = name.charAt(0).toUpperCase() || '?';
+
+    return (
+      <div
+        key={email}
+        style={styles.pillRow}
+      >
+        <div style={styles.leftInfo}>
+          <div style={styles.avatar}>
+            {initial}
+          </div>
+          <div style={styles.textColumn}>
+            <span style={styles.displayName}>{name}</span>
+            <span style={styles.displayEmail}>{email}</span>
+          </div>
+        </div>
+
+        <div style={styles.actionsGroup}>
+          <motion.button
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.96 }}
+            onClick={() => handleApprove(email)}
+            style={styles.acceptButton}
+          >
+            Accept
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.96 }}
+            onClick={() => handleReject(email)}
+            style={styles.declineButton}
+          >
+            Decline
+          </motion.button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={styles.cardContainer}>
-      <h2 style={styles.title}>Pending Instructor Approval</h2>
+      <div style={styles.headerRow}>
+        <h2 style={styles.title}>Pending Instructor Approval</h2>
+        {pendingInstructors.length > 3 && (
+          <button
+            style={styles.seeAllBtn}
+            onClick={() => setIsSeeAllOpen(true)}
+          >
+            See All
+          </button>
+        )}
+      </div>
 
       {pendingInstructors.length === 0 ? (
         <div style={styles.emptyState}>
@@ -141,62 +201,59 @@ export default function PendingInstructorApproval({ users, onUpdateUser, onActio
         </div>
       ) : (
         <div style={styles.listContainer}>
-          {pendingInstructors.map(instructor => {
-            const email = instructor.emailAddress || instructor.email || '';
-            const name = instructor.name || instructor.fullName || (email ? email.split('@')[0] : 'Instructor');
-            const initial = name.charAt(0).toUpperCase() || '?';
-
-            return (
-              <div
-                key={email}
-                style={styles.pillRow}
-              >
-                <div style={styles.leftInfo}>
-                  <div style={styles.avatar}>
-                    {initial}
-                  </div>
-                  <div style={styles.textColumn}>
-                    <span style={styles.displayName}>{name}</span>
-                    <span style={styles.displayEmail}>{email}</span>
-                  </div>
-                </div>
-
-                <div style={styles.actionsGroup}>
-                  <motion.button
-                    whileHover={{ scale: 1.04 }}
-                    whileTap={{ scale: 0.96 }}
-                    onClick={() => handleApprove(email)}
-                    style={styles.acceptButton}
-                  >
-                    Accept
-                  </motion.button>
-                  <motion.button
-                    whileHover={{ scale: 1.04 }}
-                    whileTap={{ scale: 0.96 }}
-                    onClick={() => handleReject(email)}
-                    style={styles.declineButton}
-                  >
-                    Decline
-                  </motion.button>
-                </div>
-              </div>
-            );
-          })}
+          {displayedInstructors.map(renderInstructor)}
         </div>
       )}
 
-      {/* SVG Success Popup */}
       <AnimatePresence>
-        {successPopup && (
+        {isSeeAllOpen && (
           <motion.div
-            key="success-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            style={styles.modalOverlay}
+            onClick={() => setIsSeeAllOpen(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              onClick={(e) => e.stopPropagation()}
+              style={styles.modalContent}
+            >
+              <div style={styles.modalHeader}>
+                <h2 style={styles.modalTitle}>All Pending Instructors ({pendingInstructors.length})</h2>
+                <button
+                  onClick={() => setIsSeeAllOpen(false)}
+                  style={styles.closeBtn}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = isDark ? '#3a3a3a' : '#f1f5f9'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                >
+                  &times;
+                </button>
+              </div>
+              
+              <div style={styles.modalListContainer}>
+                {pendingInstructors.map(renderInstructor)}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* SVG Action Popup */}
+      <AnimatePresence>
+        {actionPopup && (
+          <motion.div
+            key="action-overlay"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             style={styles.popupOverlay}
           >
             <motion.div
-              key="success-card"
+              key="action-card"
               initial={{ opacity: 0, scale: 0.85, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.85, y: 20 }}
@@ -204,20 +261,39 @@ export default function PendingInstructorApproval({ users, onUpdateUser, onActio
               style={styles.popupCard}
             >
               <div style={styles.popupIconRing}>
-                <svg width="36" height="36" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <circle cx="20" cy="20" r="20" fill="#dcfce7" />
-                  <path
-                    d="M11 20.5L17 27L29 14"
-                    stroke="#16a34a"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
+                {actionPopup.type === 'approve' ? (
+                  <svg width="36" height="36" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="20" cy="20" r="20" fill={isDark ? "rgba(34, 197, 94, 0.15)" : "#dcfce7"} />
+                    <path
+                      d="M11 20.5L17 27L29 14"
+                      stroke={isDark ? "#4ade80" : "#16a34a"}
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                ) : (
+                  <svg width="36" height="36" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="20" cy="20" r="20" fill={isDark ? "rgba(239, 68, 68, 0.15)" : "#fee2e2"} />
+                    <path
+                      d="M14 14L26 26M26 14L14 26"
+                      stroke={isDark ? "#f87171" : "#dc2626"}
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
               </div>
               <div>
-                <p style={styles.popupTitle}>Instructor Approved</p>
-                <p style={styles.popupSub}><strong>{successPopup.name}</strong> has been granted access as an instructor.</p>
+                <p style={styles.popupTitle}>{actionPopup.type === 'approve' ? 'Instructor Approved' : 'Instructor Declined'}</p>
+                <p style={styles.popupSub}>
+                  {actionPopup.type === 'approve' ? (
+                    <><strong>{actionPopup.name}</strong> has been granted access as an instructor.</>
+                  ) : (
+                    <><strong>{actionPopup.name}</strong>'s request has been rejected.</>
+                  )}
+                </p>
               </div>
             </motion.div>
           </motion.div>
@@ -238,13 +314,92 @@ const getStyles = (isDark) => ({
     boxSizing: 'border-box',
     border: isDark ? '1px solid #3a3a3a' : 'none',
   },
+  headerRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '14px',
+  },
   title: {
-    margin: '0 0 14px 0',
+    margin: 0,
     fontSize: '0.88rem',
     fontWeight: '700',
     color: isDark ? '#f1f5f9' : '#1e293b',
     letterSpacing: '-0.01em',
     whiteSpace: 'nowrap',
+  },
+  seeAllBtn: {
+    background: 'none',
+    border: 'none',
+    color: isDark ? '#60a5fa' : '#3b82f6',
+    fontSize: '0.78rem',
+    fontWeight: '600',
+    cursor: 'pointer',
+    padding: '4px 8px',
+    outline: 'none',
+    borderRadius: '12px',
+    transition: 'background-color 0.2s',
+  },
+  modalOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(0, 0, 0, 0.4)',
+    backdropFilter: 'blur(4px)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+    padding: '20px',
+  },
+  modalContent: {
+    backgroundColor: isDark ? '#2c2c2c' : '#ffffff',
+    borderRadius: '24px',
+    padding: '24px',
+    width: '100%',
+    maxWidth: '500px',
+    boxShadow: isDark ? '0 10px 40px rgba(0,0,0,0.5)' : '0 10px 40px rgba(0,0,0,0.1)',
+    border: isDark ? '1px solid #3a3a3a' : 'none',
+    display: 'flex',
+    flexDirection: 'column',
+    maxHeight: '80vh',
+  },
+  modalHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '20px',
+  },
+  modalTitle: {
+    margin: 0,
+    fontSize: '1.1rem',
+    fontWeight: '700',
+    color: isDark ? '#f1f5f9' : '#1e293b',
+  },
+  closeBtn: {
+    background: 'transparent',
+    border: 'none',
+    fontSize: '1.5rem',
+    color: isDark ? '#94a3b8' : '#64748b',
+    cursor: 'pointer',
+    padding: '4px',
+    lineHeight: 1,
+    width: '32px',
+    height: '32px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '50%',
+    transition: 'background-color 0.2s',
+  },
+  modalListContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
+    overflowY: 'auto',
+    paddingRight: '4px',
   },
   loading: {
     display: 'flex',

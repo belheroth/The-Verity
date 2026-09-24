@@ -260,6 +260,21 @@ const todayKey = () => {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+// --- PASSWORD VALIDATION HELPER ---
+const validatePassword = async (password) => {
+    try {
+        const row = await db.get("SELECT value FROM system_settings WHERE key = 'security'");
+        if (row && row.value) {
+            const config = JSON.parse(row.value);
+            const policies = config.passwordPolicies || {};
+            if (policies.minLength8 && password.length < 8) return 'Password must be at least 8 characters long.';
+            if (policies.numbers && !/\d/.test(password)) return 'Password must contain at least one number.';
+            if (policies.specialChars && !/[!@#$%^&*(),.?":{}|<>]/.test(password)) return 'Password must contain at least one special character.';
+        }
+    } catch (_) {}
+    return null;
+};
+
 // --- MAINTENANCE MODE HELPER ---
 const getMaintenanceStatus = async () => {
     try {
@@ -314,18 +329,16 @@ app.post('/register', async (req, res) => {
         const cleanEmail = (email || '').trim().toLowerCase();
         const cleanName = (name || '').trim().toLowerCase();
 
+        const passwordError = await validatePassword(password);
+        if (passwordError) {
+            return res.status(400).json({ message: passwordError });
+        }
+
         // 1. Check if email already exists in users or admin_users
         const existingUserEmail = await db.get('SELECT id FROM users WHERE LOWER(email) = ?', cleanEmail);
         const existingAdminEmail = await db.get('SELECT id FROM admin_users WHERE LOWER(email) = ?', cleanEmail);
         if (existingUserEmail || existingAdminEmail) {
-            return res.status(400).json({ message: 'invalid email' });
-        }
-
-        // 2. Check if username (name) already exists in users or admin_users
-        const existingUserName = await db.get('SELECT id FROM users WHERE LOWER(name) = ?', cleanName);
-        const existingAdminName = await db.get('SELECT id FROM admin_users WHERE LOWER(name) = ?', cleanName);
-        if (existingUserName || existingAdminName) {
-            return res.status(400).json({ message: 'invalid email' });
+            return res.status(400).json({ message: 'Email is already in use' });
         }
 
         // Check if an existing Admin is creating this account
@@ -344,13 +357,24 @@ app.post('/register', async (req, res) => {
         let userRole = 'Student';
         let status = 'Active';
 
+        let requireApproval = true;
+        try {
+            const row = await db.get("SELECT value FROM system_settings WHERE key = 'global_config'");
+            if (row) {
+                const config = JSON.parse(row.value);
+                if (config?.roles?.requireAdminApproval === false) {
+                    requireApproval = false;
+                }
+            }
+        } catch (e) {}
+
         if (requesterIsAdmin && role === 'Admin') {
             userRole = 'Admin';
             status = 'Active';
         } else if (role === 'Teacher') {
             userRole = 'Teacher';
-            // If created by an Admin, can be Active immediately; public signup requires admin approval
-            status = requesterIsAdmin ? 'Active' : 'Pending';
+            // If created by an Admin, can be Active immediately; public signup requires admin approval if setting is true
+            status = requesterIsAdmin || !requireApproval ? 'Active' : 'Pending';
         } else {
             userRole = 'Student';
             status = 'Active';
@@ -573,7 +597,7 @@ app.get('/users', authenticateToken, requireRole('Admin'), async (req, res) => {
 app.delete('/users/:email', authenticateToken, requireRole('Admin'), async (req, res) => {
     try {
         const email = decodeURIComponent(req.params.email);
-        const info = await db.run('DELETE FROM users WHERE email = ?', email);
+        const info = await db.run('DELETE FROM users WHERE LOWER(email) = LOWER(?)', email);
         if (info.changes === 0) return res.status(404).json({ message: 'User not found' });
         res.status(200).json({ message: 'User deleted' });
     } catch (e) {
@@ -585,7 +609,7 @@ app.put('/users/:email/status', authenticateToken, requireRole('Admin'), async (
     try {
         const email = decodeURIComponent(req.params.email);
         const { status } = req.body;
-        const info = await db.run('UPDATE users SET status = ? WHERE email = ?', status, email);
+        const info = await db.run('UPDATE users SET status = ? WHERE LOWER(email) = LOWER(?)', status, email);
         if (info.changes === 0) return res.status(404).json({ message: 'User not found' });
         res.status(200).json({ message: 'User status updated' });
     } catch (e) {
@@ -612,6 +636,9 @@ app.put('/users/:email', authenticateToken, requireRole('Admin'), async (req, re
         }
 
         if (password && password.trim()) {
+            const passwordError = await validatePassword(password.trim());
+            if (passwordError) return res.status(400).json({ message: passwordError });
+
             await db.run(
                 'UPDATE users SET name = ?, email = ?, role = ?, status = ?, password = ? WHERE id = ?',
                 newName, newEmail, newRole, newStatus, password.trim(), existing.id
@@ -1012,6 +1039,22 @@ app.patch('/classrooms/:id/theme', authenticateToken, requireRole('Teacher', 'Ad
 
 app.delete('/classrooms/:id', authenticateToken, requireRole('Teacher', 'Admin'), async (req, res) => {
     try {
+        if (req.user.role === 'Teacher') {
+            let allowDelete = false;
+            try {
+                const row = await db.get("SELECT value FROM system_settings WHERE key = 'global_config'");
+                if (row) {
+                    const config = JSON.parse(row.value);
+                    if (config?.roles?.allowDeleteCourses === true) {
+                        allowDelete = true;
+                    }
+                }
+            } catch (e) {}
+            if (!allowDelete) {
+                return res.status(403).json({ message: 'Only System Admins can delete courses according to system settings.' });
+            }
+        }
+
         const id = req.params.id;
         await db.run('DELETE FROM submissions WHERE assignment_id IN (SELECT id FROM classwork WHERE classroom_id = ?)', id).catch(() => {});
         await db.run('DELETE FROM grades WHERE assignment_id IN (SELECT id FROM classwork WHERE classroom_id = ?)', id).catch(() => {});
@@ -1260,6 +1303,22 @@ app.get('/classroom-students/:classroomId', authenticateToken, async (req, res) 
 
 app.post('/classrooms/:classroomId/enroll', authenticateToken, async (req, res) => {
     try {
+        if (req.user.role === 'Teacher') {
+            let allowManage = true;
+            try {
+                const row = await db.get("SELECT value FROM system_settings WHERE key = 'global_config'");
+                if (row) {
+                    const config = JSON.parse(row.value);
+                    if (config?.roles?.allowManageStudents === false) {
+                        allowManage = false;
+                    }
+                }
+            } catch (e) {}
+            if (!allowManage) {
+                return res.status(403).json({ message: 'Only System Admins can manage students according to system settings.' });
+            }
+        }
+        
         const { classroomId } = req.params;
         const now = new Date().toISOString();
 
@@ -1422,11 +1481,11 @@ app.get('/stats', authenticateToken, requireRole('Admin'), async (req, res) => {
         try {
             const startOfDay = `${tKey}T00:00:00.000Z`;
             const auditAltTabRow = await db.get(
-                `SELECT COUNT(id) as c FROM audit_logs WHERE (type LIKE '%Alt-Tab%' OR type LIKE '%Copy-Paste%' OR LOWER("desc") LIKE '%alt%tab%' OR LOWER("desc") LIKE '%paste%' OR LOWER("desc") LIKE '%clipboard%') AND timestamp >= ?`,
+                `SELECT COUNT(id) as c FROM audit_logs WHERE (type LIKE '%Alt-Tab%' OR type LIKE '%Copy-Paste%' OR type LIKE '%Copy/Paste%' OR type LIKE '%Exit Tab%' OR LOWER("desc") LIKE '%alt%tab%' OR LOWER("desc") LIKE '%paste%' OR LOWER("desc") LIKE '%clipboard%') AND timestamp >= ?`,
                 startOfDay
             );
             const auditSecRow = await db.get(
-                `SELECT COUNT(id) as c FROM audit_logs WHERE severity IN ('High', 'Warning') AND type NOT LIKE '%Alt-Tab%' AND type NOT LIKE '%Copy-Paste%' AND timestamp >= ?`,
+                `SELECT COUNT(id) as c FROM audit_logs WHERE severity IN ('High', 'Warning') AND type NOT LIKE '%Alt-Tab%' AND type NOT LIKE '%Copy-Paste%' AND type NOT LIKE '%Copy/Paste%' AND type NOT LIKE '%Exit Tab%' AND timestamp >= ?`,
                 startOfDay
             );
             const auditAltCount = auditAltTabRow ? Number(auditAltTabRow.c || 0) : 0;
@@ -2021,7 +2080,9 @@ io.on('connection', (socket) => {
         try {
             const key = todayKey();
             const actionStr = (data?.action || '').toLowerCase();
-            const isAltTabCopyPaste = actionStr.includes('tab') || actionStr.includes('paste') || actionStr.includes('clipboard') || actionStr.includes('copy') || actionStr.includes('exit') || actionStr.includes('blur');
+            const isExitTab = actionStr.includes('tab') || actionStr.includes('exit') || actionStr.includes('blur');
+            const isCopyPaste = actionStr.includes('paste') || actionStr.includes('clipboard') || actionStr.includes('copy');
+            const isAltTabCopyPaste = isExitTab || isCopyPaste;
 
             if (isAltTabCopyPaste) {
                 // Count under Alt-Tab / Copy-Paste flags (do NOT increment Security Flags Today count)
@@ -2041,12 +2102,24 @@ io.on('connection', (socket) => {
             // Log event to audit_logs for admin activity view
             if (data && (data.studentId || data.name || data.email)) {
                 const userName = data.name || data.email || data.studentId;
+                
+                let logType = 'Security Flag Alert';
+                let logSeverity = 'High';
+                
+                if (isCopyPaste) {
+                    logType = 'Copy/Paste Violation';
+                    logSeverity = 'High';
+                } else if (isExitTab) {
+                    logType = 'Exit Tab Violation';
+                    logSeverity = 'Warning';
+                }
+
                 await db.run(
                     'INSERT INTO audit_logs (timestamp, "user", type, severity, "desc") VALUES (?, ?, ?, ?, ?)',
                     nowIso,
                     userName,
-                    isAltTabCopyPaste ? 'Alt-Tab / Copy-Paste Violation' : 'Security Flag Alert',
-                    isAltTabCopyPaste ? 'Warning' : 'High',
+                    logType,
+                    logSeverity,
                     `${data.action || 'Violation alert'} in classroom ${data.classroomId || 'workspace'}`
                 );
             }

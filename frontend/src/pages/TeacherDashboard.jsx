@@ -221,6 +221,23 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
     () => !localStorage.getItem(getStorageKey(currentUser))
   );
 
+  const [allowDelete, setAllowDelete] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/system-settings`)
+      .then(res => res.json())
+      .then(d => {
+        if (!active) return;
+        const config = d.settings?.global_config || d.settings || {};
+        if (config.roles && typeof config.roles.allowDeleteCourses !== 'undefined') {
+          setAllowDelete(config.roles.allowDeleteCourses);
+        }
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
+
   // Fetch real classrooms from backend server strictly for this teacher
   useEffect(() => {
     let active = true;
@@ -606,7 +623,7 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
                           classroom={cls}
                           onEnter={onEnterClassroom}
                           onUnarchive={handleUnarchiveClass}
-                          onDelete={handleDeleteClass}
+                          onDelete={(allowDelete || currentUser?.role === 'Admin') ? handleDeleteClass : undefined}
                           isArchived={true}
                           role="Teacher"
                         />
@@ -687,7 +704,7 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
                           setSettingsClassroom(c);
                           handleSetView('classroomSettings');
                         }}
-                        onDelete={handleDeleteClass}
+                        onDelete={(allowDelete || currentUser?.role === 'Admin') ? handleDeleteClass : undefined}
                         role="Teacher"
                       />
                     ))

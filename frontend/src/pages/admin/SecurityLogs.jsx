@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Search, AlertCircle } from 'lucide-react';
 import { getSecurityLogs, logSecurityEvent } from '../../utils/securityLogger';
 import { useDarkMode } from '../../hooks/useDarkMode';
+import { apiFetch } from '../../utils/api';
 
 const getStyles = (isDark) => ({
   pageWrap: {
@@ -35,10 +36,30 @@ export default function SecurityAuditLogsTab() {
   const [filter, setFilter] = useState('All');
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [density, setDensity] = useState('Comfortable');
+
+  useEffect(() => {
+    let isMounted = true;
+    apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/system-settings`)
+      .then(res => res.ok ? res.json() : {})
+      .then(d => {
+        if (!isMounted) return;
+        const s = d.settings?.global_config || d.settings;
+        if (s?.uiPrefs?.auditTableDensity) {
+          setDensity(s.uiPrefs.auditTableDensity);
+        }
+      })
+      .catch(() => {});
+    return () => { isMounted = false; };
+  }, []);
 
   const fetchLogs = async () => {
     const fetched = await getSecurityLogs();
-    setLogs(fetched);
+    setLogs(fetched.filter(l => 
+      l.type !== 'Alt-Tab / Copy-Paste Violation' && 
+      l.type !== 'Exit Tab Violation' && 
+      l.type !== 'Copy/Paste Violation'
+    ));
     setLoading(false);
   };
 
@@ -152,7 +173,7 @@ export default function SecurityAuditLogsTab() {
 
         {/* Table */}
         <div style={sh.tableWrap}>
-          <div style={{ backgroundColor: headerBg, borderRadius: '9999px', padding: '12px 20px', display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 1fr 1fr 2fr', alignItems: 'center', fontWeight: '700', color: headerColor, fontSize: '0.85rem', marginBottom: '8px' }}>
+          <div style={{ backgroundColor: headerBg, borderRadius: '9999px', padding: density === 'Compact' ? '8px 20px' : '12px 20px', display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 1fr 1fr 2fr', alignItems: 'center', fontWeight: '700', color: headerColor, fontSize: density === 'Compact' ? '0.75rem' : '0.85rem', marginBottom: '8px' }}>
             <div>Timestamp</div><div>Performed By</div><div>Event Type</div><div>Severity</div><div>Description</div>
           </div>
           {filteredLogs.length === 0 ? (
@@ -160,9 +181,9 @@ export default function SecurityAuditLogsTab() {
               {loading ? 'Loading security events...' : 'No events match the current filter.'}
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: density === 'Compact' ? '4px' : '8px' }}>
               {filteredLogs.map((log, i) => (
-                <div key={log.id || i} style={{ backgroundColor: rowBg, borderRadius: '9999px', padding: '10px 24px', display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 1fr 1fr 2fr', alignItems: 'center', fontSize: '0.85rem' }}>
+                <div key={log.id || i} style={{ backgroundColor: rowBg, borderRadius: '9999px', padding: density === 'Compact' ? '6px 24px' : '10px 24px', display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 1fr 1fr 2fr', alignItems: 'center', fontSize: density === 'Compact' ? '0.75rem' : '0.85rem' }}>
                   <div style={{ color: isDark ? '#94a3b8' : '#475569' }}>{log.timestamp ? new Date(log.timestamp).toLocaleString() : '—'}</div>
                   <div style={{ fontWeight: '600', color: isDark ? '#f1f5f9' : '#1e293b' }}>{log.user || 'System'}</div>
                   <div style={{ color: isDark ? '#cbd5e1' : '#334155' }}>{log.type || 'Event'}</div>

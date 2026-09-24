@@ -230,12 +230,18 @@ const DEFAULT_SETTINGS = {
 // ════════════════════════════════════════════════════════════════════
 // TAB 1 — GENERAL PREFERENCES
 // ════════════════════════════════════════════════════════════════════
-function GeneralPreferencesTab({ data, onChange }) {
+const tabVariants = {
+  initial: (direction) => ({ opacity: 0, x: direction > 0 ? 30 : -30 }),
+  animate: { opacity: 1, x: 0, transition: { duration: 0.25, ease: 'easeOut' } },
+  exit: (direction) => ({ opacity: 0, x: direction > 0 ? -30 : 30, transition: { duration: 0.2, ease: 'easeIn' } })
+};
+
+function GeneralPreferencesTab({ data, onChange, direction }) {
   const [dragActive, setDragActive] = useState(false);
   const update = (key, val) => onChange({ ...data, [key]: val });
 
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.2 }} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <motion.div custom={direction} variants={tabVariants} initial="initial" animate="animate" exit="exit" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <div style={styles.card}>
         {/* Platform Branding */}
         <div>
@@ -313,12 +319,12 @@ function GeneralPreferencesTab({ data, onChange }) {
 // ════════════════════════════════════════════════════════════════════
 // TAB 2 — KIOSK & SECURITY THRESHOLDS
 // ════════════════════════════════════════════════════════════════════
-function KioskSecurityTab({ data, onChange }) {
+function KioskSecurityTab({ data, onChange, direction }) {
   const update = (key, val) => onChange({ ...data, [key]: val });
   const updatePolicy = (k, v) => onChange({ ...data, passwordPolicies: { ...data.passwordPolicies, [k]: v } });
 
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.2 }} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <motion.div custom={direction} variants={tabVariants} initial="initial" animate="animate" exit="exit" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
       {/* Kiosk Enforcement */}
       <div style={styles.card}>
@@ -421,11 +427,11 @@ function KioskSecurityTab({ data, onChange }) {
 // ════════════════════════════════════════════════════════════════════
 // TAB 3 — COMPILER & EXAM DEFAULTS
 // ════════════════════════════════════════════════════════════════════
-function ExamDefaultsTab({ data, onChange }) {
+function ExamDefaultsTab({ data, onChange, direction }) {
   const update = (key, val) => onChange({ ...data, [key]: val });
 
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.2 }} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <motion.div custom={direction} variants={tabVariants} initial="initial" animate="animate" exit="exit" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <div style={styles.card}>
         {/* Compiler Settings */}
         <div>
@@ -490,18 +496,11 @@ function ExamDefaultsTab({ data, onChange }) {
 // ════════════════════════════════════════════════════════════════════
 // TAB 4 — NOTIFICATIONS & UI PREFERENCES
 // ════════════════════════════════════════════════════════════════════
-function NotificationsUITab({ notifData, uiData, onNotifChange, onUiChange, isDark, onDarkToggle }) {
+function NotificationsUITab({ notifData, uiData, onNotifChange, onUiChange, isDark, onDarkToggle, direction }) {
   const updateN = (key, val) => onNotifChange({ ...notifData, [key]: val });
   const updateU = (key, val) => onUiChange({ ...uiData, [key]: val });
-
-  const severityOptions = [
-    { value: 'blinking', label: 'Blinking Red Screen', desc: 'Flashes the instructor dashboard red — maximum visibility.' },
-    { value: 'silent', label: 'Silent Log Only', desc: 'Silently records the event in Audit Logs without interrupting the instructor.' },
-    { value: 'pause', label: 'Auto-Pause Student Exam', desc: 'Freezes the student\'s code editor and marks their exam as Under Review.' },
-  ];
-
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.2 }} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <motion.div custom={direction} variants={tabVariants} initial="initial" animate="animate" exit="exit" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
       {/* Alert Notifications */}
       <div style={styles.card}>
@@ -527,36 +526,6 @@ function NotificationsUITab({ notifData, uiData, onNotifChange, onUiChange, isDa
               label="Show Toast Notifications for Minor Warnings"
               subtext="Displays small side-panel toasts for low-severity events (e.g. long typing pause) instead of covering the full screen."
             />
-          </div>
-        </div>
-
-        <div style={styles.divider} />
-
-        {/* High-Severity Behavior */}
-        <div>
-          <h3 style={styles.sectionTitle}><AlertTriangle size={18} color={T.amber} /><span>High-Severity Alert Behavior</span></h3>
-          <p style={styles.sectionSub}>Choose what happens when a critical security flag (e.g. multiple violations) is triggered.</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {severityOptions.map(opt => (
-              <label key={opt.value} style={{
-                display: 'flex', alignItems: 'flex-start', gap: '14px', cursor: 'pointer',
-                padding: '14px 16px', borderRadius: '14px',
-                border: `2px solid ${notifData.highSeverityBehavior === opt.value ? T.blue : T.border}`,
-                backgroundColor: notifData.highSeverityBehavior === opt.value ? '#f0f7ff' : T.bg,
-                transition: 'all 0.2s ease',
-              }}>
-                <input
-                  type="radio" name="severityBehavior" value={opt.value}
-                  checked={notifData.highSeverityBehavior === opt.value}
-                  onChange={() => updateN('highSeverityBehavior', opt.value)}
-                  style={{ accentColor: T.blue, marginTop: '2px', flexShrink: 0, width: '16px', height: '16px' }}
-                />
-                <div>
-                  <div style={{ fontSize: '0.88rem', fontWeight: '700', color: T.text }}>{opt.label}</div>
-                  <div style={{ fontSize: '0.78rem', color: T.muted, marginTop: '2px' }}>{opt.desc}</div>
-                </div>
-              </label>
-            ))}
           </div>
         </div>
       </div>
@@ -613,7 +582,7 @@ function NotificationsUITab({ notifData, uiData, onNotifChange, onUiChange, isDa
                     style={{
                       flex: 1, padding: '12px', borderRadius: '12px',
                       border: `2px solid ${uiData.auditTableDensity === opt ? T.blue : T.border}`,
-                      backgroundColor: uiData.auditTableDensity === opt ? '#eff6ff' : T.card,
+                      backgroundColor: uiData.auditTableDensity === opt ? (isDark ? 'rgba(59, 130, 246, 0.15)' : '#eff6ff') : T.card,
                       cursor: 'pointer', fontWeight: '700', fontSize: '0.85rem',
                       color: uiData.auditTableDensity === opt ? T.blue : T.subtext,
                       transition: 'all 0.2s ease',
@@ -637,11 +606,11 @@ function NotificationsUITab({ notifData, uiData, onNotifChange, onUiChange, isDa
 // ════════════════════════════════════════════════════════════════════
 // TAB 5 — ROLES & PERMISSIONS
 // ════════════════════════════════════════════════════════════════════
-function RolesPermissionsTab({ data, onChange }) {
+function RolesPermissionsTab({ data, onChange, direction }) {
   const update = (key, val) => onChange({ ...data, [key]: val });
 
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.2 }} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <motion.div custom={direction} variants={tabVariants} initial="initial" animate="animate" exit="exit" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <div style={styles.card}>
         <div>
           <h3 style={styles.sectionTitle}><Users size={18} color={T.blue} /><span>Instructor Capabilities & Administrative Controls</span></h3>
@@ -660,7 +629,7 @@ function RolesPermissionsTab({ data, onChange }) {
 // ════════════════════════════════════════════════════════════════════
 // TAB 6 — SYSTEM & DATA MANAGEMENT
 // ════════════════════════════════════════════════════════════════════
-function SystemDataTab({ data, onChange, currentUserName = 'Admin' }) {
+function SystemDataTab({ data, onChange, currentUserName = 'Admin', direction }) {
   const [backupStatus, setBackupStatus] = useState(null);
   const [exporting, setExporting] = useState(false);
   const update = (key, val) => onChange({ ...data, [key]: val });
@@ -705,7 +674,7 @@ function SystemDataTab({ data, onChange, currentUserName = 'Admin' }) {
   };
 
   return (
-    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.2 }} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <motion.div custom={direction} variants={tabVariants} initial="initial" animate="animate" exit="exit" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <div style={styles.card}>
 
         {/* Data Retention */}
@@ -790,6 +759,7 @@ function SystemDataTab({ data, onChange, currentUserName = 'Admin' }) {
 // ════════════════════════════════════════════════════════════════════
 export default function SystemSettingsTab({ currentUser: propCurrentUser }) {
   const [activeTab, setActiveTab] = useState('general');
+  const [direction, setDirection] = useState(1);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -878,9 +848,13 @@ export default function SystemSettingsTab({ currentUser: propCurrentUser }) {
     <div style={styles.pageWrap}>
       {/* ═══ TAB BAR ═══ */}
       <div style={styles.tabBar}>
-        {tabs.map(({ id, Icon, label }) => (
+        {tabs.map(({ id, Icon, label }, index) => (
           <motion.button key={id} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-            onClick={() => setActiveTab(id)} style={styles.tabBtn(activeTab === id)}>
+            onClick={() => {
+              const currentIndex = tabs.findIndex(t => t.id === activeTab);
+              setDirection(index > currentIndex ? 1 : -1);
+              setActiveTab(id);
+            }} style={styles.tabBtn(activeTab === id)}>
             <Icon size={15} />
             <span>{label}</span>
           </motion.button>
@@ -898,15 +872,15 @@ export default function SystemSettingsTab({ currentUser: propCurrentUser }) {
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       ) : (
-      <AnimatePresence mode="wait">
+      <AnimatePresence mode="wait" custom={direction}>
         {activeTab === 'general' && (
-          <GeneralPreferencesTab key="general" data={settings.general} onChange={v => update('general', v)} />
+          <GeneralPreferencesTab key="general" data={settings.general} onChange={v => update('general', v)} direction={direction} />
         )}
         {activeTab === 'kiosk' && (
-          <KioskSecurityTab key="kiosk" data={settings.security} onChange={v => update('security', v)} />
+          <KioskSecurityTab key="kiosk" data={settings.security} onChange={v => update('security', v)} direction={direction} />
         )}
         {activeTab === 'exam' && (
-          <ExamDefaultsTab key="exam" data={settings.examDefaults} onChange={v => update('examDefaults', v)} />
+          <ExamDefaultsTab key="exam" data={settings.examDefaults} onChange={v => update('examDefaults', v)} direction={direction} />
         )}
         {activeTab === 'notifications' && (
           <NotificationsUITab
@@ -917,13 +891,14 @@ export default function SystemSettingsTab({ currentUser: propCurrentUser }) {
             onUiChange={v => update('uiPrefs', v)}
             isDark={isDark}
             onDarkToggle={toggleDark}
+            direction={direction}
           />
         )}
         {activeTab === 'roles' && (
-          <RolesPermissionsTab key="roles" data={settings.roles} onChange={v => update('roles', v)} />
+          <RolesPermissionsTab key="roles" data={settings.roles} onChange={v => update('roles', v)} direction={direction} />
         )}
         {activeTab === 'data' && (
-          <SystemDataTab key="data" data={settings.data} onChange={v => update('data', v)} currentUserName={currentUserName} />
+          <SystemDataTab key="data" data={settings.data} onChange={v => update('data', v)} currentUserName={currentUserName} direction={direction} />
         )}
       </AnimatePresence>
       )}

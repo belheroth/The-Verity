@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Shield, Lock, Moon, Sun, KeyRound, AlertTriangle } from 'lucide-react';
+import { Shield, Lock, Moon, Sun, KeyRound, AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import { apiFetch } from '../../utils/api';
 import { useDarkMode } from '../../hooks/useDarkMode';
 
@@ -9,6 +9,7 @@ export default function AdminLogin({ onLogin }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleAdminLogin = async (e) => {
     e.preventDefault();
@@ -134,19 +135,29 @@ export default function AdminLogin({ onLogin }) {
 
           <div>
             <label style={{ ...styles.label, color: isDark ? '#d4d4d8' : '#475569' }}>Access Credential</label>
-            <input
-              type="password"
-              placeholder="••••••••••••"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={{
-                ...styles.input,
-                backgroundColor: isDark ? '#333338' : '#f8fafc',
-                borderColor: isDark ? '#4a4a52' : '#cbd5e1',
-                color: isDark ? '#f4f4f5' : '#0f172a',
-              }}
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                placeholder="••••••••••••"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{
+                  ...styles.input,
+                  backgroundColor: isDark ? '#333338' : '#f8fafc',
+                  borderColor: isDark ? '#4a4a52' : '#cbd5e1',
+                  color: isDark ? '#f4f4f5' : '#0f172a',
+                  paddingRight: '40px'
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: isDark ? '#9ca3af' : '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
 
           <button
