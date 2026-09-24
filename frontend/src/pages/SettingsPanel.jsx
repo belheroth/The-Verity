@@ -61,14 +61,21 @@ const SECTIONS = {
     {
       icon: User,
       title: 'Profile Management',
-      blurb: 'Update your profile photo, personal information, and contact details.',
+      blurb: 'Update your profile photo, display name, email, and password credentials.',
       fields: [
         { label: 'Full Name', placeholder: 'Juan Dela Cruz' },
         { label: 'Email Address', placeholder: 'student@verity.edu' },
+        { label: 'New Password', placeholder: '••••••••', type: 'password' },
+      ],
+    },
+    {
+      icon: GraduationCap,
+      title: 'Student Details',
+      blurb: 'Manage your contact number and parent or guardian emergency details.',
+      fields: [
         { label: 'Contact Number', placeholder: '+63 900 000 0000' },
         { label: 'Parent / Guardian Name', placeholder: 'Maria Dela Cruz' },
         { label: 'Parent / Guardian Contact', placeholder: '+63 900 000 0000' },
-        { label: 'New Password', placeholder: '••••••••', type: 'password' },
       ],
     },
     {

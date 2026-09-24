@@ -332,7 +332,15 @@ export default function Login({ onLogin, onGoToRegister }) {
                 googleLogin();
               }}
               disabled={isGoogleLoading || isLoading}
-              style={{
+              style={isGoogleLoading ? {
+                ...styles.button,
+                opacity: 0.7,
+                cursor: 'not-allowed',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px'
+              } : {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '10px',
@@ -343,8 +351,8 @@ export default function Login({ onLogin, onGoToRegister }) {
                 color: isDark ? '#e4e4e7' : '#374151',
                 fontSize: '0.95rem',
                 fontWeight: '500',
-                cursor: (isGoogleLoading || isLoading) ? 'not-allowed' : 'pointer',
-                opacity: (isGoogleLoading || isLoading) ? 0.7 : 1,
+                cursor: isLoading ? 'not-allowed' : 'pointer',
+                opacity: isLoading ? 0.7 : 1,
                 transition: 'background 0.2s, border-color 0.2s',
                 width: '100%',
                 justifyContent: 'center',

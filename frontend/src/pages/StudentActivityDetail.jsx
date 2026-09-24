@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { apiFetch } from '../utils/api';
 import { useDarkMode } from '../hooks/useDarkMode';
 import { useSidebarNav } from '../hooks/useSidebarNav';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import Skeleton from '../components/Skeleton';
 import ImagePreviewModal from '../components/ImagePreviewModal';
 import VideoPreviewModal from '../components/VideoPreviewModal';
@@ -28,7 +29,9 @@ export default function StudentActivityDetail({
   onLogout
 }) {
   const { isDark } = useDarkMode();
-  const styles = getStyles(isDark);
+  const { collapsed, toggleSidebar, sidebarProps, isPinned } = useSidebarNav();
+  const isMobile = useMediaQuery('(max-width: 768px)');
+  const styles = getStyles(isDark, isMobile);
   const safeUsername = currentUser?.name || currentUser?.email || 'Student';
   const studentId = currentUser?.email || currentUser?.name || 'student';
   const assignmentId = assignment?.id ?? 'default';
@@ -116,7 +119,6 @@ export default function StudentActivityDetail({
     return () => window.removeEventListener('storage', sync);
   }, [currentUser]);
 
-  const { collapsed, toggleSidebar, sidebarProps, isPinned } = useSidebarNav();
 
   const navRefs = useRef({});
   const enrolledRefs = useRef({});
@@ -366,16 +368,18 @@ export default function StudentActivityDetail({
       {/* ═══ GLOBAL TOP HEADER ═══ */}
       <header style={styles.header}>
         <div style={{ display: 'flex', alignItems: 'center' }}>
-          <button
-            onClick={toggleSidebar}
-            style={styles.menuButton}
-            title={isPinned ? "Unpin sidebar" : "Pin sidebar"}
-          >
-            <Menu size={24} color={isDark ? "#a3a3a3" : "#64748b"} />
-          </button>
+          {!isMobile && (
+            <button
+              onClick={toggleSidebar}
+              style={styles.menuButton}
+              title={isPinned ? "Unpin sidebar" : "Pin sidebar"}
+            >
+              <Menu size={24} color={isDark ? "#a3a3a3" : "#64748b"} />
+            </button>
+          )}
 
           <div
-            style={{ display: 'flex', alignItems: 'baseline', fontSize: '2.5rem', fontWeight: '900', fontStyle: 'italic', cursor: 'pointer' }}
+            style={styles.logoContainer}
             onClick={() => {
               if (onNavigateView) onNavigateView('classrooms');
               else onBack();
@@ -395,8 +399,9 @@ export default function StudentActivityDetail({
       {/* ═══ MAIN LAYOUT ═══ */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* ═══ SIDEBAR NAVIGATION ═══ */}
-        <aside {...sidebarProps} style={styles.sidebar(collapsed)}>
-          <nav style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, position: 'relative' }}>
+        {!isMobile && (
+          <aside {...sidebarProps} style={styles.sidebar(collapsed)}>
+            <nav style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, position: 'relative' }}>
             {/* Liquid sliding indicator */}
             <div style={{
               position: 'absolute',
@@ -529,6 +534,7 @@ export default function StudentActivityDetail({
             </div>
           </nav>
         </aside>
+        )}
 
         {/* ═══ MAIN CONTENT AREA (PHOTO 1 / PHOTO 2) ═══ */}
         <div style={styles.mainContent}>
@@ -721,13 +727,59 @@ export default function StudentActivityDetail({
           onClose={() => setPreviewVideo(null)}
         />
       )}
+      {/* MOBILE BOTTOM NAVIGATION */}
+      {isMobile && (
+        <nav style={{
+          display: 'flex',
+          justifyContent: 'space-around',
+          alignItems: 'center',
+          backgroundColor: isDark ? '#262626' : '#ffffff',
+          borderTop: isDark ? '1px solid #3f3f46' : '1px solid #e5e7eb',
+          height: '65px',
+          flexShrink: 0,
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+          zIndex: 60
+        }}>
+          {[
+            { id: 'classrooms', Icon: Home, label: 'Home' },
+            { id: 'calendar', Icon: Calendar, label: 'Calendar' },
+            { id: 'archived', Icon: Archive, label: 'Archived' },
+            { id: 'settings', Icon: Settings, label: 'Settings' }
+          ].map(({ id, Icon, label }) => {
+            return (
+              <button
+                key={id}
+                onClick={() => {
+                  if (onNavigateView) onNavigateView(id);
+                  else onBack();
+                }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  background: 'none',
+                  border: 'none',
+                  color: isDark ? '#a3a3a3' : '#64748b',
+                  cursor: 'pointer',
+                  padding: '8px',
+                  minWidth: '64px'
+                }}
+              >
+                <Icon size={22} style={{ marginBottom: '4px' }} />
+                <span style={{ fontSize: '0.65rem', fontWeight: '500' }}>{label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      )}
     </div>
   );
 }
 
-const getStyles = (isDark) => ({
+const getStyles = (isDark, isMobile) => ({
   container: {
     height: '100vh',
+    height: '100dvh', // for mobile browsers
     minHeight: '100vh',
     width: '100%',
     display: 'flex',
@@ -739,12 +791,12 @@ const getStyles = (isDark) => ({
     overflow: 'hidden'
   },
   header: {
-    height: '72px',
+    height: isMobile ? '60px' : '72px',
     flexShrink: 0,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '0 24px',
+    padding: isMobile ? '0 16px' : '0 24px',
     backgroundColor: isDark ? '#3C3C3C' : '#EEF0F3',
     borderBottom: 'none',
     zIndex: 50
@@ -765,7 +817,7 @@ const getStyles = (isDark) => ({
   logoContainer: {
     display: 'flex',
     alignItems: 'baseline',
-    fontSize: '2.5rem',
+    fontSize: isMobile ? '2rem' : '2.5rem',
     fontWeight: '900',
     fontStyle: 'italic',
     cursor: 'pointer'
@@ -816,7 +868,8 @@ const getStyles = (isDark) => ({
     fontWeight: '600',
     color: isDark ? '#E8EAED' : '#334155',
     overflow: 'hidden',
-    textOverflow: 'ellipsis'
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap'
   },
   enrolledHeading: {
     padding: '0 18px',
@@ -829,7 +882,7 @@ const getStyles = (isDark) => ({
   },
   mainContent: {
     flex: 1,
-    padding: '16px 28px 24px',
+    padding: isMobile ? '10px 16px 16px' : '16px 28px 24px',
     display: 'flex',
     flexDirection: 'column',
     minWidth: 0,
@@ -839,7 +892,7 @@ const getStyles = (isDark) => ({
     backgroundColor: isDark ? '#323232' : 'white',
     flex: 1,
     borderRadius: '28px',
-    padding: '32px 48px 40px',
+    padding: isMobile ? '20px 24px' : '32px 48px 40px',
     boxShadow: isDark ? '0 10px 30px rgba(0, 0, 0, 0.25)' : '0 10px 30px rgba(0, 0, 0, 0.04)',
     border: isDark ? '1px solid #4A4A4A' : 'none',
     display: 'flex',

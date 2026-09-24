@@ -505,7 +505,7 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
                 >
                   <Icon size={20} color={active ? '#10b981' : (isDark ? '#a3a3a3' : '#475569')} style={{ flexShrink: 0 }} />
                   {!collapsed && (
-                    <span style={{ fontSize: '0.85rem', fontWeight: active ? '700' : '600', color: active ? '#10b981' : (isDark ? '#e5e5e5' : '#334155'), overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: active ? '700' : '600', color: active ? '#10b981' : (isDark ? '#e5e5e5' : '#334155'), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {label}
                     </span>
                   )}
@@ -556,7 +556,7 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
                         {cls.name.charAt(0).toUpperCase()}
                       </div>
                       {!collapsed && (
-                        <span style={{ fontSize: '0.85rem', fontWeight: '600', color: isDark ? '#E8EAED' : '#334155', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: '600', color: isDark ? '#E8EAED' : '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {cls.name}
                         </span>
                       )}
@@ -576,7 +576,7 @@ export default function TeacherDashboard({ currentUser, onLogout, onEnterClassro
               >
                 <Settings size={20} color={activeView === 'settings' ? '#10b981' : (isDark ? '#a3a3a3' : '#475569')} style={{ flexShrink: 0 }} />
                 {!collapsed && (
-                  <span style={{ fontSize: '0.85rem', fontWeight: activeView === 'settings' ? '700' : '600', color: activeView === 'settings' ? '#10b981' : (isDark ? '#E8EAED' : '#334155'), overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: activeView === 'settings' ? '700' : '600', color: activeView === 'settings' ? '#10b981' : (isDark ? '#E8EAED' : '#334155'), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     Settings
                   </span>
                 )}

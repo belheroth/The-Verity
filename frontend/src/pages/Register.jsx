@@ -608,7 +608,15 @@ export default function Register({ onBackToLogin }) {
                   googleLogin();
                 }}
                 disabled={isGoogleLoading || loading}
-                style={{
+                style={isGoogleLoading ? {
+                  ...styles.button,
+                  opacity: 0.7,
+                  cursor: 'not-allowed',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px'
+                } : {
                   display: 'flex',
                   alignItems: 'center',
                   gap: '10px',
@@ -619,8 +627,8 @@ export default function Register({ onBackToLogin }) {
                   color: isDark ? '#e4e4e7' : '#374151',
                   fontSize: '0.95rem',
                   fontWeight: '500',
-                  cursor: (isGoogleLoading || loading) ? 'not-allowed' : 'pointer',
-                  opacity: (isGoogleLoading || loading) ? 0.7 : 1,
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  opacity: loading ? 0.7 : 1,
                   transition: 'background 0.2s, border-color 0.2s',
                   width: '100%',
                   justifyContent: 'center',

@@ -515,7 +515,7 @@ export default function StudentCalendar({ classrooms }) {
                           {act.formattedTime}
                         </span>
                       </div>
-                      <div style={{ fontWeight: '600', fontSize: '0.78rem', lineHeight: '1.25', wordBreak: 'break-word' }}>
+                      <div style={{ fontWeight: '600', fontSize: '0.78rem', lineHeight: '1.25', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {act.title}
                       </div>
                       {act.className && (

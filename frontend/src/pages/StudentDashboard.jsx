@@ -11,6 +11,7 @@ import Skeleton from '../components/Skeleton';
 import ClassroomCard from '../components/ClassroomCard';
 import { useDarkMode } from '../hooks/useDarkMode';
 import { useSidebarNav } from '../hooks/useSidebarNav';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import { getThemeStorageKeys } from '../utils/classroomUtils';
 
 // Storage key uniquely scoped per student account
@@ -22,6 +23,7 @@ const getStorageKey = (user) => {
 export default function StudentDashboard({ currentUser, onLogout, onEnterClassroom, socket }) {
   const { isDark } = useDarkMode();
   const { collapsed, toggleSidebar, sidebarProps, isPinned } = useSidebarNav();
+  const isMobile = useMediaQuery('(max-width: 768px)');
 
   const navRefs = useRef({});
   const [indicatorStyle, setIndicatorStyle] = useState(() => {
@@ -294,6 +296,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
   const styles = {
     container: {
       height: '100vh',
+      height: '100dvh', // for mobile browsers
       minHeight: '100vh',
       width: '100%',
       display: 'flex',
@@ -305,12 +308,12 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
       transition: 'background-color 0.25s ease'
     },
     header: {
-      height: '72px',
+      height: isMobile ? '60px' : '72px',
       flexShrink: 0,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
-      padding: '0 24px',
+      padding: isMobile ? '0 16px' : '0 24px',
       backgroundColor: isDark ? '#3C3C3C' : '#EEF0F3',
       borderBottom: 'none',
       zIndex: 50,
@@ -364,7 +367,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
     navItem: { position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', padding: '12px 20px', color: '#6b7280', fontWeight: '600', cursor: 'pointer', transition: 'color 0.15s', borderRadius: '10px', background: 'transparent', boxShadow: 'none', whiteSpace: 'nowrap' },
     activeNavItem: { color: '#10b981', fontWeight: '700', backgroundColor: 'transparent', boxShadow: 'none' },
     settingsIcon: { color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center' },
-    mainContent: { flex: 1, padding: '20px 24px 24px', display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' },
+    mainContent: { flex: 1, padding: isMobile ? '10px 16px 16px' : '20px 24px 24px', display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' },
     whiteCard: {
       backgroundColor: isDark ? '#323232' : 'white',
       flex: 1,
@@ -392,7 +395,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
         : '0 2px 6px rgba(16, 185, 129, 0.24), 0 1px 2px rgba(0, 0, 0, 0.05)',
       transition: 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease'
     },
-    grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '24px' },
+    grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: '24px' },
     cardContainer: { display: 'flex', flexDirection: 'column', gap: '10px', cursor: 'pointer' },
     cardPill: { backgroundColor: '#d1d5db', height: '30px', borderRadius: '50px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280', fontSize: '0.85rem', fontWeight: 'bold' },
     cardBody: { backgroundColor: '#d1d5db', height: '180px', borderRadius: '20px', padding: '20px', position: 'relative', display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: 'center', transition: 'transform 0.2s' },
@@ -463,29 +466,31 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
       {/* ═══ GLOBAL TOP HEADER (Admin Pattern) ═══ */}
       <header style={styles.header}>
         <div style={{ display: 'flex', alignItems: 'center' }}>
-          <button
-            onClick={toggleSidebar}
-            style={{
-              background: 'none',
-              border: 'none',
-              padding: '6px',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: isDark ? '#ffffff' : '#64748b',
-              flexShrink: 0,
-              marginRight: '16px'
-            }}
-            title={isPinned ? "Unpin sidebar" : "Pin sidebar"}
-            className="icon-btn-anim"
-          >
-            <Menu size={24} color={isDark ? '#ffffff' : '#64748b'} />
-          </button>
+          {!isMobile && (
+            <button
+              onClick={toggleSidebar}
+              style={{
+                background: 'none',
+                border: 'none',
+                padding: '6px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: isDark ? '#ffffff' : '#64748b',
+                flexShrink: 0,
+                marginRight: '16px'
+              }}
+              title={isPinned ? "Unpin sidebar" : "Pin sidebar"}
+              className="icon-btn-anim"
+            >
+              <Menu size={24} color={isDark ? '#ffffff' : '#64748b'} />
+            </button>
+          )}
 
           <div
-            style={{ display: 'flex', alignItems: 'baseline', fontSize: '2.5rem', fontWeight: '900', fontStyle: 'italic', cursor: 'pointer' }}
+            style={{ display: 'flex', alignItems: 'baseline', fontSize: isMobile ? '2rem' : '2.5rem', fontWeight: '900', fontStyle: 'italic', cursor: 'pointer' }}
             onClick={() => handleSetView('classrooms')}
           >
             <span style={{ color: '#10b981' }}>V</span>
@@ -502,8 +507,9 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
       {/* ═══ MAIN LAYOUT WITH SIDEBAR ═══ */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* ═══ SIDEBAR NAVIGATION ═══ */}
-        <aside {...sidebarProps} style={styles.sidebar(collapsed)}>
-          <nav style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, position: 'relative' }}>
+        {!isMobile && (
+          <aside {...sidebarProps} style={styles.sidebar(collapsed)}>
+            <nav style={{ display: 'flex', flexDirection: 'column', gap: '10px', flex: 1, position: 'relative' }}>
             {/* Liquid sliding indicator */}
             <div style={{
               position: 'absolute',
@@ -511,7 +517,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
               right: 0,
               top: indicatorStyle.top,
               height: indicatorStyle.height,
-              background: isDark ? 'rgba(0,0,0,0.22)' : 'rgba(255,255,255,0.25)',
+              background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.25)',
               backdropFilter: 'blur(8px)',
               WebkitBackdropFilter: 'blur(8px)',
               borderRadius: '14px',
@@ -535,7 +541,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
                 >
                   <Icon size={20} color={active ? '#10b981' : (isDark ? '#E8EAED' : '#475569')} style={{ flexShrink: 0 }} />
                   {!collapsed && (
-                    <span style={{ fontSize: '0.85rem', fontWeight: active ? '700' : '600', color: active ? '#10b981' : (isDark ? '#E8EAED' : '#334155'), overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: active ? '700' : '600', color: active ? '#10b981' : (isDark ? '#E8EAED' : '#334155'), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {label}
                     </span>
                   )}
@@ -586,7 +592,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
                         {cls.name.charAt(0).toUpperCase()}
                       </div>
                       {!collapsed && (
-                        <span style={{ fontSize: '0.85rem', fontWeight: '600', color: isDark ? '#E8EAED' : '#334155', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <span style={{ fontSize: '0.85rem', fontWeight: '600', color: isDark ? '#E8EAED' : '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {cls.name}
                         </span>
                       )}
@@ -606,7 +612,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
               >
                 <Settings size={20} color={activeView === 'settings' ? '#10b981' : (isDark ? '#a3a3a3' : '#475569')} style={{ flexShrink: 0 }} />
                 {!collapsed && (
-                  <span style={{ fontSize: '0.85rem', fontWeight: activeView === 'settings' ? '700' : '600', color: activeView === 'settings' ? '#10b981' : (isDark ? '#E8EAED' : '#334155'), overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: activeView === 'settings' ? '700' : '600', color: activeView === 'settings' ? '#10b981' : (isDark ? '#E8EAED' : '#334155'), overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     Settings
                   </span>
                 )}
@@ -614,6 +620,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
             </div>
           </nav>
         </aside>
+        )}
 
         {/* MAIN CONTENT AREA */}
         <div style={styles.mainContent}>
@@ -650,7 +657,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
                         <p style={{ marginTop: '10px' }}>Classrooms you archive will appear here.</p>
                       </div>
                     ) : (
-                      <div style={styles.grid}>
+                      <div className="grid-classrooms">
                         {classrooms.filter(c => c.archived).map(cls => (
                           <ClassroomCard
                             key={cls.id}
@@ -682,7 +689,7 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
                     </div>
 
                     {/* Classroom Grid */}
-                    <div style={styles.grid}>
+                    <div className="grid-classrooms">
                       {loadingClassrooms
                         ? Array.from({ length: 4 }).map((_, i) => <Skeleton.Card key={i} />)
                         : classrooms.filter(c => !c.archived).length === 0 ? (
@@ -739,7 +746,46 @@ export default function StudentDashboard({ currentUser, onLogout, onEnterClassro
             </AnimatePresence>
           </div>
         </div>
-    </div>
+      </div>
+
+      {/* MOBILE BOTTOM NAVIGATION */}
+      {isMobile && (
+        <nav style={{
+          display: 'flex',
+          justifyContent: 'space-around',
+          alignItems: 'center',
+          backgroundColor: isDark ? '#262626' : '#ffffff',
+          borderTop: isDark ? '1px solid #3f3f46' : '1px solid #e5e7eb',
+          height: '65px',
+          flexShrink: 0,
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+          zIndex: 60
+        }}>
+          {[...navItems, { id: 'settings', Icon: Settings, label: 'Settings' }].map(({ id, Icon, label }) => {
+            const active = activeView === id || (id === 'settings' && activeView === 'classroomSettings');
+            return (
+              <button
+                key={id}
+                onClick={() => handleSetView(id)}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  background: 'none',
+                  border: 'none',
+                  color: active ? '#10b981' : (isDark ? '#a3a3a3' : '#64748b'),
+                  cursor: 'pointer',
+                  padding: '8px',
+                  minWidth: '64px'
+                }}
+              >
+                <Icon size={22} style={{ marginBottom: '4px' }} />
+                <span style={{ fontSize: '0.65rem', fontWeight: active ? '700' : '500' }}>{label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      )}
 
       {/* INPUT CLASS CODE MODAL */}
       {isModalOpen && (

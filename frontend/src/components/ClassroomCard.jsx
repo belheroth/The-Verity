@@ -174,7 +174,10 @@ export default function ClassroomCard({
             fontWeight: '600',
             textDecoration: 'none',
             marginTop: '4px',
-            zIndex: 2
+            zIndex: 2,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
           }}
         >
           {classroom.section || classroom.subject || '2'}
