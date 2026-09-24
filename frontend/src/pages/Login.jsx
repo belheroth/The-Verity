@@ -315,6 +315,7 @@ export default function Login({ onLogin, onGoToRegister }) {
             <GoogleLogin
               onSuccess={handleGoogleSuccess}
               onError={handleGoogleError}
+              theme={isDark ? "filled_black" : "outline"}
               useOneTap
             />
           </div>
