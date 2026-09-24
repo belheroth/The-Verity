@@ -99,6 +99,15 @@ CREATE TABLE IF NOT EXISTS grades (
     UNIQUE(assignment_id, student_id)
 );
 
+CREATE TABLE IF NOT EXISTS otp_verifications (
+    id BIGSERIAL PRIMARY KEY,
+    email VARCHAR(255) NOT NULL,
+    otp_code VARCHAR(10) NOT NULL,
+    user_data TEXT,
+    expires_at BIGINT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indices for rapid querying
 CREATE INDEX IF NOT EXISTS idx_classwork_classroom ON classwork(classroom_id);
 CREATE INDEX IF NOT EXISTS idx_submissions_assignment ON submissions(assignment_id);

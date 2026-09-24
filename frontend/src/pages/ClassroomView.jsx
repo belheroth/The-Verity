@@ -12,6 +12,7 @@ import { useSidebarNav } from '../hooks/useSidebarNav';
 import { THEME_PRESETS, getClassroomTheme, saveClassroomTheme } from '../utils/classroomUtils';
 import ImagePreviewModal from '../components/ImagePreviewModal';
 import VideoPreviewModal from '../components/VideoPreviewModal';
+import AddStudentModal from '../components/AddStudentModal';
 import VideoAttachment from '../components/VideoAttachment';
 import AttachmentCard from '../components/AttachmentCard';
 
@@ -384,6 +385,8 @@ export default function ClassroomView({
   // People Tab: Enrolled students & Instructor info
   const [enrolledStudents, setEnrolledStudents] = useState([]);
   const [loadingStudents, setLoadingStudents] = useState(false);
+  const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
+  const [refreshStudentsKey, setRefreshStudentsKey] = useState(0);
   const [instructorInfo, setInstructorInfo] = useState({
     name: classroom?.instructor || '',
     email: classroom?.instructorEmail || ''
@@ -513,7 +516,7 @@ export default function ClassroomView({
         socket.off('user_avatar_updated', handleAvatarBroadcast);
       }
     };
-  }, [classroom?.id, classroom?.section, classroom?.instructor, classroom?.instructorEmail, currentUser, socket]);
+  }, [classroom?.id, classroom?.section, classroom?.instructor, classroom?.instructorEmail, currentUser, socket, refreshStudentsKey]);
 
   // Upcoming items for left column in Stream
   const upcomingItems = assignments
@@ -1267,16 +1270,7 @@ export default function ClassroomView({
                           <motion.button 
                             whileHover={{ scale: 1.05 }} 
                             whileTap={{ scale: 0.95 }}
-                            onClick={() => {
-                              const email = window.prompt("Enter student's email to add them:");
-                              if (!email) return;
-                              const name = email.split('@')[0];
-                              apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/classrooms/${classroom.id}/enroll`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ studentEmail: email, studentName: name })
-                              }).then(() => window.location.reload()).catch(e => alert(e.message));
-                            }}
+                            onClick={() => setIsAddStudentOpen(true)}
                             style={{ padding: '6px 12px', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 'bold' }}
                           >
                             + Add Student
@@ -1404,6 +1398,15 @@ export default function ClassroomView({
           onClose={() => setPreviewVideo(null)}
         />
       )}
+
+      <AddStudentModal
+        isOpen={isAddStudentOpen}
+        onClose={() => setIsAddStudentOpen(false)}
+        classroomId={classroom?.id}
+        classCode={classroom?.code}
+        onSuccess={() => setRefreshStudentsKey(k => k + 1)}
+        isDark={isDark}
+      />
 
     </div>
   );

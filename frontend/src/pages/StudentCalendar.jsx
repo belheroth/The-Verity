@@ -75,7 +75,8 @@ export default function StudentCalendar({ classrooms }) {
     return all.filter(item => {
       if (!item || !item.id || seen.has(item.id)) return false;
       seen.add(item.id);
-      return !item.archived && !isLegacyHardcoded(item) && !!item.dueDate;
+      const inClass = classList.some(c => String(c.id) === String(item.classroom_id || item.classId));
+      return !item.archived && !isLegacyHardcoded(item) && !!item.dueDate && inClass;
     });
   };
 
@@ -90,8 +91,9 @@ export default function StudentCalendar({ classrooms }) {
         if (res.ok) {
           const data = await res.json();
           if (!cancelled && data && Array.isArray(data.classwork)) {
+            const classList = Array.isArray(classrooms) ? classrooms : [];
             const valid = data.classwork.filter(
-              item => !item.archived && !isLegacyHardcoded(item) && !!item.dueDate
+              item => !item.archived && !isLegacyHardcoded(item) && !!item.dueDate && classList.some(c => String(c.id) === String(item.classroom_id || item.classId))
             );
             setActivities(valid);
             try {

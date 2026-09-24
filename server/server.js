@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
@@ -8,7 +9,8 @@ const { Server } = require('socket.io');
 const http = require('http');
 const { OAuth2Client } = require('google-auth-library');
 const jwt = require('jsonwebtoken');
-const googleClient = new OAuth2Client('19771771402-6qoluvvmb04r1hfuglnh163hjhg8hvmb.apps.googleusercontent.com');
+const crypto = require('crypto');
+const { sendOtpEmail } = require('./utils/emailService');
 const db = require('./db/index.js');
 
 const DATA_DIR = process.env.DATA_DIR || __dirname;
@@ -304,7 +306,221 @@ app.get('/kiosk-settings', async (req, res) => {
     res.status(200).json({ settings });
 });
 
-// --- AUTHENTICATION ROUTES ---
+// --- AUTHENTICATION ROUTES & OTP VERIFICATION ---
+
+app.post('/auth/send-otp', async (req, res) => {
+    try {
+        const maintenance = await getMaintenanceStatus();
+        if (maintenance.enabled) {
+            return res.status(503).json({ message: maintenance.message, maintenance: true });
+        }
+
+        const { name, email, password, role } = req.body;
+        if (!email || !password || !name) {
+            return res.status(400).json({ message: 'Name, email, and password are required' });
+        }
+
+        const cleanEmail = (email || '').trim().toLowerCase();
+        const trimmedName = (name || '').trim();
+
+        // Email format check
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(cleanEmail)) {
+            return res.status(400).json({ message: 'Please enter a valid email address' });
+        }
+
+        const passwordError = await validatePassword(password);
+        if (passwordError) {
+            return res.status(400).json({ message: passwordError });
+        }
+
+        // 1. Check if email already exists in users or admin_users
+        const existingUserEmail = await db.get('SELECT id FROM users WHERE LOWER(email) = ?', cleanEmail);
+        const existingAdminEmail = await db.get('SELECT id FROM admin_users WHERE LOWER(email) = ?', cleanEmail);
+        if (existingUserEmail || existingAdminEmail) {
+            return res.status(400).json({ message: 'Email is already in use' });
+        }
+
+        // 2. Generate 6-digit cryptographically secure OTP
+        const otpCode = crypto.randomInt(100000, 1000000).toString();
+        const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
+
+        // 3. Remove any previous unverified OTP records for this email
+        await db.run('DELETE FROM otp_verifications WHERE LOWER(email) = ?', cleanEmail);
+
+        // 4. Save new OTP record
+        const userData = JSON.stringify({
+            name: trimmedName,
+            email: cleanEmail,
+            password,
+            role: role === 'Teacher' ? 'Teacher' : 'Student'
+        });
+
+        await db.run(
+            'INSERT INTO otp_verifications (email, otp_code, user_data, expires_at) VALUES (?, ?, ?, ?)',
+            cleanEmail, otpCode, userData, expiresAt
+        );
+
+        // 5. Send Email
+        await sendOtpEmail({
+            email: cleanEmail,
+            name: trimmedName,
+            otp: otpCode
+        });
+
+        res.status(200).json({
+            message: 'Verification code sent to your email',
+            email: cleanEmail,
+            expiresInMinutes: 15
+        });
+    } catch (e) {
+        console.error('Error sending OTP:', e);
+        res.status(500).json({ message: e.message || 'Failed to send verification code' });
+    }
+});
+
+app.post('/auth/verify-otp', async (req, res) => {
+    try {
+        const maintenance = await getMaintenanceStatus();
+        if (maintenance.enabled) {
+            return res.status(503).json({ message: maintenance.message, maintenance: true });
+        }
+
+        const { email, otp } = req.body;
+        if (!email || !otp) {
+            return res.status(400).json({ message: 'Email and verification code are required' });
+        }
+
+        const cleanEmail = (email || '').trim().toLowerCase();
+        const cleanOtp = (otp || '').trim();
+
+        // 1. Fetch latest OTP verification record for this email
+        const record = await db.get(
+            'SELECT * FROM otp_verifications WHERE LOWER(email) = ? ORDER BY id DESC LIMIT 1',
+            cleanEmail
+        );
+
+        if (!record) {
+            return res.status(400).json({ message: 'No verification code found for this email. Please request a new one.' });
+        }
+
+        const now = Date.now();
+        const expiresAt = Number(record.expires_at || record.expiresat || 0);
+
+        if (now > expiresAt) {
+            await db.run('DELETE FROM otp_verifications WHERE id = ?', record.id);
+            return res.status(400).json({ message: 'This code has expired. Please request a new one.' });
+        }
+
+        if (String(record.otp_code || record.otpcode).trim() !== cleanOtp) {
+            return res.status(400).json({ message: 'Invalid verification code. Please check your email and try again.' });
+        }
+
+        // 2. Parse stored registration data
+        let userData;
+        try {
+            userData = JSON.parse(record.user_data || record.userdata);
+        } catch {
+            return res.status(400).json({ message: 'Invalid verification session. Please register again.' });
+        }
+
+        const { name, password, role } = userData;
+
+        // Double check email availability
+        const existingUser = await db.get('SELECT id FROM users WHERE LOWER(email) = ?', cleanEmail);
+        const existingAdmin = await db.get('SELECT id FROM admin_users WHERE LOWER(email) = ?', cleanEmail);
+        if (existingUser || existingAdmin) {
+            await db.run('DELETE FROM otp_verifications WHERE LOWER(email) = ?', cleanEmail);
+            return res.status(400).json({ message: 'Email is already registered. Please log in.' });
+        }
+
+        let userRole = (role === 'Teacher') ? 'Teacher' : 'Student';
+        let status = 'Active';
+
+        let requireApproval = true;
+        try {
+            const row = await db.get("SELECT value FROM system_settings WHERE key = 'global_config'");
+            if (row) {
+                const config = JSON.parse(row.value);
+                if (config?.roles?.requireAdminApproval === false) {
+                    requireApproval = false;
+                }
+            }
+        } catch (e) {}
+
+        if (userRole === 'Teacher') {
+            status = !requireApproval ? 'Active' : 'Pending';
+        } else {
+            status = 'Active';
+        }
+
+        const info = await db.run(
+            'INSERT INTO users (name, email, password, role, status) VALUES (?, ?, ?, ?, ?)',
+            name, cleanEmail, password, userRole, status
+        );
+
+        // Delete used verification record
+        await db.run('DELETE FROM otp_verifications WHERE LOWER(email) = ?', cleanEmail);
+
+        const user = { id: info.lastInsertRowid, name, email: cleanEmail, password, role: userRole, status };
+        const userToken = jwt.sign({ id: user.id, email: user.email, role: user.role, name: user.name }, JWT_SECRET);
+
+        res.status(201).json({
+            message: status === 'Pending' ? 'Account created and pending admin approval.' : 'Account registered and verified successfully.',
+            user,
+            token: userToken,
+            pendingApproval: status === 'Pending'
+        });
+    } catch (e) {
+        console.error('Error verifying OTP:', e);
+        res.status(500).json({ message: e.message || 'Verification failed' });
+    }
+});
+
+app.post('/auth/resend-otp', async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email) {
+            return res.status(400).json({ message: 'Email is required' });
+        }
+        const cleanEmail = email.trim().toLowerCase();
+
+        const record = await db.get(
+            'SELECT * FROM otp_verifications WHERE LOWER(email) = ? ORDER BY id DESC LIMIT 1',
+            cleanEmail
+        );
+
+        if (!record) {
+            return res.status(400).json({ message: 'No registration session found. Please enter your details again.' });
+        }
+
+        let userData;
+        try {
+            userData = JSON.parse(record.user_data || record.userdata);
+        } catch {
+            return res.status(400).json({ message: 'Invalid registration session. Please enter your details again.' });
+        }
+
+        const otpCode = crypto.randomInt(100000, 1000000).toString();
+        const expiresAt = Date.now() + 15 * 60 * 1000;
+
+        await db.run(
+            'UPDATE otp_verifications SET otp_code = ?, expires_at = ? WHERE id = ?',
+            otpCode, expiresAt, record.id
+        );
+
+        await sendOtpEmail({
+            email: cleanEmail,
+            name: userData.name,
+            otp: otpCode
+        });
+
+        res.status(200).json({ message: 'A new verification code has been sent to your email.' });
+    } catch (e) {
+        res.status(500).json({ message: e.message || 'Failed to resend code' });
+    }
+});
+
 app.post('/register', async (req, res) => {
     try {
         // Block registration during maintenance mode (unless requester is admin)
@@ -493,6 +709,8 @@ app.get('/admin/profile', authenticateToken, adminIpWhitelist, requireRole('Admi
     }
 });
 
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || '6514928694-2rd8cu7b67o4f2jqtuv5hk1d51s97lcc.apps.googleusercontent.com');
+
 app.post('/auth/google', async (req, res) => {
     const { token, role: userRole } = req.body;
     try {
@@ -504,7 +722,7 @@ app.post('/auth/google', async (req, res) => {
 
         const ticket = await googleClient.verifyIdToken({
             idToken: token,
-            audience: '19771771402-6qoluvvmb04r1hfuglnh163hjhg8hvmb.apps.googleusercontent.com'
+            audience: process.env.GOOGLE_CLIENT_ID || '6514928694-2rd8cu7b67o4f2jqtuv5hk1d51s97lcc.apps.googleusercontent.com'
         });
         const payload = ticket.getPayload();
         const { email, name } = payload;
@@ -525,8 +743,19 @@ app.post('/auth/google', async (req, res) => {
             await db.run('UPDATE users SET lastLogin = ? WHERE id = ?', user.lastLogin, user.id);
         } else {
             // Self-registration via Google OAuth: only Teacher or Student allowed (never Admin)
+            let requireApproval = true;
+            try {
+                const row = await db.get("SELECT value FROM system_settings WHERE key = 'global_config'");
+                if (row) {
+                    const config = JSON.parse(row.value);
+                    if (config?.roles?.requireAdminApproval === false) {
+                        requireApproval = false;
+                    }
+                }
+            } catch (e) {}
+
             const role = (userRole === 'Teacher') ? 'Teacher' : 'Student';
-            const status = role === 'Teacher' ? 'Pending' : 'Active';
+            const status = (role === 'Teacher' && requireApproval) ? 'Pending' : 'Active';
             const lastLogin = new Date().toISOString();
             const password = 'google_sso_user';
 

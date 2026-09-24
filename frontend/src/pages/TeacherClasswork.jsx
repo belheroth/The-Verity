@@ -15,6 +15,7 @@ import { isPhantomClassroom, mergeClassroomsPreservingOrder, THEME_PRESETS, getC
 import ImagePreviewModal from '../components/ImagePreviewModal';
 import AddLinkModal from '../components/AddLinkModal';
 import VideoPreviewModal from '../components/VideoPreviewModal';
+import AddStudentModal from '../components/AddStudentModal';
 import VideoAttachment from '../components/VideoAttachment';
 import AttachmentCard from '../components/AttachmentCard';
 
@@ -311,6 +312,8 @@ export default function TeacherClasswork({
   // Enrolled students and Instructor Info for People tab
   const [enrolledStudents, setEnrolledStudents] = useState([]);
   const [loadingStudents, setLoadingStudents] = useState(false);
+  const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
+  const [refreshStudentsKey, setRefreshStudentsKey] = useState(0);
   const [instructorInfo, setInstructorInfo] = useState({
     name: classroom?.instructor || (currentUser?.role === 'Teacher' ? currentUser.name : ''),
     email: classroom?.instructorEmail || classroom?.instructor_email || (currentUser?.role === 'Teacher' ? currentUser.email : ''),
@@ -434,7 +437,7 @@ export default function TeacherClasswork({
         socket.off('user_avatar_updated', handleAvatarBroadcast);
       }
     };
-  }, [classroom?.id, classCode, classroom?.section, socket, currentUser]);
+  }, [classroom?.id, classCode, classroom?.section, socket, currentUser, refreshStudentsKey]);
 
   // GRADES TAB STATE (Scoped to this classroom only)
   const visibleClasswork = classwork.filter(item => !item.archived);
@@ -1552,16 +1555,7 @@ export default function TeacherClasswork({
                           <motion.button 
                             whileHover={{ scale: 1.05 }} 
                             whileTap={{ scale: 0.95 }}
-                            onClick={() => {
-                              const email = window.prompt("Enter student's email to add them:");
-                              if (!email) return;
-                              const name = email.split('@')[0];
-                              apiFetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/classrooms/${classroom.id}/enroll`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ studentEmail: email, studentName: name })
-                              }).then(() => window.location.reload()).catch(e => alert(e.message));
-                            }}
+                            onClick={() => setIsAddStudentOpen(true)}
                             style={{ padding: '6px 12px', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 'bold' }}
                           >
                             + Add Student
@@ -2319,6 +2313,15 @@ export default function TeacherClasswork({
           onClose={() => setPreviewVideo(null)}
         />
       )}
+
+      <AddStudentModal
+        isOpen={isAddStudentOpen}
+        onClose={() => setIsAddStudentOpen(false)}
+        classroomId={classroom?.id}
+        classCode={classCode}
+        onSuccess={() => setRefreshStudentsKey(k => k + 1)}
+        isDark={isDark}
+      />
     </div>
   );
 }
